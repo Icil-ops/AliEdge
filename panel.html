@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>AliEdge — Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #06030F;
+      --bg2:       #0C0618;
+      --bg3:       #130D22;
+      --bg4:       #1A1230;
+      --border:    rgba(139,92,246,0.15);
+      --border2:   rgba(139,92,246,0.22);
+      --gold:      #8B5CF6;
+      --gold-lt:   #C4B5FD;
+      --gold-dim:  rgba(139,92,246,0.12);
+      --gold-glow: rgba(139,92,246,0.30);
+      --text:      #F0ECFF;
+      --text-sec:  #B0A8C0;
+      --text-dim:  #7A7090;
+      --green:     #4caf7d;
+      --green-dim: rgba(76,175,125,0.12);
+      --orange:    #d4874a;
+      --orange-dim:rgba(212,135,74,0.12);
+      --red:       #C0392B;
+      --red-dim:   rgba(192,57,43,0.12);
+      --radius:    6px;
+      --radius-sm: 4px;
+      --font-ui:   'Space Mono', monospace;
+      --font-head: 'Unbounded', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    html, body {
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: var(--font-ui);
+      width: 380px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ─── */
+    .panel-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .brand {
+      font-family: var(--font-head);
+      font-size: 20px;
+      letter-spacing: 2px;
+      color: var(--text);
+      line-height: 1;
+    }
+    .brand .ali   { color: var(--red); }
+    .brand .arrow { color: var(--gold); padding: 0 6px; }
+    .brand .vnt   { color: var(--text); }
+
+    .header-selectors {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .sel-btn {
+      padding: 3px 7px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border2);
+      background: var(--bg3);
+      color: var(--text-dim);
+      font-size: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      font-family: var(--font-ui);
+    }
+    .sel-btn:hover { border-color: rgba(139,92,246,0.4); }
+    .sel-btn.active {
+      border-color: var(--gold);
+      background: var(--gold-dim);
+      color: var(--gold);
+    }
+
+    /* ── MAIN SCROLLABLE AREA ─── */
+    .panel-main {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 10px 12px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: radial-gradient(ellipse at 50% 100%, rgba(139,92,246,0.04) 0%, transparent 70%);
+    }
+
+    /* ── CARDS ─── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 11px;
+      position: relative;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      opacity: 0.25;
+    }
+    .card-title {
+      font-family: var(--font-head);
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+
+    /* ── INPUTS ─── */
+    .field { margin-bottom: 6px; }
+    .field:last-child { margin-bottom: 0; }
+    label {
+      display: block;
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 3px;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 6px 9px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border2);
+      background: var(--bg3);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 10px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: var(--gold); }
+    input::placeholder { color: var(--text-dim); }
+
+    .price-row { display: flex; gap: 6px; }
+    .price-row .field { flex: 1; margin-bottom: 0; }
+
+    /* ── BUTTONS ─── */
+    .btn {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      border: none;
+      font-family: var(--font-head);
+      font-size: 13px;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: opacity 0.15s, box-shadow 0.2s;
+      margin-top: 6px;
+    }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn-gold {
+      background: linear-gradient(135deg, #A78BFA 0%, #7C3AED 55%, #6B21E8 100%);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--gold-glow);
+    }
+    .btn-gold:hover:not(:disabled) { box-shadow: 0 4px 18px var(--gold-glow); opacity: 0.95; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid rgba(139,92,246,0.35);
+      color: var(--gold);
+      font-family: var(--font-head);
+      font-size: 11px;
+      letter-spacing: 1px;
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      width: auto;
+      margin-top: 0;
+      transition: background 0.15s;
+    }
+    .btn-outline:hover { background: var(--gold-dim); }
+
+    /* ── STATUS / PROGRESS ─── */
+    #panelStatus {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      min-height: 12px;
+    }
+    #panelStatus.ok { color: var(--green); }
+    #panelStatus.error { color: var(--red); }
+    #panelStatus.loading { color: var(--gold); }
+
+    .progress-bar-wrap {
+      height: 3px;
+      background: var(--border2);
+      border-radius: 2px;
+      margin-top: 5px;
+      overflow: hidden;
+      display: none;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--gold);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    /* ── MINI RESULTS ─── */
+    #miniResults { display: none; }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .mini-stat {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 6px;
+      text-align: center;
+    }
+    .mini-stat-val {
+      font-family: var(--font-head);
+      font-size: 18px;
+      color: var(--text);
+      line-height: 1;
+    }
+    .mini-stat-lbl {
+      font-size: 8px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+    .mini-verdict {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-head);
+      font-size: 11px;
+      letter-spacing: 0.8px;
+    }
+    .mini-verdict.green  { background: var(--green-dim); color: var(--green); border: 1px solid rgba(76,175,125,0.3); }
+    .mini-verdict.orange { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(212,135,74,0.3); }
+    .mini-verdict.red    { background: var(--red-dim); color: var(--red); border: 1px solid rgba(192,57,43,0.3); }
+
+    /* ── HISTORY ROWS ─── */
+    .history-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 7px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .history-row:last-child { margin-bottom: 0; }
+    .history-row:hover { border-color: rgba(139,92,246,0.3); }
+    .history-name {
+      flex: 1;
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--text);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .history-margin {
+      font-family: var(--font-head);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .history-score {
+      font-size: 9px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    /* ── QUICK LINKS ─── */
+    .quick-links {
+      display: flex;
+      gap: 6px;
+    }
+    .quick-links .btn-outline {
+      flex: 1;
+      text-align: center;
+      font-size: 10px;
+    }
+
+    /* ── LICENSE ─── */
+    #panelLicenseStatus {
+      font-size: 10px;
+      color: var(--orange);
+      margin-top: 5px;
+      min-height: 12px;
+    }
+    #panelLicenseStatus.ok { color: var(--green); }
+
+    /* ── LICENSE GATE ─── */
+    #panelLicenseGate {
+      display: none;
+    }
+    #panelLicenseGate .gate-title {
+      font-family: var(--font-head);
+      font-size: 13px;
+      letter-spacing: 2px;
+      color: var(--gold);
+      margin-bottom: 6px;
+    }
+    #panelLicenseGate .gate-hint {
+      font-size: 9px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    #panelLicenseGate .gate-error {
+      font-size: 9px;
+      margin-top: 6px;
+      min-height: 12px;
+      color: var(--red);
+    }
+    #panelLicenseGate .gate-error.ok { color: var(--green); }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="panel-header">
+    <div class="header-top">
+      <div class="brand">
+        <span class="ali">ALI</span><span class="arrow">→</span><span class="vnt">VINTED</span>
+      </div>
+      <div id="panelLicenseStatus"></div>
+    </div>
+    <div class="header-selectors" id="panelMarketRow">
+      <span style="font-size:8px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;align-self:center;">Marché</span>
+      <button class="sel-btn active" data-market="fr">🇫🇷 FR</button>
+      <button class="sel-btn" data-market="be">🇧🇪 BE</button>
+      <button class="sel-btn" data-market="de">🇩🇪 DE</button>
+      <span style="margin-left:4px;font-size:8px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;align-self:center;">État</span>
+      <button class="sel-btn active" data-cond="all">Tous</button>
+      <button class="sel-btn" data-cond="new">Neuf</button>
+      <button class="sel-btn" data-cond="very_good">TBE</button>
+    </div>
+  </div>
+
+  <!-- MAIN SCROLLABLE -->
+  <div class="panel-main">
+
+    <!-- LICENCE GATE (shown when unlicensed) -->
+    <div class="card" id="panelLicenseGate">
+      <div class="gate-title">🔑 ACTIVATION REQUISE</div>
+      <div class="gate-hint">Entre ta clé AliEdge reçue après achat pour déverrouiller l'extension.</div>
+      <div class="field">
+        <label>Clé AliEdge</label>
+        <input type="text" id="panelKeyInput" placeholder="AE-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off" style="text-transform:uppercase;letter-spacing:1px;" />
+      </div>
+      <button class="btn btn-gold" id="panelActivateBtn" style="margin-top:8px;">ACTIVER MON ACCÈS</button>
+      <div class="gate-error" id="panelGateError"></div>
+    </div>
+
+    <!-- Analysis Form -->
+    <div class="card" id="panelAnalyseCard">
+      <div class="card-title">ANALYSE PRODUIT</div>
+      <div class="field">
+        <label>Titre / Référence</label>
+        <input type="text" id="panelTitle" placeholder="Titre AliExpress..." />
+      </div>
+      <div class="price-row">
+        <div class="field">
+          <label>Prix achat (€)</label>
+          <input type="number" id="panelPrice" placeholder="5.50" step="0.01" />
+        </div>
+        <div class="field">
+          <label>Envoi Vinted (€)</label>
+          <input type="number" id="panelShipping" value="3" step="0.50" />
+        </div>
+      </div>
+      <button class="btn btn-gold" id="panelAnalyseBtn">📊 ANALYSER SUR VINTED</button>
+      <div id="panelStatus">En attente...</div>
+      <div class="progress-bar-wrap" id="panelProgressWrap">
+        <div class="progress-bar-fill" id="panelProgressFill"></div>
+      </div>
+    </div>
+
+    <!-- Mini Results (shown when results arrive) -->
+    <div class="card" id="miniResults">
+      <div class="card-title">RÉSULTATS RAPIDES</div>
+      <div class="mini-grid" id="miniGrid">
+        <div class="mini-stat">
+          <div class="mini-stat-val" id="miniCount">—</div>
+          <div class="mini-stat-lbl">Annonces</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-val" id="miniAvg">—</div>
+          <div class="mini-stat-lbl">Moy. Vinted</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-val" id="miniMargin">—</div>
+          <div class="mini-stat-lbl">Marge</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-val" id="miniScore">—</div>
+          <div class="mini-stat-lbl">Score /10</div>
+        </div>
+      </div>
+      <div id="miniVerdictWrap" style="margin-bottom:8px;"></div>
+      <button class="btn btn-outline" id="panelOpenFullBtn" style="width:100%;margin-top:0;">Voir résultats complets →</button>
+    </div>
+
+    <!-- Recent History -->
+    <div class="card" id="panelHistoryCard" style="display:none;">
+      <div class="card-title">HISTORIQUE RÉCENT</div>
+      <div id="panelHistoryList"></div>
+    </div>
+
+    <!-- Quick Links -->
+    <div class="card">
+      <div class="card-title">NAVIGATION</div>
+      <div class="quick-links">
+        <button class="btn-outline" id="panelOpenDashboard">📊 Dashboard</button>
+        <button class="btn-outline" id="panelOpenCompare">⚖️ Comparer</button>
+        <button class="btn-outline" id="panelOpenResults">📋 Résultats</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Watermark -->
+  <div style="position:fixed;bottom:12px;left:0;right:0;text-align:center;pointer-events:none;z-index:0;">
+    <span style="font-family:'Unbounded',sans-serif;font-size:38px;letter-spacing:6px;color:rgba(139,92,246,0.04);">ALIEDGE</span>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

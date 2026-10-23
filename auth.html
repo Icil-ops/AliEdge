@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Activation AliEdge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #06030F;
+      color: #F0ECFF;
+      font-family: 'Space Mono', monospace;
+      padding: 24px 20px;
+      width: 300px;
+      font-size: 11px;
+    }
+    h2 {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: #8B5CF6;
+      margin-bottom: 8px;
+    }
+    p {
+      font-size: 10px;
+      color: #7A7090;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    input {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 4px;
+      border: 1px solid rgba(139,92,246,0.3);
+      background: #130D22;
+      color: #F0ECFF;
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      margin-top: 0;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus {
+      border-color: #8B5CF6;
+      box-shadow: 0 0 0 2px rgba(139,92,246,0.15);
+    }
+    input::placeholder { color: #7A7090; }
+    button {
+      margin-top: 12px;
+      width: 100%;
+      padding: 10px;
+      background: linear-gradient(135deg, #A78BFA 0%, #7C3AED 55%, #6B21E8 100%);
+      border: none;
+      color: #fff;
+      font-family: 'Unbounded', sans-serif;
+      font-size: 11px;
+      letter-spacing: 2px;
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(107,33,232,0.35);
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    #error {
+      margin-top: 10px;
+      color: #C0392B;
+      font-size: 10px;
+      text-align: center;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🔐 Activer AliEdge</h2>
+  <p>Entre ta clé d'accès :</p>
+  <input id="keyInput" placeholder="AE-XXXX-XXXX-XXXX" />
+  <button id="activateBtn">Activer</button>
+  <div id="error"></div>
+
+  <script src="auth.js"></script>
+</body>
+</html>
