@@ -1,0 +1,33 @@
+name: Chrome Web Store
+
+# À chaque push sur main (ou à la demande) : tests, paquet, puis envoi et soumission sur le
+# Chrome Web Store si la version du manifest est plus récente que celle du store.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: chrome-web-store
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tests unitaires
+        run: node --test tests/*.test.mjs
+      - name: Paquet
+        run: ./tools/pack.sh
+      - name: Envoi et soumission
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: node tools/publish-cws.mjs

@@ -28,3 +28,14 @@ node --test tests/*.test.mjs   # calculs, lecture des pages, Vinted
 node tests/e2e.mjs             # extension chargée dans Chromium, sites simulés (Playwright)
 ./tools/pack.sh                # dist/aliedge-<version>.zip pour le Chrome Web Store
 ```
+
+## Publication automatique sur le Chrome Web Store
+
+Chaque push sur `main` lance `.github/workflows/store.yml` : tests, paquet, puis envoi et soumission
+via l'API Chrome Web Store v2 **si** la version de `manifest.json` est plus récente que celle du store.
+Après la revue Google, Chrome met à jour l'extension tout seul chez les utilisateurs.
+
+Pour sortir une version : `node tools/release.mjs patch "notes"` → commit → push sur `main`.
+
+Secrets GitHub requis (Settings → Secrets and variables → Actions) : `CWS_CLIENT_ID`,
+`CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID`. Sans eux, l'étape ne fait rien.
