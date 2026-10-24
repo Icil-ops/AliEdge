@@ -1,5 +1,5 @@
 // AliEdge — panneau latéral et plein écran.
-import { MARKETS, BUY_URL, BARAPICS_URL, SKOOL_URL } from "../src/config.js";
+import { MARKETS, BUY_URL, BARAPICS_URL, SKOOL_URL, PRIVACY_URL } from "../src/config.js";
 import { VERDICT_LABEL, histogram } from "../src/lib/pricing.js";
 import { draftListing } from "../src/lib/text.js";
 
@@ -642,7 +642,7 @@ function viewCompte(params) {
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">
-      <span class="small muted">AliEdge ${esc(chrome.runtime.getManifest().version)} · by Ivan Bara</span>
+      <span class="small muted">AliEdge ${esc(chrome.runtime.getManifest().version)} · by Ivan Bara · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Confidentialité</a></span>
       <button id="signout" class="btn ghost" type="button">Se déconnecter</button>
     </div>`;
 }

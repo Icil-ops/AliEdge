@@ -4,6 +4,7 @@ export const SUPABASE_KEY = "sb_publishable_SEmlqQiGgsxgHpOmTIYddQ_0ovIWr_D";
 
 export const SITE_URL = "https://barapics.com";
 export const BUY_URL = `${SITE_URL}/aliedge`;
+export const PRIVACY_URL = `${SITE_URL}/aliedge/confidentialite`;
 export const RESET_URL = `${SITE_URL}/reset-password`;
 export const BARAPICS_URL = `${SITE_URL}/app`;
 export const SKOOL_URL = "https://www.skool.com/vinteddrop-accompagnement-5463/about";
