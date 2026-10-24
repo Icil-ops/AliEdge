@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Sinon l'identifiant du robot GitHub Actions passe avant MIRROR_TOKEN et le push est refusé.
+          persist-credentials: false
       - name: Pousser vers Icil-ops/AliEdge
         env:
           TOKEN: ${{ secrets.MIRROR_TOKEN }}
