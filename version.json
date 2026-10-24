@@ -1,6 +1,6 @@
 {
-  "version": "3.1.2",
-  "notes": "Nouvelle icône. Gratuit pendant le lancement : catalogue communautaire, ventes réellement constatées sur Vinted, Shein.",
+  "version": "3.1.3",
+  "notes": "Liens vers Barapics et le Skool toujours visibles. Détection des ventes intégrée au fonctionnement.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-24",
   "minVersion": "3.0.0"

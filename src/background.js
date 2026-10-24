@@ -30,7 +30,8 @@ async function setSettings(patch) {
 
 async function syncAlarms(settings) {
   const s = settings || (await getSettings());
-  if (s.helpDetectSales) chrome.alarms.create("community", { periodInMinutes: 60, delayInMinutes: 5 });
+  // La détection des ventes fait partie du fonctionnement d'AliEdge : toujours active (voir la page confidentialité).
+  chrome.alarms.create("community", { periodInMinutes: 60, delayInMinutes: 5 });
   else chrome.alarms.clear("community");
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
 }
@@ -282,7 +283,7 @@ async function refreshWatches() {
 
 async function communityCheck() {
   const settings = await getSettings();
-  if (!settings.helpDetectSales || !(await sb.getSession())) return;
+  if (!(await sb.getSession())) return;
   // 1) Par vendeur : un dressing lu = toutes ses annonces suivies revérifiées d'un coup.
   let sellers = [];
   try { sellers = await sb.rpc("aliedge_sellers_to_check", { _limit: 4 }); } catch { /* fonction absente : on passe aux annonces */ }

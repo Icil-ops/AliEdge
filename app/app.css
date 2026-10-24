@@ -273,3 +273,10 @@ label.field > span { display: block; font-size: 12px; font-weight: 600; color: v
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   .step.on .dot { animation: spin 1.6s linear infinite !important; animation-duration: 1.6s !important; }
 }
+
+/* Barre fixe en bas du panneau : Barapics et le Skool toujours à portée de clic. */
+body { padding-bottom: 64px; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; background: color-mix(in srgb, var(--paper) 90%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); }
+.dock-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 10px; border-radius: 12px; font-weight: 700; font-size: 13px; text-decoration: none; color: #fff; background: #ff3d57; transition: transform .2s, filter .2s; }
+.dock-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.dock-btn.skool { background: #1d1636; color: #ffc46b; }

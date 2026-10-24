@@ -651,7 +651,7 @@ function viewCompte(params) {
       </div>
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
       <label class="switch"><span><b>Partager mes analyses</b><br><span class="small muted">Le produit et les annonces trouvées rejoignent le catalogue commun. Rien de personnel n'est partagé.</span></span><input type="checkbox" data-set="shareAnalyses" ${s.shareAnalyses ? "checked" : ""}></label>
-      <label class="switch"><span><b>Aider à détecter les ventes</b><br><span class="small muted">Une fois par heure, regarde le dressing de quelques vendeurs suivis par le catalogue (comme si tu ouvrais leur profil) pour savoir quelles annonces se sont vendues.</span></span><input type="checkbox" data-set="helpDetectSales" ${s.helpDetectSales ? "checked" : ""}></label>
+      <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">

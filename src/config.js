@@ -29,6 +29,5 @@ export const DEFAULT_SETTINGS = {
   condition: "all",          // all | new | very_good
   costPerSale: 0.5,          // emballage, étiquette… (€ par vente)
   shareAnalyses: true,       // chaque analyse enrichit le catalogue communautaire
-  helpDetectSales: true,     // une fois par heure : dressing de quelques vendeurs suivis (voir confidentialité)
   showPill: true,            // bouton flottant sur les fiches produit
 };
