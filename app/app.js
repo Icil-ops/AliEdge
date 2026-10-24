@@ -632,6 +632,17 @@ function viewCompte(params) {
       <a class="btn primary block" href="${BUY_URL}" target="_blank" rel="noopener">Passer à Pro</a>
       <p class="small muted">Membre du Skool VintedDrop ? Ton premier mois est offert. <a href="${SKOOL_URL}" target="_blank" rel="noopener">Voir le Skool</a></p>
     </section>` : ""}
+    ${m.source !== "skool" ? `
+    <section class="card pad stack" style="margin-top:12px">
+      <h2>Apprendre la méthode complète</h2>
+      <p class="small muted">AliEdge te dit quoi vendre. Le Skool VintedDrop t'apprend à le vendre et à l'expédier sans stock, avec l'entrepôt. L'entrée donne un mois offert sur Barapics.</p>
+      <a class="btn primary block" href="${SKOOL_URL}" target="_blank" rel="noopener">Découvrir le Skool</a>
+    </section>` : ""}
+    <section class="card pad stack" style="margin-top:12px">
+      <h2>Gagner de l'argent avec ton lien</h2>
+      <p class="small muted">Recommande Barapics et AliEdge : tu touches une commission sur chaque abonnement de tes filleuls.</p>
+      <a class="btn block" href="https://barapics.com/parrainage" target="_blank" rel="noopener">Mon lien d'affiliation</a>
+    </section>
     <section class="card pad" style="margin-top:12px">
       <h2 style="margin-bottom:6px">Réglages</h2>
       <div class="grid2" style="margin:8px 0">
