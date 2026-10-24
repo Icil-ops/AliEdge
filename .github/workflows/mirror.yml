@@ -27,7 +27,16 @@ jobs:
             echo "::error title=Copie::Secret MIRROR_TOKEN manquant (Settings > Secrets and variables > Actions)."
             exit 1
           fi
+          # Diagnostic lisible depuis l'API (annotations) si le jeton n'a pas les bons droits.
+          info=$(curl -s -H "Authorization: Bearer $TOKEN" https://api.github.com/repos/Icil-ops/AliEdge)
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" https://api.github.com/repos/Icil-ops/AliEdge)
+          perms=$(echo "$info" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('permissions') or d.get('message'))" 2>/dev/null)
+          scopes=$(curl -s -I -H "Authorization: Bearer $TOKEN" https://api.github.com/user | grep -i '^x-oauth-scopes' | tr -d '\r')
+          echo "::notice title=Jeton::accès dépôt HTTP ${code} ; droits ${perms} ; ${scopes:-jeton fine-grained}"
           target="$BRANCH"
           [ "$BRANCH" = "v3" ] && target="main"
-          git push --force "https://x-access-token:${TOKEN}@github.com/Icil-ops/AliEdge.git" "HEAD:refs/heads/${target}"
+          if ! out=$(git push --force "https://x-access-token:${TOKEN}@github.com/Icil-ops/AliEdge.git" "HEAD:refs/heads/${target}" 2>&1); then
+            echo "::error title=Copie::$(echo "$out" | tr '\n' ' ' | sed "s/${TOKEN}/***/g" | cut -c1-600)"
+            exit 1
+          fi
           echo "Copié : ${BRANCH} → Icil-ops/AliEdge ${target}"
