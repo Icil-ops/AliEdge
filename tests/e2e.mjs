@@ -126,7 +126,7 @@ await panel.screenshot({ path: `${shots}/5-resultat.png`, fullPage: true });
 const margin = await panel.locator(".ticket .big").textContent().catch(() => null);
 check("analyse : marge calculée", !!margin && /€/.test(margin), margin ?? (await panel.locator(".notice").first().textContent()));
 check("analyse : ventes constatées affichées", (await panel.locator(".badge-sold").count()) === 3);
-const link = await panel.locator('a[title^="Créer des photos"]').getAttribute("href");
+const link = await panel.locator('main a[title^="Créer des photos"]').getAttribute("href");
 check("lien Barapics avec photos importées", /#import=/.test(link || ""), (link || "").slice(0, 80));
 check("analyse partagée au catalogue", calls.includes("/rest/v1/rpc/aliedge_contribute"));
 

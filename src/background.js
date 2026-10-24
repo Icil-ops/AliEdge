@@ -32,7 +32,6 @@ async function syncAlarms(settings) {
   const s = settings || (await getSettings());
   // La détection des ventes fait partie du fonctionnement d'AliEdge : toujours active (voir la page confidentialité).
   chrome.alarms.create("community", { periodInMinutes: 60, delayInMinutes: 5 });
-  else chrome.alarms.clear("community");
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
 }
 

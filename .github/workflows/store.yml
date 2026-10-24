@@ -22,6 +22,11 @@ jobs:
           node-version: 22
       - name: Tests unitaires
         run: node --test tests/*.test.mjs
+      - name: Test de bout en bout (rien n'est envoyé au store s'il échoue)
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          timeout 300 node tests/e2e.mjs shots
       - name: Paquet
         run: ./tools/pack.sh
       - name: Envoi et soumission

@@ -20,7 +20,7 @@ jobs:
           npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
           set +e
-          node tests/e2e.mjs shots > e2e.log 2>&1
+          timeout 300 node tests/e2e.mjs shots > e2e.log 2>&1
           code=$?
           # Chaque ligne du journal devient une annotation lisible depuis l'API GitHub.
           tail -n 40 e2e.log | while IFS= read -r line; do echo "::notice title=e2e::${line}"; done
