@@ -52,7 +52,7 @@ await ctx.route("**/*", async (route) => {
   if (url.protocol === "chrome-extension:") return route.continue();
   if (h.endsWith("supabase.co")) {
     calls.push(url.pathname);
-    if (url.pathname.startsWith("/auth/v1/token")) return route.fulfill({ json: { access_token: "jwt", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "membre@example.com" } } });
+    if (url.pathname.startsWith("/auth/v1/token") || url.pathname.startsWith("/auth/v1/signup")) return route.fulfill({ json: { access_token: "jwt", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "membre@example.com" } } });
     const name = url.pathname.split("/rpc/")[1];
     if (name && name in rpc) return route.fulfill({ json: rpc[name] });
     if (url.pathname.includes("/rest/v1/aliedge_saved")) return route.fulfill({ json: [] });
@@ -89,7 +89,7 @@ if (await email.count()) {
   await email.fill("membre@example.com");
   await page.locator('input[type="password"]').first().fill("motdepasse123");
   await page.locator('form button[type="submit"], form .btn.primary').first().click();
-  await page.waitForTimeout(1200);
+  await page.waitForFunction(() => document.querySelector("#plan")?.textContent?.includes("Pro"), null, { timeout: 15000 }).catch(() => {});
 }
 await page.screenshot({ path: `${shots}/2-compte-connecte.png`, fullPage: true });
 check("connecté en Pro", (await page.locator("#plan").textContent())?.includes("Pro") ?? false, await page.locator("#plan").textContent());
@@ -109,13 +109,13 @@ const panel = await ctx.newPage();
 await panel.goto(app("/analyse", false));
 await product.bringToFront();
 await panel.evaluate(() => chrome.runtime.sendMessage({ type: "tab:changed" }).catch(() => {}));
-await panel.waitForTimeout(1500);
+await panel.waitForSelector(".product h3", { timeout: 10000 }).catch(() => {});
 await panel.screenshot({ path: `${shots}/4-panneau-produit.png`, fullPage: true });
 const hasProduct = (await panel.locator(".product h3").count()) > 0;
 check("panneau : produit détecté", hasProduct, hasProduct ? await panel.locator(".product h3").textContent() : await panel.locator("main").innerText());
 if (!hasProduct) await panel.fill("#query", "sac bandouliere cuir");
 await panel.click("#go");
-await panel.waitForSelector(".ticket, .notice.err, .notice.warn", { timeout: 15000 });
+await panel.waitForSelector(".ticket, .notice.err", { timeout: 30000 });
 await panel.waitForTimeout(1200);
 await panel.screenshot({ path: `${shots}/5-resultat.png`, fullPage: true });
 const margin = await panel.locator(".ticket .big").textContent().catch(() => null);
@@ -127,7 +127,7 @@ check("analyse partagée au catalogue", calls.includes("/rest/v1/rpc/aliedge_con
 
 // 3. Catalogue
 await page.goto(app("/catalogue"));
-await page.waitForTimeout(1500);
+await page.waitForFunction(() => document.querySelector("main")?.innerText.includes("Sac bandoulière cuir femme"), null, { timeout: 10000 }).catch(() => {});
 await page.screenshot({ path: `${shots}/6-catalogue.png`, fullPage: true });
 check("catalogue affiché", (await page.locator("main").innerText()).includes("Sac bandoulière cuir femme"));
 await page.setViewportSize({ width: 1280, height: 900 });
@@ -142,7 +142,8 @@ await page.screenshot({ path: `${shots}/8-suivis.png`, fullPage: true });
 // 5. Page d'une annonce Vinted vendue
 const v = await ctx.newPage();
 await v.goto("https://www.vinted.fr/items/9000-sac-bandouliere");
-await v.waitForTimeout(2500);
+await v.waitForSelector("#aliedge-source", { timeout: 10000, state: "attached" }).catch(() => {});
+await v.waitForTimeout(1500);
 check("bouton « Trouver le fournisseur » sur Vinted", (await v.locator("#aliedge-source").count()) === 1);
 check("vente signalée au catalogue", calls.filter((c) => c.endsWith("aliedge_report_items")).length >= 1);
 await v.screenshot({ path: `${shots}/9-vinted.png` });
