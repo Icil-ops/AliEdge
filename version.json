@@ -1,6 +1,6 @@
 {
-  "version": "3.1.0",
-  "notes": "Gratuit pendant le lancement. Catalogue communautaire des produits vendus sur Vinted, détection des ventes par vendeur, Shein.",
+  "version": "3.1.1",
+  "notes": "Mise à jour de test : publication automatique sur le Chrome Web Store.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-24",
   "minVersion": "3.0.0"
