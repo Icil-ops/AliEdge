@@ -280,3 +280,16 @@ body { padding-bottom: 64px; }
 .dock-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 10px; border-radius: 12px; font-weight: 700; font-size: 13px; text-decoration: none; color: #fff; background: #ff3d57; transition: transform .2s, filter .2s; }
 .dock-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .dock-btn.skool { background: #1d1636; color: #ffc46b; }
+
+/* Demande d'avis */
+.review-ask { position: fixed; inset: 0; z-index: 80; display: grid; place-items: end center; padding: 12px 12px 76px; background: rgba(20, 14, 40, .35); animation: fade .25s ease both; }
+.review-ask.out { opacity: 0; transition: opacity .25s; }
+.review-card { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 30px 60px -20px rgba(30, 15, 90, .45); animation: review-rise .45s cubic-bezier(.34,1.56,.64,1) both; text-align: center; }
+.review-card h2 { margin: 6px 0 6px; }
+.review-card p { margin-bottom: 14px; }
+.review-stars { display: flex; justify-content: center; gap: 4px; color: #ffb547; font-size: 22px; }
+.review-stars span { display: inline-block; animation: star .5s cubic-bezier(.34,1.56,.64,1) both; }
+.review-stars span:nth-child(2) { animation-delay: .07s } .review-stars span:nth-child(3) { animation-delay: .14s } .review-stars span:nth-child(4) { animation-delay: .21s } .review-stars span:nth-child(5) { animation-delay: .28s }
+@keyframes star { from { transform: scale(0) rotate(-40deg); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes review-rise { from { transform: translateY(30px); opacity: 0 } to { transform: none; opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .review-ask, .review-card, .review-stars span { animation: none } }

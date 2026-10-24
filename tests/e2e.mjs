@@ -112,6 +112,7 @@ check("lecture de la fiche AliExpress", extracted.title?.startsWith("Sac bandoul
 await product.bringToFront();
 const panel = await ctx.newPage();
 await panel.goto(app("/analyse", false));
+await panel.evaluate(() => chrome.storage.local.set({ review: { analyses: 2 } }));
 await product.bringToFront();
 await panel.evaluate(() => chrome.runtime.sendMessage({ type: "tab:changed" }).catch(() => {}));
 await panel.waitForSelector(".product h3", { timeout: 10000 }).catch(() => {});
@@ -129,6 +130,10 @@ check("analyse : ventes constatées affichées", (await panel.locator(".badge-so
 const link = await panel.locator('main a[title^="Créer des photos"]').getAttribute("href");
 check("lien Barapics avec photos importées", /#import=/.test(link || ""), (link || "").slice(0, 80));
 check("analyse partagée au catalogue", calls.includes("/rest/v1/rpc/aliedge_contribute"));
+await panel.waitForSelector("#review-ask", { timeout: 6000 }).catch(() => {});
+check("demande d'avis après la 3e analyse", (await panel.locator("#review-ask").count()) === 1);
+await panel.screenshot({ path: `${shots}/5b-avis.png` });
+await panel.click("#review-later").catch(() => {});
 
 // 3. Catalogue
 await page.goto(app("/catalogue"));

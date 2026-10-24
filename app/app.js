@@ -163,6 +163,7 @@ async function startAnalysis() {
     });
     announce(`Analyse terminée : marge ${eur(state.entry.result.margin, true)}, score ${state.entry.result.score} sur 100.`);
     loadAuth();
+    if (state.entry?.result?.sell != null) setTimeout(maybeAskReview, 2500);
   } catch (e) {
     state.error = { message: e.message, code: e.code };
   } finally {
@@ -170,6 +171,46 @@ async function startAnalysis() {
     state.analysing = false;
     render();
   }
+}
+
+// Demande d'avis sur le Chrome Web Store : neutre, sans contrepartie, une fois après la 3e analyse réussie.
+const REVIEW_URL = "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg/reviews";
+async function maybeAskReview() {
+  try {
+    const { review = {} } = await chrome.storage.local.get("review");
+    review.analyses = (review.analyses || 0) + 1;
+    const due = review.analyses >= 3 && !review.done && !review.never && (!review.snoozeUntil || Date.now() > review.snoozeUntil);
+    await chrome.storage.local.set({ review });
+    if (!due || document.getElementById("review-ask")) return;
+    const box = document.createElement("div");
+    box.id = "review-ask";
+    box.className = "review-ask";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-labelledby", "review-title");
+    box.innerHTML = `
+      <div class="review-card">
+        <div class="review-stars" aria-hidden="true">${"<span>★</span>".repeat(5)}</div>
+        <h2 id="review-title">Un avis sur AliEdge ?</h2>
+        <p class="small muted">AliEdge est gratuit et son catalogue grandit avec chaque membre. Ton avis sur le Chrome Web Store aide d'autres revendeurs à le trouver.</p>
+        <a class="btn primary block" id="review-go" href="${REVIEW_URL}" target="_blank" rel="noopener">Donner mon avis</a>
+        <div class="row between" style="margin-top:8px">
+          <button class="btn ghost" type="button" id="review-later">Plus tard</button>
+          <button class="btn ghost" type="button" id="review-never">Ne plus demander</button>
+        </div>
+      </div>`;
+    document.body.appendChild(box);
+    const close = async (patch) => {
+      Object.assign(review, patch);
+      await chrome.storage.local.set({ review });
+      box.classList.add("out");
+      setTimeout(() => box.remove(), 250);
+    };
+    box.querySelector("#review-go").addEventListener("click", () => close({ done: true }));
+    box.querySelector("#review-later").addEventListener("click", () => close({ snoozeUntil: Date.now() + 7 * 864e5 }));
+    box.querySelector("#review-never").addEventListener("click", () => close({ never: true }));
+    box.addEventListener("click", (e) => { if (e.target === box) close({ snoozeUntil: Date.now() + 7 * 864e5 }); });
+    box.querySelector("#review-go").focus();
+  } catch { /* stockage indisponible : on ne demande rien */ }
 }
 
 function renderSteps() {
