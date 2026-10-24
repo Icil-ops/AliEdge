@@ -35,6 +35,15 @@ jobs:
           perms=$(echo "$info" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('permissions') or d.get('message'))" 2>/dev/null)
           scopes=$(curl -s -I -H "Authorization: Bearer $TOKEN" https://api.github.com/user | grep -i '^x-oauth-scopes' | tr -d '\r')
           echo "::notice title=Jeton::accès dépôt HTTP ${code} ; droits ${perms} ; ${scopes:-jeton fine-grained}"
+          # Test : un commit sans dossier .github passe-t-il ? (sinon c'est « Contents », sinon « Workflows »)
+          tmp=$(mktemp -d); git -C "$tmp" init -q; echo test > "$tmp/t.txt"; git -C "$tmp" add t.txt
+          git -C "$tmp" -c user.name=ci -c user.email=ci@x commit -qm test
+          if git -C "$tmp" push -q --force "https://x-access-token:${TOKEN}@github.com/Icil-ops/AliEdge.git" HEAD:refs/heads/test-droits 2>/dev/null; then
+            echo "::notice title=Test::écriture simple OK (Contents en écriture)"
+            git push -q "https://x-access-token:${TOKEN}@github.com/Icil-ops/AliEdge.git" :refs/heads/test-droits 2>/dev/null || true
+          else
+            echo "::notice title=Test::écriture simple refusée (Contents pas en écriture ou jeton pas à jour)"
+          fi
           target="$BRANCH"
           [ "$BRANCH" = "v3" ] && target="main"
           if ! out=$(git push --force "https://x-access-token:${TOKEN}@github.com/Icil-ops/AliEdge.git" "HEAD:refs/heads/${target}" 2>&1); then
