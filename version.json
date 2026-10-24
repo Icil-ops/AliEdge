@@ -1,6 +1,6 @@
 {
-  "version": "3.1.1",
-  "notes": "Mise à jour de test : publication automatique sur le Chrome Web Store.",
+  "version": "3.1.2",
+  "notes": "Nouvelle icône. Gratuit pendant le lancement : catalogue communautaire, ventes réellement constatées sur Vinted, Shein.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-24",
   "minVersion": "3.0.0"
