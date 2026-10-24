@@ -97,11 +97,12 @@ async function loadAuth() {
     state.me = null;
   }
   renderPlan();
+  api("community:stats").then((c) => { state.community = c; if (route().name === "compte") render(); }).catch(() => {});
 }
 
 function renderPlan() {
   if (!state.me) { $plan.textContent = "Se connecter"; $plan.className = "plan"; return; }
-  $plan.textContent = state.me.pro ? "Pro" : "Gratuit";
+  $plan.textContent = state.me.free_launch ? "Accès complet" : state.me.pro ? "Pro" : "Gratuit";
   $plan.className = state.me.pro ? "plan pro" : "plan";
 }
 $plan.addEventListener("click", () => { location.hash = "#/compte"; });
@@ -592,13 +593,13 @@ function viewCompte(params) {
   if (!state.me) {
     const mode = params.get("mode") === "signin" ? "signin" : "signup";
     return `
-      ${welcome ? `<div class="notice ok" style="margin-bottom:12px">AliEdge est installé. Épingle-le dans la barre de Chrome (icône puzzle), puis crée ton compte gratuit.</div>` : ""}
+      ${welcome ? `<div class="notice ok" style="margin-bottom:12px">AliEdge est installé. Épingle-le dans la barre de Chrome (icône puzzle), puis crée ton compte gratuit. Chaque analyse que tu lances enrichit le catalogue de toute la communauté.</div>` : ""}
       <section class="card pad stack" style="max-width:440px;margin:0 auto">
         <div class="seg" role="tablist">
           <button type="button" data-mode="signup" aria-pressed="${mode === "signup"}">Créer un compte</button>
           <button type="button" data-mode="signin" aria-pressed="${mode === "signin"}">Se connecter</button>
         </div>
-        <p class="muted small">${mode === "signup" ? "Gratuit : 5 analyses par jour et un aperçu du catalogue. Même compte que Barapics." : "Utilise le même compte que sur Barapics."}</p>
+        <p class="muted small">${mode === "signup" ? "Gratuit et complet pendant le lancement : analyses illimitées et tout le catalogue. Même compte que Barapics." : "Utilise le même compte que sur Barapics."}</p>
         <form id="authform" class="stack" novalidate>
           <label class="field"><span>Email</span><input class="input" name="email" type="email" autocomplete="email" required></label>
           <label class="field"><span>Mot de passe</span><input class="input" name="password" type="password" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" minlength="8" required></label>
@@ -615,8 +616,9 @@ function viewCompte(params) {
   const pct = Math.min(100, Math.round(((m.used_today || 0) / (m.daily_limit || 5)) * 100));
   return `
     <section class="card pad stack">
-      <div class="row between"><div><h2>${esc(m.email || "Mon compte")}</h2><p class="small muted">${m.pro ? `AliEdge Pro${m.expires_at ? ` jusqu'au ${new Date(m.expires_at).toLocaleDateString("fr-FR")}` : ""}${m.source === "skool" ? " · offert aux membres Skool" : ""}` : "Offre gratuite"}</p></div><span class="plan ${m.pro ? "pro" : ""}" style="margin:0">${m.pro ? "Pro" : "Gratuit"}</span></div>
-      <div><div class="row between small"><span>Analyses aujourd'hui</span><span class="num">${m.used_today || 0} / ${m.daily_limit}</span></div><div class="quota" style="margin-top:6px"><i style="width:${pct}%"></i></div></div>
+      <div class="row between"><div><h2>${esc(m.email || "Mon compte")}</h2><p class="small muted">${m.free_launch ? "Accès complet offert pendant le lancement" : m.pro ? `AliEdge Pro${m.expires_at ? ` jusqu'au ${new Date(m.expires_at).toLocaleDateString("fr-FR")}` : ""}${m.source === "skool" ? " · offert aux membres Skool" : ""}` : "Offre gratuite"}</p></div><span class="plan ${m.pro ? "pro" : ""}" style="margin:0">${m.free_launch ? "Complet" : m.pro ? "Pro" : "Gratuit"}</span></div>
+      ${m.pro ? `<p class="small"><b class="num">${m.used_today || 0}</b> analyse${(m.used_today || 0) > 1 ? "s" : ""} aujourd'hui · <b class="num">${m.contributed || 0}</b> produit${(m.contributed || 0) > 1 ? "s" : ""} ajouté${(m.contributed || 0) > 1 ? "s" : ""} au catalogue par toi</p>` : `<div><div class="row between small"><span>Analyses aujourd'hui</span><span class="num">${m.used_today || 0} / ${m.daily_limit}</span></div><div class="quota" style="margin-top:6px"><i style="width:${pct}%"></i></div></div>`}
+      ${state.community ? `<p class="small muted">Catalogue commun : <b class="num">${state.community.products}</b> produits, <b class="num">${state.community.sold}</b> ventes repérées, <b class="num">${state.community.contributors}</b> membres contributeurs.</p>` : ""}
       ${m.offline ? `<p class="notice warn">Serveur AliEdge injoignable : ton offre sera vérifiée à la reconnexion.</p>` : ""}
     </section>
     ${!m.pro ? `
@@ -638,7 +640,7 @@ function viewCompte(params) {
       </div>
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
       <label class="switch"><span><b>Partager mes analyses</b><br><span class="small muted">Le produit et les annonces trouvées rejoignent le catalogue commun. Rien de personnel n'est partagé.</span></span><input type="checkbox" data-set="shareAnalyses" ${s.shareAnalyses ? "checked" : ""}></label>
-      <label class="switch"><span><b>Aider à détecter les ventes</b><br><span class="small muted">Revérifie une dizaine d'annonces du catalogue par heure avec ta connexion Vinted, pour savoir lesquelles se sont vendues.</span></span><input type="checkbox" data-set="helpDetectSales" ${s.helpDetectSales ? "checked" : ""}></label>
+      <label class="switch"><span><b>Aider à détecter les ventes</b><br><span class="small muted">Une fois par heure, regarde le dressing de quelques vendeurs suivis par le catalogue (comme si tu ouvrais leur profil) pour savoir quelles annonces se sont vendues.</span></span><input type="checkbox" data-set="helpDetectSales" ${s.helpDetectSales ? "checked" : ""}></label>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">

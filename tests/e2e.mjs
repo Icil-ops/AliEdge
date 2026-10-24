@@ -19,7 +19,7 @@ const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { am
 
 const calls = [];
 const rpc = {
-  aliedge_me: { pro: true, admin: false, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
+  aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
   aliedge_contribute: "c3f50103-f4a4-414b-b502-74634864fe06",
   aliedge_product_items: [
@@ -28,6 +28,9 @@ const rpc = {
     { vinted_id: 7003, title: "Sac bandoulière", price: 20, photo_url: "https://images1.vinted.net/t/s3.jpeg", url: "https://www.vinted.fr/items/7003", status: "sold", sold_at: new Date(Date.now() - 9 * 864e5).toISOString() },
   ],
   aliedge_report_items: 1,
+  aliedge_report_wardrobe: { updated: 2, sold: 1 },
+  aliedge_sellers_to_check: [],
+  aliedge_public_stats: { products: 1280, items: 15400, sold: 3120, sold_7d: 410, contributors: 96 },
   aliedge_items_to_check: [],
   aliedge_catalog: Array.from({ length: 8 }, (_, i) => ({
     product_id: `00000000-0000-0000-0000-00000000000${i}`, platform: ["aliexpress", "temu", "shein"][i % 3],
@@ -61,6 +64,8 @@ await ctx.route("**/*", async (route) => {
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
+    if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
+    if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><h1>vendeuse</h1>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
@@ -89,10 +94,10 @@ if (await email.count()) {
   await email.fill("membre@example.com");
   await page.locator('input[type="password"]').first().fill("motdepasse123");
   await page.locator('form button[type="submit"], form .btn.primary').first().click();
-  await page.waitForFunction(() => document.querySelector("#plan")?.textContent?.includes("Pro"), null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => /Pro|Accès complet/.test(document.querySelector("#plan")?.textContent || ""), null, { timeout: 15000 }).catch(() => {});
 }
 await page.screenshot({ path: `${shots}/2-compte-connecte.png`, fullPage: true });
-check("connecté en Pro", (await page.locator("#plan").textContent())?.includes("Pro") ?? false, await page.locator("#plan").textContent());
+check("connecté avec l'accès complet", /Pro|Accès complet/.test((await page.locator("#plan").textContent()) || ""), await page.locator("#plan").textContent());
 
 // 2. Analyse depuis une fiche AliExpress (panneau attaché à l'onglet produit)
 const product = await ctx.newPage();
@@ -147,6 +152,12 @@ await v.waitForTimeout(1500);
 check("bouton « Trouver le fournisseur » sur Vinted", (await v.locator("#aliedge-source").count()) === 1);
 check("vente signalée au catalogue", calls.filter((c) => c.endsWith("aliedge_report_items")).length >= 1);
 await v.screenshot({ path: `${shots}/9-vinted.png` });
+
+// 6. Profil d'un vendeur : son dressing met à jour le catalogue
+const mbr = await ctx.newPage();
+await mbr.goto("https://www.vinted.fr/member/555-vendeuse");
+await mbr.waitForTimeout(3500);
+check("dressing d'un vendeur envoyé au catalogue", calls.some((c) => c.endsWith("aliedge_report_wardrobe")));
 
 await ctx.close();
 const failed = results.filter((r) => !r.ok);

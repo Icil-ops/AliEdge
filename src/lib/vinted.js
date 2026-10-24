@@ -139,6 +139,7 @@ export function normaliseItem(it, market) {
     photo_url: thumb || photo?.url || photo?.full_size_url || null,
     url: it.url || `https://${host(market)}/items/${it.id}`,
     favourites: Number.isFinite(it.favourite_count) ? it.favourite_count : null,
+    seller_id: Number(it.user?.id ?? it.user_id ?? it.seller_id) || null,
     views: Number.isFinite(it.view_count) ? it.view_count : null,
   };
 }
@@ -178,6 +179,29 @@ export function parseItemStatus(html) {
   if (/\\?"is_closed\\?"\s*:\s*true/i.test(html)) return "closed";
   if (/\\?"can_buy\\?"\s*:\s*true/i.test(html) || /\\?"is_closed\\?"\s*:\s*false/i.test(html)) return "active";
   return null;
+}
+
+/**
+ * Statut d'après un objet « item » de l'API Vinted. Une vente n'est comptée que si Vinted
+ * l'indique explicitement ; une annonce fermée sans ce motif est « closed ».
+ */
+export function statusFromJson(it) {
+  const closing = String(it?.item_closing_action ?? "").toLowerCase();
+  if (closing === "sold" || it?.is_sold === true || String(it?.status ?? "").toLowerCase() === "sold") return "sold";
+  if (it?.is_closed === true || it?.is_hidden === true || it?.is_draft === true) return "closed";
+  return "active";
+}
+
+/**
+ * Dressing d'un vendeur (une requête pour toutes ses annonces récentes, vendues comprises
+ * quand le vendeur les affiche). C'est ce qui rend la détection des ventes économe.
+ */
+export async function sellerItems(sellerId, market = "fr") {
+  const id = Number(sellerId);
+  if (!Number.isSafeInteger(id) || id <= 0) return [];
+  const res = await vFetch(`https://${host(market)}/api/v2/users/${id}/items?page=1&per_page=96&order=newest_first`, "json", market);
+  const raw = Array.isArray(res.body?.items) ? res.body.items : [];
+  return raw.map((it) => ({ ...normaliseItem(it, market), seller_id: id, status: statusFromJson(it) })).filter((i) => i.vinted_id);
 }
 
 export async function itemStatus(vintedId, market = "fr") {

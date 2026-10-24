@@ -3,8 +3,9 @@ export const SUPABASE_URL = "https://qwjsryjrkwbfibavqici.supabase.co";
 export const SUPABASE_KEY = "sb_publishable_SEmlqQiGgsxgHpOmTIYddQ_0ovIWr_D";
 
 export const SITE_URL = "https://barapics.com";
-export const BUY_URL = `${SITE_URL}/aliedge`;
-export const PRIVACY_URL = `${SITE_URL}/aliedge/confidentialite`;
+export const ALIEDGE_PAGE = "https://ivanbara.com/aliedge";
+export const BUY_URL = ALIEDGE_PAGE;
+export const PRIVACY_URL = "https://ivanbara.com/aliedge/confidentialite";
 export const RESET_URL = `${SITE_URL}/reset-password`;
 export const BARAPICS_URL = `${SITE_URL}/app`;
 export const SKOOL_URL = "https://www.skool.com/vinteddrop-accompagnement-5463/about";
@@ -28,6 +29,6 @@ export const DEFAULT_SETTINGS = {
   condition: "all",          // all | new | very_good
   costPerSale: 0.5,          // emballage, étiquette… (€ par vente)
   shareAnalyses: true,       // chaque analyse enrichit le catalogue communautaire
-  helpDetectSales: false,    // revérifie quelques annonces par heure avec la session Vinted du membre
+  helpDetectSales: true,     // une fois par heure : dressing de quelques vendeurs suivis (voir confidentialité)
   showPill: true,            // bouton flottant sur les fiches produit
 };

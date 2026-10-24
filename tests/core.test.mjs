@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { parsePrice, priceStats, recommendedPrice, breakEvenPrice, analyse, scoreOpportunity, histogram, toEur } from "../src/lib/pricing.js";
 import { buildQuery, relevance, guessCategory, draftListing } from "../src/lib/text.js";
 import { detectPlatform, sourceIdFromUrl, canonicalUrl } from "../src/lib/extract.js";
-import { parseItemStatus, normaliseItem } from "../src/lib/vinted.js";
+import { parseItemStatus, normaliseItem, statusFromJson } from "../src/lib/vinted.js";
 
 test("parsePrice lit les formats courants", () => {
   assert.deepEqual(parsePrice("12,99 €"), { amount: 12.99, currency: "EUR" });
@@ -139,4 +139,16 @@ test("normalisation d'une annonce du catalogue Vinted", () => {
   assert.equal(it.price, 12.5);
   assert.equal(it.url, "https://www.vinted.fr/items/42");
   assert.equal(it.favourites, 3);
+});
+
+test("statut d'une annonce dans un dressing", () => {
+  assert.equal(statusFromJson({ is_closed: true, item_closing_action: "sold" }), "sold");
+  assert.equal(statusFromJson({ is_closed: true }), "closed");
+  assert.equal(statusFromJson({ is_hidden: true }), "closed");
+  assert.equal(statusFromJson({ id: 1 }), "active");
+});
+
+test("le vendeur d'une annonce est conservé", () => {
+  assert.equal(normaliseItem({ id: 3, title: "x", price: "5", user: { id: 4242 } }, "fr").seller_id, 4242);
+  assert.equal(normaliseItem({ id: 3, title: "x", price: "5" }, "fr").seller_id, null);
 });

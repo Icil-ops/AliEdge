@@ -171,7 +171,7 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
         },
         _items: comparable.filter((i) => !i.excluded && i.relevance >= 0.5).slice(0, 40).map((i) => ({
           vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition,
-          price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, status: "active",
+          price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active",
         })),
       });
       const m = await me();
@@ -283,8 +283,21 @@ async function refreshWatches() {
 async function communityCheck() {
   const settings = await getSettings();
   if (!settings.helpDetectSales || !(await sb.getSession())) return;
+  // 1) Par vendeur : un dressing lu = toutes ses annonces suivies revérifiées d'un coup.
+  let sellers = [];
+  try { sellers = await sb.rpc("aliedge_sellers_to_check", { _limit: 4 }); } catch { /* fonction absente : on passe aux annonces */ }
+  for (const { seller_id, market } of sellers || []) {
+    try {
+      const items = await vinted.sellerItems(seller_id, market);
+      if (items.length) await reportWardrobe(seller_id, market, items);
+    } catch (e) {
+      if (e.code === "blocked" || e.code === "rate_limited") return;
+    }
+    await new Promise((r) => setTimeout(r, 3000 + Math.random() * 4000));
+  }
+  // 2) Annonces sans vendeur connu : une par une.
   let batch = [];
-  try { batch = await sb.rpc("aliedge_items_to_check", { _limit: 10 }); } catch { return; }
+  try { batch = await sb.rpc("aliedge_items_to_check", { _limit: 6 }); } catch { return; }
   const report = [];
   for (const { vinted_id, market } of batch || []) {
     try {
@@ -302,6 +315,26 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "community") communityCheck();
   if (a.name === "watch") refreshWatches();
 });
+
+async function reportWardrobe(sellerId, market, items) {
+  return sb.rpc("aliedge_report_wardrobe", {
+    _seller_id: Number(sellerId), _market: market,
+    _items: items.slice(0, 200).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, photo_url: i.photo_url, url: i.url, favourites: i.favourites })),
+  });
+}
+
+// Profil Vinted ouvert par le membre : son dressing met à jour les annonces suivies.
+const wardrobeSeen = new Map();
+async function reportMember({ sellerId, market, items }) {
+  const settings = await getSettings();
+  if (!settings.shareAnalyses || !sellerId || !Array.isArray(items) || !(await sb.getSession())) return {};
+  const last = wardrobeSeen.get(sellerId);
+  if (last && Date.now() - last < 3 * 3600_000) return {};
+  wardrobeSeen.set(sellerId, Date.now());
+  if (wardrobeSeen.size > 300) wardrobeSeen.delete(wardrobeSeen.keys().next().value);
+  const clean = items.map((it) => ({ ...vinted.normaliseItem(it, market), status: vinted.statusFromJson(it) })).filter((i) => i.vinted_id);
+  return reportWardrobe(sellerId, market, clean).catch(() => ({}));
+}
 
 // Annonces vues sur Vinted (statut lu sur la page de l'annonce).
 const reported = new Map();
@@ -346,6 +379,8 @@ const handlers = {
   "saved:add": async ({ productId }) => sb.insert("aliedge_saved", { product_id: productId }, true),
   "saved:remove": async ({ productId }) => sb.remove("aliedge_saved", `product_id=eq.${encodeURIComponent(productId)}`),
   "vinted:item": async ({ item }) => { await reportVintedItem(item); return {}; },
+  "vinted:member": async (msg) => reportMember(msg),
+  "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "pending:take": async () => {
     const r = await chrome.storage.session.get("ae_pending");
     await chrome.storage.session.remove("ae_pending");
@@ -371,7 +406,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "settings:pill"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => sendResponse({ ok: false, error: e?.message || "Erreur inattendue.", code: e?.code || "" }));

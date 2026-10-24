@@ -157,6 +157,11 @@ async function authed(fn) {
   }
 }
 
+/** RPC publique (compteurs du catalogue), sans compte. */
+export function publicRpc(name, args = {}) {
+  return call(`/rest/v1/rpc/${name}`, { method: "POST", body: args });
+}
+
 export function rpc(name, args = {}) {
   return authed((token) => call(`/rest/v1/rpc/${name}`, { method: "POST", body: args, token }));
 }

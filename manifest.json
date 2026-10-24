@@ -2,44 +2,113 @@
   "manifest_version": 3,
   "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
   "short_name": "AliEdge",
-  "version": "3.0.0",
-  "description": "Savoir avant d'acheter : prix de revente Vinted, marge, ventes réelles et catalogue des produits déjà vendus. By Ivan Bara.",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxwjlXKx8tbKGmVj96T72xme5zY40WY014SoRXC7c0OvcQlNFO8JNsyssSiuHUvGdmSiZ2rItV4R21et2f2vX9O5ekNY3sgzHKshdRbdYQ5A7zn7k125UxiJG7BE/ZS4prdWwv01I/AtwGu64p5o02HY6ixppbxKBocdQMxZmrir7C+NtAWNlRNxR0XEJCF8gq6q52pEk20yKLuQMJgOh9Q0VCOKjw1l9QQViXG8XdhrkIGMDu3WL91bIJu7EJC8yLMis+xYlaZUwxSP68vZQGD+F163yhkj8SsIpORy42V+F/4c4dKCtYGYC/s75+VJpv8AJcE7RKQsP5dVsjPk9qQIDAQAB",
+  "version": "3.1.0",
+  "description": "Gratuit. Sur AliExpress, Temu et Shein : prix de revente Vinted, marge, ventes réellement constatées et catalogue des produits déjà vendus. By Ivan Bara.",
   "minimum_chrome_version": "116",
-  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
     "default_title": "AliEdge",
-    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "side_panel": { "default_path": "app/app.html" },
-  "background": { "service_worker": "src/background.js", "type": "module" },
-  "permissions": ["storage", "scripting", "tabs", "sidePanel", "alarms", "notifications", "contextMenus", "identity", "clipboardWrite"],
+  "side_panel": {
+    "default_path": "app/app.html"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "scripting",
+    "tabs",
+    "sidePanel",
+    "alarms",
+    "notifications",
+    "contextMenus",
+    "identity",
+    "clipboardWrite"
+  ],
   "host_permissions": [
-    "https://*.aliexpress.com/*", "https://*.aliexpress.fr/*", "https://*.aliexpress.us/*",
+    "https://*.aliexpress.com/*",
+    "https://*.aliexpress.fr/*",
+    "https://*.aliexpress.us/*",
     "https://*.temu.com/*",
-    "https://*.shein.com/*", "https://*.shein.fr/*",
-    "https://www.vinted.fr/*", "https://www.vinted.be/*", "https://www.vinted.de/*", "https://www.vinted.es/*",
-    "https://www.vinted.it/*", "https://www.vinted.nl/*", "https://www.vinted.pt/*", "https://www.vinted.lu/*",
-    "https://www.vinted.at/*", "https://www.vinted.pl/*", "https://www.vinted.co.uk/*",
+    "https://*.shein.com/*",
+    "https://*.shein.fr/*",
+    "https://www.vinted.fr/*",
+    "https://www.vinted.be/*",
+    "https://www.vinted.de/*",
+    "https://www.vinted.es/*",
+    "https://www.vinted.it/*",
+    "https://www.vinted.nl/*",
+    "https://www.vinted.pt/*",
+    "https://www.vinted.lu/*",
+    "https://www.vinted.at/*",
+    "https://www.vinted.pl/*",
+    "https://www.vinted.co.uk/*",
     "https://qwjsryjrkwbfibavqici.supabase.co/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://*.aliexpress.com/item/*", "https://*.aliexpress.fr/item/*", "https://*.aliexpress.us/item/*",
+        "https://*.aliexpress.com/item/*",
+        "https://*.aliexpress.fr/item/*",
+        "https://*.aliexpress.us/item/*",
         "https://*.temu.com/*",
-        "https://*.shein.com/*", "https://*.shein.fr/*"
+        "https://*.shein.com/*",
+        "https://*.shein.fr/*"
       ],
-      "js": ["src/content/product.js"],
+      "js": [
+        "src/content/product.js"
+      ],
       "run_at": "document_idle"
     },
     {
       "matches": [
-        "https://www.vinted.fr/items/*", "https://www.vinted.be/items/*", "https://www.vinted.de/items/*", "https://www.vinted.es/items/*",
-        "https://www.vinted.it/items/*", "https://www.vinted.nl/items/*", "https://www.vinted.pt/items/*", "https://www.vinted.lu/items/*",
-        "https://www.vinted.at/items/*", "https://www.vinted.pl/items/*", "https://www.vinted.co.uk/items/*"
+        "https://www.vinted.fr/items/*",
+        "https://www.vinted.be/items/*",
+        "https://www.vinted.de/items/*",
+        "https://www.vinted.es/items/*",
+        "https://www.vinted.it/items/*",
+        "https://www.vinted.nl/items/*",
+        "https://www.vinted.pt/items/*",
+        "https://www.vinted.lu/items/*",
+        "https://www.vinted.at/items/*",
+        "https://www.vinted.pl/items/*",
+        "https://www.vinted.co.uk/items/*"
       ],
-      "js": ["src/content/vinted.js"],
+      "js": [
+        "src/content/vinted.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.vinted.fr/member/*",
+        "https://www.vinted.be/member/*",
+        "https://www.vinted.de/member/*",
+        "https://www.vinted.es/member/*",
+        "https://www.vinted.it/member/*",
+        "https://www.vinted.nl/member/*",
+        "https://www.vinted.pt/member/*",
+        "https://www.vinted.lu/member/*",
+        "https://www.vinted.at/member/*",
+        "https://www.vinted.pl/member/*",
+        "https://www.vinted.co.uk/member/*"
+      ],
+      "js": [
+        "src/content/member.js"
+      ],
       "run_at": "document_idle"
     }
   ]

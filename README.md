@@ -5,7 +5,7 @@ Extension Chrome pour revendeurs Vinted : sur une fiche AliExpress, Temu ou Shei
 ## Ce qu'elle fait
 
 - **Analyse** d'une fiche produit (bouton flottant ou panneau latéral) : annonces Vinted comparables, prix conseillé, marge, ROI, score sur 100, seuil de rentabilité.
-- **Ventes constatées** : chaque annonce comparable est suivie ; quand elle passe « vendue », le catalogue le sait (membres volontaires + robot serveur).
+- **Ventes constatées** : chaque annonce comparable est suivie avec son vendeur. Une fois par heure, l'extension lit le dressing de quelques vendeurs suivis (une requête revérifie toutes leurs annonces) ; les profils ouverts par les membres et un robot serveur complètent.
 - **Catalogue** des produits déjà vendus sur Vinted, avec leur source AliExpress / Temu / Shein, ventes 7 j / 30 j et marge estimée.
 - **Suivis** : alerte quand le prix Vinted d'un produit bouge de plus de 10 %.
 - **Sur Vinted** : bouton « Trouver le fournisseur » (Google Lens, AliExpress, Temu, Shein) sur chaque annonce.
@@ -13,7 +13,9 @@ Extension Chrome pour revendeurs Vinted : sur une fiche AliExpress, Temu ou Shei
 
 ## Comptes et offres
 
-Même compte que Barapics (Supabase, projet « Ivan Bara »). Gratuit : 5 analyses par jour et les 3 premiers produits du catalogue. Pro : analyses illimitées, catalogue complet, ventes constatées. Pro s'obtient par Whop (offre avec la métadonnée `plan: aliedge`), par l'admin Barapics (onglet AliEdge) ou avec le mois offert Skool.
+Même compte que Barapics (Supabase, projet « Ivan Bara »). **Gratuit pour le lancement** : tout est ouvert tant que le réglage `aliedge_free` vaut `true` (table `app_settings`). L'offre Pro (Whop avec la métadonnée `plan: aliedge`, admin Barapics, mois Skool) reste prête pour plus tard.
+
+Page publique : https://ivanbara.com/aliedge · Chrome Web Store : https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg
 
 Le serveur (tables, fonctions, robot) vit dans le repo Barapics : migration `0017_aliedge.sql`, route `/api/public/aliedge-robot`.
 

@@ -1,7 +1,7 @@
 {
-  "version": "3.0.0",
-  "notes": "Refonte complète : Shein en plus d'AliExpress et Temu, catalogue des produits déjà vendus sur Vinted, ventes réellement constatées, compte commun avec Barapics.",
-  "storeUrl": "https://chrome.google.com/webstore/detail/aliedge",
+  "version": "3.1.0",
+  "notes": "Gratuit pendant le lancement. Catalogue communautaire des produits vendus sur Vinted, détection des ventes par vendeur, Shein.",
+  "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-24",
   "minVersion": "3.0.0"
 }

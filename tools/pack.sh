@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Construit dist/aliedge-<version>.zip pour le Chrome Web Store.
-# Le champ "key" (qui fixe l'identifiant en développement) est retiré : le Store le refuse.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=$(node -p "require('./manifest.json').version")
