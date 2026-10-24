@@ -12,6 +12,8 @@ concurrency:
 
 jobs:
   mirror:
+    # Ne tourne que dans le dépôt d'origine, pas dans la copie Icil-ops/AliEdge.
+    if: github.repository == 'Ivanbaraofm/Aliedge'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
