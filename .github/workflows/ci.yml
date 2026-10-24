@@ -17,7 +17,7 @@ jobs:
         run: node --test tests/*.test.mjs
       - name: Test de bout en bout (Chromium + extension)
         run: |
-          npm install --no-save playwright@1.56.1
+          npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
           set +e
           node tests/e2e.mjs shots > e2e.log 2>&1
