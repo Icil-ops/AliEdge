@@ -57,6 +57,14 @@ if (!newer(version, latest)) {
   process.exit(0);
 }
 
+// Une version plus ancienne attend l'examen : on retire sa soumission pour envoyer la nouvelle à sa place.
+if (before.submittedItemRevisionStatus?.state === "PENDING_REVIEW") {
+  const c = await fetch(`${base}:cancelSubmission`, { method: "POST", headers: auth });
+  if (!c.ok) throw new Error(`Annulation de la soumission en cours refusée (${c.status}) : ${(await c.text()).slice(0, 300)}`);
+  console.log("Soumission précédente annulée, remplacée par la nouvelle version.");
+  await new Promise((r) => setTimeout(r, 3000));
+}
+
 const up = await fetch(`https://chromewebstore.googleapis.com/upload/v2/publishers/${PUBLISHER}/items/${EXT}:upload`, {
   method: "POST",
   headers: { ...auth, "content-type": "application/zip" },
