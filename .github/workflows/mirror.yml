@@ -1,11 +1,9 @@
-name: Recopie vers Icil-ops/AliEdge
+name: Copie vers Icil-ops/AliEdge
 
-# Chaque push sur v3 (ou main) de ce dépôt est recopié sur la branche main de Icil-ops/AliEdge,
-# où la publication automatique sur le Chrome Web Store prend le relais.
-# Secret requis ici : MIRROR_TOKEN (jeton GitHub avec « Contents: Read and write » sur Icil-ops/AliEdge).
+# Chaque push ici est recopié sur github.com/Icil-ops/AliEdge (v3 devient main là-bas).
+# Secret requis dans CE dépôt : MIRROR_TOKEN, un jeton GitHub avec droit d'écriture sur Icil-ops/AliEdge.
 on:
   push:
-    branches: [v3, main]
   workflow_dispatch:
 
 concurrency:
@@ -20,13 +18,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Recopier
+      - name: Pousser vers Icil-ops/AliEdge
         env:
-          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
         run: |
-          if [ -z "$MIRROR_TOKEN" ]; then
-            echo "::warning title=Recopie::Secret MIRROR_TOKEN manquant, recopie ignorée."
-            exit 0
+          if [ -z "$TOKEN" ]; then
+            echo "::error title=Copie::Secret MIRROR_TOKEN manquant (Settings > Secrets and variables > Actions)."
+            exit 1
           fi
-          git push --force "https://x-access-token:${MIRROR_TOKEN}@github.com/Icil-ops/AliEdge.git" "HEAD:refs/heads/main"
-          echo "Recopié sur Icil-ops/AliEdge (main) : $(git rev-parse --short HEAD)"
+          target="$BRANCH"
+          [ "$BRANCH" = "v3" ] && target="main"
+          git push --force "https://x-access-token:${TOKEN}@github.com/Icil-ops/AliEdge.git" "HEAD:refs/heads/${target}"
+          echo "Copié : ${BRANCH} → Icil-ops/AliEdge ${target}"
