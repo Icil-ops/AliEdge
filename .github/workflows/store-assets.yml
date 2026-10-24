@@ -1,0 +1,28 @@
+name: Visuels Chrome Web Store
+on:
+  push:
+    paths: ["tools/store-assets/**", "icons/**", ".github/workflows/store-assets.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node tools/store-assets/render.mjs store-assets
+          cp icons/icon128.png store-assets/icone-128.png
+      - name: Publier sur la branche ci-assets
+        run: |
+          cd store-assets
+          git init -q -b ci-assets
+          git config user.name ci; git config user.email ci@aliedge
+          git add -A && git commit -qm "Visuels ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" ci-assets
