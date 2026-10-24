@@ -8,7 +8,7 @@ const tile = "file://" + resolve("tools/store-assets/tile.html");
 const b = await chromium.launch();
 
 // Vignettes promo (petite 440×280, grande 1400×560).
-for (const [w, h, s, pad, mw, stamp, name] of [[440, 280, 40, 34, 380, "none", "promo-440x280"], [1400, 560, 78, 110, 900, "block", "marquee-1400x560"]]) {
+for (const [w, h, s, pad, mw, stamp, name] of [[440, 280, 29, 30, 390, "none", "promo-440x280"], [1400, 560, 78, 110, 900, "block", "marquee-1400x560"]]) {
   const p = await b.newPage({ viewport: { width: w, height: h } });
   await p.goto(tile);
   await p.evaluate(([w, h, s, pad, mw, stamp]) => {
