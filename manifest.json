@@ -1,68 +1,46 @@
 {
-   "action": {
-      "default_popup": "popup.html",
-      "default_title": "AliEdge — AliExpress → Vinted",
-      "default_icon": {
-        "16":  "icon16.png",
-        "32":  "icon32.png",
-        "48":  "icon48.png",
-        "128": "icon128.png"
-      }
-   },
-   "icons": {
-      "16":  "icon16.png",
-      "32":  "icon32.png",
-      "48":  "icon48.png",
-      "128": "icon128.png"
-   },
-   "background": {
-      "service_worker": "background.js"
-   },
-   "content_scripts": [ {
-      "all_frames": true,
-      "js": [ "content.js" ],
-      "matches": [ "https://*.aliexpress.com/*", "https://*.aliexpress.fr/*" ],
-      "run_at": "document_idle"
-   }, {
-      "js": [ "ali-content.js" ],
-      "matches": [ "https://*.aliexpress.com/item/*.html", "https://*.aliexpress.fr/item/*.html" ],
-      "run_at": "document_idle"
-   }, {
-      "js": [ "temu-content.js" ],
+  "manifest_version": 3,
+  "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
+  "short_name": "AliEdge",
+  "version": "3.0.0",
+  "description": "Savoir avant d'acheter : prix de revente Vinted, marge, ventes réelles et catalogue des produits déjà vendus. By Ivan Bara.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxwjlXKx8tbKGmVj96T72xme5zY40WY014SoRXC7c0OvcQlNFO8JNsyssSiuHUvGdmSiZ2rItV4R21et2f2vX9O5ekNY3sgzHKshdRbdYQ5A7zn7k125UxiJG7BE/ZS4prdWwv01I/AtwGu64p5o02HY6ixppbxKBocdQMxZmrir7C+NtAWNlRNxR0XEJCF8gq6q52pEk20yKLuQMJgOh9Q0VCOKjw1l9QQViXG8XdhrkIGMDu3WL91bIJu7EJC8yLMis+xYlaZUwxSP68vZQGD+F163yhkj8SsIpORy42V+F/4c4dKCtYGYC/s75+VJpv8AJcE7RKQsP5dVsjPk9qQIDAQAB",
+  "minimum_chrome_version": "116",
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": {
+    "default_title": "AliEdge",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "side_panel": { "default_path": "app/app.html" },
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "permissions": ["storage", "scripting", "tabs", "sidePanel", "alarms", "notifications", "contextMenus", "identity", "clipboardWrite"],
+  "host_permissions": [
+    "https://*.aliexpress.com/*", "https://*.aliexpress.fr/*", "https://*.aliexpress.us/*",
+    "https://*.temu.com/*",
+    "https://*.shein.com/*", "https://*.shein.fr/*",
+    "https://www.vinted.fr/*", "https://www.vinted.be/*", "https://www.vinted.de/*", "https://www.vinted.es/*",
+    "https://www.vinted.it/*", "https://www.vinted.nl/*", "https://www.vinted.pt/*", "https://www.vinted.lu/*",
+    "https://www.vinted.at/*", "https://www.vinted.pl/*", "https://www.vinted.co.uk/*",
+    "https://qwjsryjrkwbfibavqici.supabase.co/*"
+  ],
+  "content_scripts": [
+    {
       "matches": [
-        "https://www.temu.com/*",
-        "https://share.temu.com/*"
+        "https://*.aliexpress.com/item/*", "https://*.aliexpress.fr/item/*", "https://*.aliexpress.us/item/*",
+        "https://*.temu.com/*",
+        "https://*.shein.com/*", "https://*.shein.fr/*"
       ],
+      "js": ["src/content/product.js"],
       "run_at": "document_idle"
-   }, {
-      "js": [ "vinted-content.js" ],
-      "matches": [ "https://www.vinted.fr/*", "https://www.vinted.be/*", "https://www.vinted.de/*", "https://www.vinted.es/*" ],
-      "run_at": "document_idle"
-   }, {
-      "js": [ "ali-listing-content.js" ],
+    },
+    {
       "matches": [
-        "https://*.aliexpress.com/wholesale*",
-        "https://*.aliexpress.com/category/*",
-        "https://*.aliexpress.com/store/*",
-        "https://*.aliexpress.com/premium/*",
-        "https://*.aliexpress.fr/wholesale*"
+        "https://www.vinted.fr/items/*", "https://www.vinted.be/items/*", "https://www.vinted.de/items/*", "https://www.vinted.es/items/*",
+        "https://www.vinted.it/items/*", "https://www.vinted.nl/items/*", "https://www.vinted.pt/items/*", "https://www.vinted.lu/items/*",
+        "https://www.vinted.at/items/*", "https://www.vinted.pl/items/*", "https://www.vinted.co.uk/items/*"
       ],
+      "js": ["src/content/vinted.js"],
       "run_at": "document_idle"
-   } ],
-   "description": "AliEdge — Analyse de rentabilité AliExpress & Temu → Vinted avec recherche par image IA. By Ivan Bara.",
-   "host_permissions": [ "https://*.aliexpress.com/*", "https://*.aliexpress.fr/*", "https://*.aliexpress.us/*", "https://www.temu.com/*", "https://share.temu.com/*", "https://www.vinted.fr/*", "https://www.vinted.be/*", "https://www.vinted.de/*", "https://www.vinted.es/*", "https://www.bing.com/*", "https://*.alicdn.com/*", "https://*.kwcdn.com/*", "https://raw.githubusercontent.com/*", "https://ivanbara.com/*" ],
-   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxwjlXKx8tbKGmVj96T72xme5zY40WY014SoRXC7c0OvcQlNFO8JNsyssSiuHUvGdmSiZ2rItV4R21et2f2vX9O5ekNY3sgzHKshdRbdYQ5A7zn7k125UxiJG7BE/ZS4prdWwv01I/AtwGu64p5o02HY6ixppbxKBocdQMxZmrir7C+NtAWNlRNxR0XEJCF8gq6q52pEk20yKLuQMJgOh9Q0VCOKjw1l9QQViXG8XdhrkIGMDu3WL91bIJu7EJC8yLMis+xYlaZUwxSP68vZQGD+F163yhkj8SsIpORy42V+F/4c4dKCtYGYC/s75+VJpv8AJcE7RKQsP5dVsjPk9qQIDAQAB",
-   "manifest_version": 3,
-   "name": "AliEdge — AliExpress & Temu → Vinted",
-   "permissions": [ "activeTab", "scripting", "clipboardWrite", "storage", "cookies", "tabs", "notifications", "alarms", "contextMenus", "sidePanel" ],
-   "side_panel": { "default_path": "panel.html" },
-   "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "2.0",
-   "web_accessible_resources": [ {
-      "matches": [ "https://*.aliexpress.com/*", "https://*.aliexpress.fr/*", "https://www.temu.com/*", "https://www.vinted.fr/*", "https://www.vinted.be/*", "https://www.vinted.de/*" ],
-      "resources": [ "content.js", "vinted-content.js", "ali-content.js", "temu-content.js", "ali-listing-content.js", "results.html", "results.js", "dashboard.html", "dashboard.js", "compare.html", "compare.js", "panel.html", "panel.js" ]
-   }, {
-      "matches": [ "<all_urls>" ],
-      "resources": [ "dashboard.html", "dashboard.js", "compare.html", "compare.js", "panel.html", "panel.js", "ali-listing-content.js" ]
-   } ]
+    }
+  ]
 }

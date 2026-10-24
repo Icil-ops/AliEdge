@@ -1,17 +1,5 @@
-// web-ext configuration — auto-reload on file change
-// Lance avec : web-ext run (dans ce dossier)
+// web-ext : rechargement automatique pendant le développement (npx web-ext run).
 module.exports = {
-  run: {
-    // Perplexity Comet (Chromium)
-    target: ["chromium"],
-    chromiumBinary: "C:\\Users\\istva\\AppData\\Local\\Perplexity\\Comet\\Application\\comet.exe",
-    chromiumProfile: "C:\\Users\\istva\\AppData\\Local\\Perplexity\\Comet\\User Data\\Default",
-    startUrl: ["https://fr.aliexpress.com"],
-  },
-  // Fichiers à ignorer (non pertinents pour le rechargement)
-  ignoreFiles: [
-    "web-ext-config.js",
-    "*.md",
-    ".git/**",
-  ],
+  run: { target: ["chromium"], startUrl: ["https://fr.aliexpress.com"] },
+  ignoreFiles: ["tests/**", "tools/**", "dist/**", "*.md", ".git/**", ".github/**"],
 };
