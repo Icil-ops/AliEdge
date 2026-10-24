@@ -1,0 +1,32 @@
+name: Recopie vers Icil-ops/AliEdge
+
+# Chaque push sur v3 (ou main) de ce dépôt est recopié sur la branche main de Icil-ops/AliEdge,
+# où la publication automatique sur le Chrome Web Store prend le relais.
+# Secret requis ici : MIRROR_TOKEN (jeton GitHub avec « Contents: Read and write » sur Icil-ops/AliEdge).
+on:
+  push:
+    branches: [v3, main]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Recopier
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "::warning title=Recopie::Secret MIRROR_TOKEN manquant, recopie ignorée."
+            exit 0
+          fi
+          git push --force "https://x-access-token:${MIRROR_TOKEN}@github.com/Icil-ops/AliEdge.git" "HEAD:refs/heads/main"
+          echo "Recopié sur Icil-ops/AliEdge (main) : $(git rev-parse --short HEAD)"
