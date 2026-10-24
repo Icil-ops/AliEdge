@@ -63,7 +63,7 @@ const up = await fetch(`https://chromewebstore.googleapis.com/upload/v2/publishe
   body: readFileSync(zip),
 });
 const uj = await up.json();
-if (!up.ok) throw new Error(`Envoi refusé (${up.status}) : ${JSON.stringify(uj).slice(0, 400)}`);
+if (!up.ok) { for (const d of uj.error?.details ?? []) if (d.message) console.log(`Détail : ${d.message}`); throw new Error(`Envoi refusé (${up.status}) : ${uj.error?.message ?? ""}`); }
 let state = uj.uploadState;
 for (let i = 0; state === "IN_PROGRESS" || state === "UPLOAD_IN_PROGRESS"; i++) {
   if (i > 30) throw new Error("Envoi toujours en cours après 5 minutes.");

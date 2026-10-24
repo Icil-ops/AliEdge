@@ -3,7 +3,7 @@
   "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
   "short_name": "AliEdge",
   "version": "3.1.1",
-  "description": "Gratuit. Sur AliExpress, Temu et Shein : prix de revente Vinted, marge, ventes réellement constatées et catalogue des produits déjà vendus. By Ivan Bara.",
+  "description": "Gratuit. Sur AliExpress, Temu et Shein : prix de revente Vinted, marge et ventes réellement constatées. Par Ivan Bara.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",

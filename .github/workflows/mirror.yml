@@ -61,6 +61,6 @@ jobs:
           echo "$jobs" | python3 -c "import sys,json;[print(f\"{s['name']}: {s['conclusion']}\") for j in json.load(sys.stdin)['jobs'] for s in j['steps']]"
           jid=$(echo "$jobs" | python3 -c "import sys,json;print(json.load(sys.stdin)['jobs'][0]['id'])")
           curl "${h[@]}" "$api/actions/jobs/$jid/logs" -L -o store.log || true
-          grep -E "Manifest|Paquet|Soumis|Rien à publier|refus|Error|échou|secrets manquants|Jeton" store.log | sed 's/^[0-9T:.Z-]* //' | head -20 | while IFS= read -r l; do echo "::notice title=Store::$l"; done
+          grep -E "Manifest|Paquet|Soumis|Rien à publier|refus|Détail|Error|échou|secrets manquants|Jeton" store.log | sed 's/^[0-9T:.Z-]* //' | head -30 | while IFS= read -r l; do echo "::notice title=Store::$l"; done
           echo "::notice title=Store::publication $3"
 
