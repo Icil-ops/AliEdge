@@ -603,7 +603,7 @@ function viewCompte(params) {
         <form id="authform" class="stack" novalidate>
           <label class="field"><span>Email</span><input class="input" name="email" type="email" autocomplete="email" required></label>
           <label class="field"><span>Mot de passe</span><input class="input" name="password" type="password" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" minlength="8" required></label>
-          ${mode === "signup" ? `<label class="switch small"><span>Recevoir les conseils de revente et les nouveautés par email</span><input type="checkbox" name="marketing" checked></label>` : ""}
+          ${mode === "signup" ? `<label class="switch small"><span>Recevoir les conseils de revente et les nouveautés par email</span><input type="checkbox" name="marketing"></label>` : ""}
           <div id="autherr" role="alert"></div>
           <button class="btn primary block" type="submit">${mode === "signup" ? "Créer mon compte" : "Se connecter"}</button>
         </form>
