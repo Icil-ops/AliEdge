@@ -5,7 +5,10 @@ import { readFileSync } from "node:fs";
 
 const env = process.env;
 const EXT = env.CWS_EXTENSION_ID || "okkbjdadgkjdmdfepgcfeabholbgfafg";
-const missing = ["CWS_CLIENT_ID", "CWS_CLIENT_SECRET", "CWS_REFRESH_TOKEN", "CWS_PUBLISHER_ID"].filter((k) => !env[k]);
+// Identifiant d'éditeur du Chrome Web Store (pas secret). Le secret CWS_PUBLISHER_ID ne sert qu'à le remplacer.
+const DEFAULT_PUBLISHER = "96af20c5-dbc9-48c6-8db5-6c5642a5b983";
+const PUBLISHER = env.CWS_PUBLISHER_ID && env.CWS_PUBLISHER_ID !== EXT ? env.CWS_PUBLISHER_ID : DEFAULT_PUBLISHER;
+const missing = ["CWS_CLIENT_ID", "CWS_CLIENT_SECRET", "CWS_REFRESH_TOKEN"].filter((k) => !env[k]);
 if (missing.length) {
   console.log(`::warning title=Chrome Web Store::Publication automatique désactivée, secrets manquants : ${missing.join(", ")}`);
   process.exit(0);
@@ -13,7 +16,7 @@ if (missing.length) {
 
 const version = JSON.parse(readFileSync("manifest.json", "utf8")).version;
 const zip = `dist/aliedge-${version}.zip`;
-const base = `https://chromewebstore.googleapis.com/v2/publishers/${env.CWS_PUBLISHER_ID}/items/${EXT}`;
+const base = `https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER}/items/${EXT}`;
 
 export function newer(a, b) {
   const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
@@ -54,7 +57,7 @@ if (!newer(version, latest)) {
   process.exit(0);
 }
 
-const up = await fetch(`https://chromewebstore.googleapis.com/upload/v2/publishers/${env.CWS_PUBLISHER_ID}/items/${EXT}:upload`, {
+const up = await fetch(`https://chromewebstore.googleapis.com/upload/v2/publishers/${PUBLISHER}/items/${EXT}:upload`, {
   method: "POST",
   headers: { ...auth, "content-type": "application/zip" },
   body: readFileSync(zip),
