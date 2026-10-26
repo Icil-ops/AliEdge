@@ -15,7 +15,7 @@ jobs:
     # Ne tourne que dans le dépôt d'origine, pas dans la copie Icil-ops/AliEdge.
     if: github.repository == 'Ivanbaraofm/Aliedge'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
