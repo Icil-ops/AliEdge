@@ -19,6 +19,7 @@ const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { am
 
 const calls = [];
 const startedAt = Date.now();
+let radarCalls = 0;
 const rpc = {
   aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
@@ -74,6 +75,10 @@ await ctx.route("**/*", async (route) => {
     return route.fulfill({ status: 404, json: { message: "not mocked" } });
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
+    if (url.pathname.startsWith("/api/v2/catalog/items") && url.searchParams.get("order") === "newest_first") {
+      radarCalls++;
+      return route.fulfill({ json: { items: radarCalls === 1 ? catalogItems.slice(2) : catalogItems, pagination: { total_entries: 10 } } });
+    }
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><h1>vendeuse</h1>" });
@@ -154,6 +159,21 @@ check("catalogue affiché", (await page.locator("main").innerText()).includes("S
 await page.setViewportSize({ width: 1280, height: 900 });
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${shots}/7-catalogue-large.png`, fullPage: true });
+
+// 3b. Radar : un filtre, puis de nouvelles annonces détectées
+await page.goto(app("/radar"));
+await page.waitForSelector("#radarform", { timeout: 8000 }).catch(() => {});
+await page.fill('#radarform input[name="query"]', "sac bandoulière cuir").catch(() => {});
+await page.fill('#radarform input[name="priceMax"]', "25").catch(() => {});
+await page.click('#radarform button[type="submit"]').catch(() => {});
+await page.waitForSelector(".radar-filter", { timeout: 8000 }).catch(() => {});
+check("radar : filtre enregistré", (await page.locator(".radar-filter").count()) === 1);
+await page.waitForTimeout(1500);
+await page.evaluate(() => chrome.runtime.sendMessage({ type: "radar:tick" }));
+await page.goto(app("/radar"));
+await page.waitForSelector(".radar-item", { timeout: 8000 }).catch(() => {});
+check("radar : nouvelles annonces dans le flux", (await page.locator(".radar-item").count()) === 2, `${await page.locator(".radar-item").count()} annonce(s)`);
+await page.screenshot({ path: `${shots}/7b-radar.png`, fullPage: true });
 
 // 4. Suivis : trackers de vendeurs
 await page.goto(app("/suivis"));

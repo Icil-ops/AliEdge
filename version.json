@@ -1,6 +1,6 @@
 {
   "version": "3.2.0",
-  "notes": "Le catalogue se remplit en continu. Nouveau : suivre ce que vend un compte Vinted pendant 14 jours. Demande d'avis.",
+  "notes": "Nouveau : Radar des nouvelles annonces Vinted avec notifications, suivi des ventes d'un compte Vinted pendant 14 jours, catalogue alimenté en continu.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-26",
   "minVersion": "3.0.0"

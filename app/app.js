@@ -73,7 +73,7 @@ function announce(msg) {
 function route() {
   const h = location.hash.replace(/^#\/?/, "");
   const [name, qs] = h.split("?");
-  return { name: ["analyse", "catalogue", "suivis", "compte"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  return { name: ["analyse", "catalogue", "radar", "suivis", "compte"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -85,6 +85,93 @@ const ICON = {
   tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/></svg>',
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M6 16l4-5 3 3 5-7"/></svg>',
 };
+
+// ───────────────────────── Radar
+
+const CONDITIONS = { all: "Tous états", new: "Neuf avec étiquette", very_good: "Neuf ou très bon" };
+let radarEdit = null;
+
+function radarFeedHtml(feed) {
+  if (!feed.length) return `<div class="card empty">${ICON.search}<h2>En attente de nouvelles annonces</h2><p class="muted">Dès qu'une annonce correspondant à un filtre est publiée sur Vinted, elle apparaît ici et tu reçois une notification. Garde Chrome ouvert.</p></div>`;
+  return `<div class="items">${feed.slice(0, 120).map((i) => `
+    <a class="item radar-item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:56px 1fr auto">
+      ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+      <div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${esc(i.filterName || "")} · ${esc(ago(i.at))}${i.brand ? ` · ${esc(i.brand)}` : ""}${i.size ? ` · ${esc(i.size)}` : ""}</div></div>
+      <div class="stack" style="align-items:flex-end;gap:4px"><span class="p num">${eur(Number(i.price))}</span><span class="btn small primary">Voir</span></div>
+    </a>`).join("")}</div>`;
+}
+
+async function viewRadar() {
+  if (!state.me) return `<section class="card pad stack"><h2>Radar</h2><p class="muted">Connecte-toi pour surveiller les nouvelles annonces Vinted.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
+  const { filters, feed } = await api("radar:state").catch(() => ({ filters: [], feed: [] }));
+  const f = radarEdit ? filters.find((x) => x.id === radarEdit) || {} : {};
+  const marketOpts = Object.entries(MARKETS).map(([k, x]) => `<option value="${k}" ${(f.market || state.settings?.market || "fr") === k ? "selected" : ""}>${x.label}</option>`).join("");
+  const condOpts = Object.entries(CONDITIONS).map(([k, l]) => `<option value="${k}" ${(f.condition || "all") === k ? "selected" : ""}>${l}</option>`).join("");
+  return `
+    <section class="stack">
+      <div class="row between"><h2>Radar des nouvelles annonces</h2><span class="radar-live"><i></i>en direct</span></div>
+      <p class="small muted">Jusqu'à 5 filtres. AliEdge regarde les nouvelles annonces Vinted toutes les 30 secondes environ et te prévient. L'achat se fait toujours toi-même, sur Vinted.</p>
+      <form id="radarform" class="card pad stack">
+        <input type="hidden" name="id" value="${esc(f.id || "")}">
+        <div class="grid2">
+          <label class="field"><span>Mots-clés</span><input class="input" name="query" value="${esc(f.query || "")}" placeholder="ex. sac bandoulière cuir" required></label>
+          <label class="field"><span>Nom du filtre</span><input class="input" name="name" value="${esc(f.name || "")}" placeholder="facultatif"></label>
+        </div>
+        <div class="grid2">
+          <label class="field"><span>Prix min.</span><div class="input-euro"><input class="input num" name="priceMin" inputmode="decimal" value="${f.priceMin ?? ""}"></div></label>
+          <label class="field"><span>Prix max.</span><div class="input-euro"><input class="input num" name="priceMax" inputmode="decimal" value="${f.priceMax ?? ""}"></div></label>
+        </div>
+        <div class="grid2">
+          <label class="field"><span>Pays</span><select class="input" name="market">${marketOpts}</select></label>
+          <label class="field"><span>État</span><select class="input" name="condition">${condOpts}</select></label>
+        </div>
+        <label class="switch small"><span>Notification à chaque nouvelle annonce</span><input type="checkbox" name="notify" ${f.notify === false ? "" : "checked"}></label>
+        <div id="radarerr" role="alert"></div>
+        <div class="row" style="gap:8px"><button class="btn primary" type="submit">${f.id ? "Enregistrer" : "Ajouter le filtre"}</button>${f.id ? '<button class="btn ghost" type="button" id="radarcancel">Annuler</button>' : ""}</div>
+      </form>
+      ${filters.length ? `<div class="radar-filters">${filters.map((x) => `
+        <div class="radar-filter ${x.active ? "" : "off"}">
+          <div><b>${esc(x.name)}</b><div class="small muted">${esc(x.query)}${x.priceMin != null ? ` · dès ${eur(x.priceMin)}` : ""}${x.priceMax != null ? ` · jusqu'à ${eur(x.priceMax)}` : ""} · ${esc((x.market || "fr").toUpperCase())}</div></div>
+          <div class="row" style="gap:6px">
+            <button class="btn ghost small" type="button" data-rtoggle="${esc(x.id)}">${x.active ? "Pause" : "Reprendre"}</button>
+            <button class="btn ghost small" type="button" data-redit="${esc(x.id)}">Modifier</button>
+            <button class="btn ghost small" type="button" data-rdel="${esc(x.id)}" aria-label="Supprimer ${esc(x.name)}">×</button>
+          </div>
+        </div>`).join("")}</div>` : ""}
+    </section>
+    <section class="stack" style="margin-top:22px">
+      <div class="row between"><h2>Flux</h2>${feed.length ? '<button class="btn ghost small" type="button" id="radarclear">Vider</button>' : ""}</div>
+      <div id="radarfeed">${radarFeedHtml(feed)}</div>
+    </section>`;
+}
+
+async function refreshRadarFeed() {
+  const box = document.getElementById("radarfeed");
+  if (!box) return;
+  const { feed } = await api("radar:state").catch(() => ({ feed: [] }));
+  box.innerHTML = radarFeedHtml(feed);
+  box.querySelector(".radar-item")?.classList.add("flash");
+}
+
+function bindRadar() {
+  document.getElementById("radarform")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const num = (v) => (String(v || "").trim() === "" ? null : Number(String(v).replace(",", ".")));
+    const filter = { id: fd.get("id") || undefined, query: fd.get("query"), name: fd.get("name"), priceMin: num(fd.get("priceMin")), priceMax: num(fd.get("priceMax")), market: fd.get("market"), condition: fd.get("condition"), notify: fd.get("notify") === "on", active: true };
+    try { await api("radar:save", { filter }); radarEdit = null; toast("Filtre enregistré : surveillance lancée"); render(); }
+    catch (x) { document.getElementById("radarerr").innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+  });
+  document.getElementById("radarcancel")?.addEventListener("click", () => { radarEdit = null; render(); });
+  document.getElementById("radarclear")?.addEventListener("click", async () => { await api("radar:clear"); render(); });
+  document.querySelectorAll("[data-redit]").forEach((b) => b.addEventListener("click", () => { radarEdit = b.dataset.redit; render(); }));
+  document.querySelectorAll("[data-rdel]").forEach((b) => b.addEventListener("click", async () => { await api("radar:remove", { id: b.dataset.rdel }); render(); }));
+  document.querySelectorAll("[data-rtoggle]").forEach((b) => b.addEventListener("click", async () => {
+    const { filters } = await api("radar:state");
+    const f = filters.find((x) => x.id === b.dataset.rtoggle);
+    if (f) { await api("radar:save", { filter: { ...f, active: !f.active } }); render(); }
+  }));
+}
 
 // ───────────────────────── Compte
 
@@ -841,6 +928,7 @@ async function render() {
   if (name === "analyse") html = viewAnalyse();
   else if (name === "catalogue") html = viewCatalogue();
   else if (name === "suivis") html = await viewSuivis();
+  else if (name === "radar") html = await viewRadar();
   else html = viewCompte(params);
   if (seq !== renderSeq) return;
   const keepFocus = document.activeElement?.id;
@@ -852,6 +940,7 @@ async function render() {
   if (name === "analyse") { bindAnalyse(); renderSteps(); }
   else if (name === "catalogue") bindCatalogue();
   else if (name === "suivis") bindSuivis();
+  else if (name === "radar") bindRadar();
   else bindCompte(params);
 }
 
@@ -868,6 +957,7 @@ window.addEventListener("hashchange", () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "tab:changed" && !isTab) loadProduct();
   if (msg?.type === "pending") takePending();
+  if (msg?.type === "radar:new" && route().name === "radar") refreshRadarFeed();
 });
 
 async function takePending() {

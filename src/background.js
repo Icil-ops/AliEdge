@@ -34,6 +34,7 @@ async function syncAlarms(settings) {
   // La détection des ventes fait partie du fonctionnement d'AliEdge : toujours active (voir la page confidentialité).
   chrome.alarms.create("community", { periodInMinutes: 30, delayInMinutes: 3 });
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
+  await syncRadarAlarm();
 }
 
 // ───────────────────────── Installation
@@ -360,6 +361,101 @@ async function refreshProducts() {
   }
 }
 
+// ───────────────────────── Radar : nouvelles annonces Vinted selon des filtres (sans achat automatique)
+
+const RADAR_KEY = "ae_radar";          // { filters: [...], feed: [...], seen: { [filterId]: [ids] } }
+const RADAR_MAX_FILTERS = 5;
+async function radarState() {
+  const r = await chrome.storage.local.get(RADAR_KEY);
+  return { filters: [], feed: [], seen: {}, ...(r[RADAR_KEY] || {}) };
+}
+async function saveRadar(st) { await chrome.storage.local.set({ [RADAR_KEY]: st }); }
+async function syncRadarAlarm(st) {
+  const active = (st || (await radarState())).filters.some((f) => f.active);
+  if (active) chrome.alarms.create("radar", { periodInMinutes: 0.5, delayInMinutes: 0.1 });
+  else chrome.alarms.clear("radar");
+}
+
+let radarRunning = false;
+async function radarTick() {
+  if (radarRunning) return;
+  radarRunning = true;
+  try {
+    const st = await radarState();
+    const active = st.filters.filter((f) => f.active).slice(0, RADAR_MAX_FILTERS);
+    let fresh = 0;
+    for (const f of active) {
+      let items;
+      try { items = await vinted.searchNewest({ query: f.query, market: f.market, condition: f.condition, priceMin: f.priceMin, priceMax: f.priceMax }); }
+      catch (e) { if (e.code === "blocked" || e.code === "rate_limited") break; continue; }
+      const seen = new Set(st.seen[f.id] || []);
+      const first = seen.size === 0;            // premier passage : on mémorise sans notifier
+      const news = items.filter((i) => !seen.has(i.vinted_id));
+      for (const i of items) seen.add(i.vinted_id);
+      st.seen[f.id] = [...seen].slice(-400);
+      if (first) continue;
+      for (const i of news.slice(0, 10)) {
+        st.feed.unshift({ ...i, filterId: f.id, filterName: f.name, at: Date.now() });
+        fresh++;
+        if (f.notify !== false) {
+          chrome.notifications.create(`radar-${i.vinted_id}`, {
+            type: "basic", iconUrl: "icons/icon128.png",
+            title: `${eur0(i.price)} · ${f.name}`.slice(0, 80),
+            message: (i.title || "Nouvelle annonce").slice(0, 120),
+            priority: 2,
+          });
+        }
+      }
+      await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
+    }
+    st.feed = st.feed.slice(0, 200);
+    await saveRadar(st);
+    if (fresh) {
+      const prev = Number((await chrome.action.getBadgeText({})) || 0);
+      chrome.action.setBadgeBackgroundColor({ color: "#0fa968" });
+      chrome.action.setBadgeText({ text: String(Math.min(99, prev + fresh)) });
+      broadcast({ type: "radar:new" });
+    }
+  } finally { radarRunning = false; }
+}
+const eur0 = (n) => `${Number(n).toFixed(2).replace(".", ",")} €`;
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  if (!id.startsWith("radar-")) return;
+  const vid = id.slice(6);
+  const st = await radarState();
+  const it = st.feed.find((x) => String(x.vinted_id) === vid);
+  if (it?.url) chrome.tabs.create({ url: it.url });
+  chrome.notifications.clear(id);
+});
+
+async function radarSave({ filter }) {
+  const st = await radarState();
+  const f = {
+    id: filter.id || `f${Date.now().toString(36)}`,
+    name: String(filter.name || filter.query || "Filtre").slice(0, 40),
+    query: String(filter.query || "").slice(0, 120),
+    market: MARKETS[filter.market] ? filter.market : "fr",
+    condition: ["all", "new", "very_good"].includes(filter.condition) ? filter.condition : "all",
+    priceMin: filter.priceMin === "" || filter.priceMin == null ? null : Math.max(0, Number(filter.priceMin) || 0),
+    priceMax: filter.priceMax === "" || filter.priceMax == null ? null : Math.max(0, Number(filter.priceMax) || 0),
+    notify: filter.notify !== false,
+    active: filter.active !== false,
+  };
+  if (!f.query) throw new sb.ApiError("Indique des mots-clés à surveiller.", 400, "invalid");
+  const i = st.filters.findIndex((x) => x.id === f.id);
+  if (i >= 0) st.filters[i] = f;
+  else {
+    if (st.filters.length >= RADAR_MAX_FILTERS) throw new sb.ApiError(`${RADAR_MAX_FILTERS} filtres au maximum : supprime-en un avant d'en ajouter.`, 400, "limit");
+    st.filters.push(f);
+    st.seen[f.id] = [];
+  }
+  await saveRadar(st);
+  await syncRadarAlarm(st);
+  vinted.inBackground(radarTick).catch(() => {});
+  return st;
+}
+
 // ───────────────────────── Trackers de vendeurs (14 jours)
 
 async function addTracker({ sellerId, market = "fr", label = null }) {
@@ -383,6 +479,7 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "community") vinted.inBackground(communityCheck).catch(() => {});
+  if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "watch") refreshWatches();
 });
 
@@ -451,6 +548,11 @@ const handlers = {
   "vinted:item": async ({ item }) => { await reportVintedItem(item); return {}; },
   "vinted:member": async (msg) => reportMember(msg),
   "tracker:add": async (msg) => addTracker(msg),
+  "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
+  "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
+  "radar:remove": async ({ id }) => { const st = await radarState(); st.filters = st.filters.filter((f) => f.id !== id); delete st.seen[id]; st.feed = st.feed.filter((x) => x.filterId !== id); await saveRadar(st); await syncRadarAlarm(st); return { filters: st.filters, feed: st.feed }; },
+  "radar:tick": async () => { await vinted.inBackground(radarTick); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
+  "radar:clear": async () => { const st = await radarState(); st.feed = []; await saveRadar(st); return { filters: st.filters, feed: [] }; },
   "tracker:list": async () => sb.rpc("aliedge_trackers"),
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:remove": async ({ id }) => sb.rpc("aliedge_tracker_remove", { _id: id }),

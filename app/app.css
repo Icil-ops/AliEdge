@@ -310,3 +310,14 @@ body { padding-bottom: 64px; }
 @media (prefers-reduced-motion: reduce) { .tracker-dot { animation: none } }
 
 .tracker a.item { text-decoration: none; color: inherit; }
+
+/* Radar */
+.radar-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--gain); }
+.radar-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--gain); animation: tracker-ping 2s ease-out infinite; }
+.radar-filters { display: grid; gap: 8px; }
+.radar-filter { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.radar-filter.off { opacity: .6; }
+a.radar-item { text-decoration: none; color: inherit; }
+.radar-item.flash { animation: radar-flash 1.6s ease-out; }
+@keyframes radar-flash { 0% { box-shadow: 0 0 0 0 rgba(11,143,98,.55); background: var(--gain-soft); } 100% { box-shadow: 0 0 0 12px rgba(11,143,98,0); } }
+@media (prefers-reduced-motion: reduce) { .radar-live i, .radar-item.flash { animation: none } }

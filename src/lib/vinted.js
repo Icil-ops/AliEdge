@@ -171,6 +171,21 @@ export async function searchText(query, { market = "fr", condition = "all", perP
   return { items, total };
 }
 
+/** Nouvelles annonces pour le Radar : les plus récentes d'abord, avec fourchette de prix. */
+export async function searchNewest({ query, market = "fr", condition = "all", priceMin = null, priceMax = null, perPage = 40 }) {
+  const url = new URL(`https://${host(market)}/api/v2/catalog/items`);
+  if (query) url.searchParams.set("search_text", String(query).trim());
+  url.searchParams.set("per_page", String(perPage));
+  url.searchParams.set("page", "1");
+  url.searchParams.set("order", "newest_first");
+  if (priceMin != null && priceMin !== "") url.searchParams.set("price_from", String(priceMin));
+  if (priceMax != null && priceMax !== "") url.searchParams.set("price_to", String(priceMax));
+  (CONDITION_IDS[condition] || []).forEach((id) => url.searchParams.append("status_ids[]", String(id)));
+  const res = await vFetch(url.toString(), "json", market);
+  const raw = Array.isArray(res.body?.items) ? res.body.items : [];
+  return raw.map((it) => normaliseItem(it, market)).filter((i) => i.vinted_id && i.price != null);
+}
+
 /**
  * État d'une annonce à partir de sa page : vendue, active ou retirée.
  * Repose sur le JSON-LD (availability) et, à défaut, sur les champs du flux de la page.
