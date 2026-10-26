@@ -104,13 +104,18 @@ function radarFeedHtml(feed) {
 async function viewRadar() {
   if (!state.me) return `<section class="card pad stack"><h2>Radar</h2><p class="muted">Connecte-toi pour surveiller les nouvelles annonces Vinted.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
   const { filters, feed } = await api("radar:state").catch(() => ({ filters: [], feed: [] }));
+  const guard = await api("guard:status").catch(() => null);
+  const guardLine = !guard ? "" : guard.pausedUntil
+    ? `<p class="small guard paused">Protection du compte : pause jusqu'à ${new Date(guard.pausedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Vinted a ralenti les réponses, AliEdge reprend tout seul.</p>`
+    : `<p class="small guard">Protection du compte active : ${guard.lastHour}/${guard.budget.perHour} vérifications cette heure, rythme humain, pause automatique au moindre signal de Vinted.</p>`;
   const f = radarEdit ? filters.find((x) => x.id === radarEdit) || {} : {};
   const marketOpts = Object.entries(MARKETS).map(([k, x]) => `<option value="${k}" ${(f.market || state.settings?.market || "fr") === k ? "selected" : ""}>${x.label}</option>`).join("");
   const condOpts = Object.entries(CONDITIONS).map(([k, l]) => `<option value="${k}" ${(f.condition || "all") === k ? "selected" : ""}>${l}</option>`).join("");
   return `
     <section class="stack">
       <div class="row between"><h2>Radar des nouvelles annonces</h2><span class="radar-live"><i></i>en direct</span></div>
-      <p class="small muted">Jusqu'à 5 filtres. AliEdge regarde les nouvelles annonces Vinted toutes les 30 secondes environ et te prévient. L'achat se fait toujours toi-même, sur Vinted.</p>
+      <p class="small muted">Jusqu'à 5 filtres. AliEdge regarde les nouvelles annonces Vinted à tour de rôle, toutes les 30 secondes environ, et te prévient. L'achat se fait toujours toi-même, sur Vinted.</p>
+      ${guardLine}
       <form id="radarform" class="card pad stack">
         <input type="hidden" name="id" value="${esc(f.id || "")}">
         <div class="grid2">

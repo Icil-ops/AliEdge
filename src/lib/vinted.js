@@ -16,6 +16,50 @@ export async function inBackground(fn) {
   try { return await fn(); } finally { quiet = false; }
 }
 
+// ── Garde-fou : protège le compte Vinted du membre.
+// Les tâches de fond (catalogue, suivis, radar) ont un budget strict, un espacement aléatoire
+// et s'arrêtent net (de 15 min à 12 h) dès que Vinted montre le moindre signe de gêne.
+// Les recherches lancées à la main ne sont jamais bloquées par le budget, seulement par une pause en cours.
+export const BUDGET = { perMinute: 4, perHour: 90, perDay: 700, gapMin: 4000, gapMax: 9000 };
+const COOLDOWNS = [15, 60, 180, 720]; // minutes
+const GUARD_KEY = "ae_guard";
+let lastBg = 0;
+async function guardState() {
+  const r = await chrome.storage.local.get(GUARD_KEY).catch(() => ({}));
+  return { hits: [], pauseUntil: 0, strikes: 0, okStreak: 0, ...(r[GUARD_KEY] || {}) };
+}
+async function saveGuard(g) { await chrome.storage.local.set({ [GUARD_KEY]: g }).catch(() => {}); }
+export async function guardStatus() {
+  const g = await guardState(); const now = Date.now();
+  return { pausedUntil: g.pauseUntil > now ? g.pauseUntil : 0, lastHour: g.hits.filter((t) => t > now - 3600e3).length, lastDay: g.hits.length, budget: BUDGET };
+}
+async function beforeRequest() {
+  const g = await guardState(); const now = Date.now();
+  if (g.pauseUntil > now) throw new VintedError("Pause de protection : AliEdge laisse Vinted tranquille un moment.", "paused");
+  if (!quiet) return;
+  g.hits = g.hits.filter((t) => t > now - 86400e3);
+  const inLast = (ms) => g.hits.filter((t) => t > now - ms).length;
+  if (inLast(60e3) >= BUDGET.perMinute || inLast(3600e3) >= BUDGET.perHour || g.hits.length >= BUDGET.perDay)
+    throw new VintedError("Budget de fond atteint, reprise plus tard.", "budget");
+  const wait = lastBg + BUDGET.gapMin + Math.random() * (BUDGET.gapMax - BUDGET.gapMin) - now;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastBg = Date.now();
+  g.hits.push(lastBg);
+  await saveGuard(g);
+}
+async function afterResponse(status, suspicious = false) {
+  const g = await guardState();
+  if (status === 401 || status === 403 || status === 429 || suspicious) {
+    const min = COOLDOWNS[Math.min(g.strikes, COOLDOWNS.length - 1)];
+    g.pauseUntil = Date.now() + min * 60e3 * (0.9 + Math.random() * 0.2);
+    g.strikes += 1; g.okStreak = 0;
+  } else if (status >= 200 && status < 300 || status === 404) {
+    g.okStreak += 1;
+    if (g.okStreak >= 50 && g.strikes > 0) { g.strikes -= 1; g.okStreak = 0; }
+  } else return;
+  await saveGuard(g);
+}
+
 export class VintedError extends Error {
   constructor(message, code = "") { super(message); this.code = code; }
 }
@@ -31,11 +75,13 @@ async function directFetch(url, kind) {
       credentials: "include",
       headers: { Accept: kind === "json" ? "application/json, text/plain, */*" : "text/html" },
     });
-    if (res.status === 404) return { status: 404, body: null };
+    if (res.status === 404) { await afterResponse(404); return { status: 404, body: null }; }
     if (!res.ok) {
       if ([401, 403, 429].includes(res.status)) directBlockedUntil = Date.now() + 5 * 60_000;
+      if (res.status === 429) await afterResponse(429);
       return null;
     }
+    await afterResponse(res.status);
     if (kind === "json") {
       const ct = res.headers.get("content-type") || "";
       if (!ct.includes("json")) { directBlockedUntil = Date.now() + 5 * 60_000; return null; }
@@ -109,6 +155,7 @@ async function bridgeFetch(url, kind, market) {
   scheduleBridgeClose();
   const out = res?.result;
   if (!out) throw new VintedError("Vinted n'a pas répondu.", "bridge_empty");
+  await afterResponse(out.status || 0);
   if (out.error) {
     if (out.status === 401 || out.status === 403) throw new VintedError("Vinted bloque la recherche. Ouvre vinted.fr, connecte-toi, puis relance.", "blocked");
     if (out.status === 429) throw new VintedError("Vinted limite les recherches. Patiente une minute.", "rate_limited");
@@ -118,6 +165,7 @@ async function bridgeFetch(url, kind, market) {
 }
 
 async function vFetch(url, kind, market) {
+  await beforeRequest();
   const direct = await directFetch(url, kind);
   if (direct) return direct;
   return bridgeFetch(url, kind, market);
