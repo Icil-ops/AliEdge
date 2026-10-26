@@ -1,5 +1,5 @@
 // AliEdge — service worker : session, analyses, catalogue, suivis, détection des ventes.
-import { DEFAULT_SETTINGS, MARKETS } from "./config.js";
+import { DEFAULT_SETTINGS, MARKETS, SITE_URL } from "./config.js";
 import * as sb from "./lib/supabase.js";
 import * as vinted from "./lib/vinted.js";
 import { analyse, toEur, parsePrice, round2 } from "./lib/pricing.js";
@@ -51,6 +51,8 @@ async function setup() {
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await setup();
   if (reason === "install") chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/compte?welcome=1") });
+  // Membres existants : pas de prise en main après une mise à jour.
+  if (reason === "update") chrome.storage.local.set({ ae_onboarded: Date.now() }).catch(() => {});
 });
 chrome.runtime.onStartup.addListener(setup);
 
@@ -345,7 +347,7 @@ async function communityCheck() {
 
 async function refreshProducts() {
   let rows = [];
-  try { rows = await sb.rpc("aliedge_products_to_refresh", { _limit: 2 }); } catch { return; }
+  try { rows = await sb.rpc("aliedge_products_to_refresh", { _limit: 4 }); } catch { return; }
   const market = (await getSettings()).market || "fr";
   for (const p of rows || []) {
     try {
@@ -520,6 +522,79 @@ async function reportVintedItem(item) {
   await sb.rpc("aliedge_report_items", { _items: [item] }).catch(() => {});
 }
 
+
+// ───────────────────────── Catalogue : ajout des produits d'une page de résultats (AliExpress, Temu, Shein)
+
+/** Lit les cartes produit visibles sur la page (aucune requête en plus : seulement ce que la page affiche). */
+function readProductCards() {
+  const pats = [
+    ["aliexpress", /^https:\/\/[a-z.]*aliexpress\.[a-z.]+\/item\/(\d+)\.html/i],
+    ["temu", /^https:\/\/(?:www\.)?temu\.com\/[^?#]*-g-(\d+)\.html/i],
+    ["shein", /^https:\/\/[a-z.]*shein\.[a-z.]+\/[^?#]*-p-(\d+)(?:-cat-\d+)?\.html/i],
+  ];
+  const out = new Map();
+  const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
+  for (const a of document.querySelectorAll("a[href]")) {
+    const href = a.href;
+    for (const [platform, re] of pats) {
+      const m = href.match(re);
+      if (!m) continue;
+      const key = `${platform}:${m[1]}`;
+      if (out.has(key)) break;
+      let card = a;
+      for (let i = 0; i < 6 && card.parentElement; i++) {
+        if (card.querySelector("img") && /\d[.,]\d{2}\s?€|€\s?\d/.test(card.textContent || "")) break;
+        card = card.parentElement;
+      }
+      const img = card.querySelector("img");
+      let src = img ? (img.currentSrc || img.getAttribute("src") || img.dataset?.src || "") : "";
+      if (src.startsWith("//")) src = `https:${src}`;
+      const title = clean(a.getAttribute("title") || card.querySelector("[title]")?.getAttribute("title") || img?.alt || a.textContent || card.querySelector("h1,h2,h3")?.textContent);
+      const pm = clean(card.textContent).match(/(\d{1,4}[.,]\d{2})\s?€|€\s?(\d{1,4}[.,]\d{2})/);
+      const price = pm ? Number((pm[1] || pm[2]).replace(",", ".")) : null;
+      if (title.length >= 8 && title.length <= 400) out.set(key, { platform, source_id: m[1], url: href.split(/[?#]/)[0], title: title.slice(0, 300), image_url: /^https:\/\//.test(src) ? src : null, price, category: null });
+      break;
+    }
+  }
+  return [...out.values()].slice(0, 120);
+}
+
+async function importPage() {
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi pour ajouter des produits au catalogue.", 401, "auth");
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  let host = "";
+  try { host = new URL(tab?.url || "").hostname; } catch { /* onglet sans adresse */ }
+  if (!tab?.id || !/(^|\.)(aliexpress\.[a-z.]+|temu\.com|shein\.[a-z.]+)$/.test(host)) throw new sb.ApiError("Ouvre une page de résultats AliExpress, Temu ou Shein (recherche, catégorie ou meilleures ventes), puis réessaie.", 400, "page");
+  const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readProductCards });
+  const cards = res?.result || [];
+  if (!cards.length) throw new sb.ApiError("Aucun produit lisible sur cette page. Fais défiler la liste pour charger les produits, puis réessaie.", 400, "empty");
+  let added = 0;
+  for (let i = 0; i < cards.length; i += 20) {
+    added += Number(await sb.rpc("aliedge_seen_products", { _products: cards.slice(i, i + 20) }).catch(() => 0)) || 0;
+  }
+  return { found: cards.length, added };
+}
+
+// ───────────────────────── Barapics en API (même compte, mêmes crédits)
+
+async function barapics(body) {
+  const session = await sb.getSession();
+  if (!session) throw new sb.ApiError("Connecte-toi pour créer des photos.", 401, "auth");
+  let res;
+  try {
+    res = await fetch(`${SITE_URL}/api/public/aliedge-photos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new sb.ApiError("Barapics ne répond pas. Vérifie ta connexion et réessaie.", 0, "network");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new sb.ApiError(data.error || "Création impossible pour le moment.", res.status, data.code || (res.status === 402 ? "quota" : ""));
+  return data;
+}
+
 // ───────────────────────── Messages
 
 const handlers = {
@@ -562,6 +637,8 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:remove": async ({ id }) => sb.rpc("aliedge_tracker_remove", { _id: id }),
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
+  "catalog:importPage": async () => importPage(),
+  "barapics": async ({ body }) => barapics(body),
   "pending:take": async () => {
     const r = await chrome.storage.session.get("ae_pending");
     await chrome.storage.session.remove("ae_pending");

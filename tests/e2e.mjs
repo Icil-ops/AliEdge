@@ -20,6 +20,7 @@ const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { am
 const calls = [];
 const startedAt = Date.now();
 let radarCalls = 0;
+const barapicsCalls = [];
 const rpc = {
   aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
@@ -85,7 +86,23 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
+  if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/w/wholesale")) {
+    const cards = ["Sac seau cuir tressé femme", "Lunettes de soleil oeil de chat", "Collier chaîne dorée fine", "Casquette brodée vintage", "Pochette téléphone bandoulière"]
+      .map((t, i) => `<div class="card"><a href="https://fr.aliexpress.com/item/100500700${i}.html?spm=x"><img src="https://ae01.alicdn.com/kf/L${i}.jpg" alt="${t}"><h3>${t}</h3></a><div class="price">${(3.5 + i).toFixed(2).replace(".", ",")} €</div></div>`).join("");
+    return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche</title><main>${cards}</main>` });
+  }
   if (h.endsWith("aliexpress.com")) return route.fulfill({ contentType: "text/html", body: fx("ali.html") });
+  if (h === "barapics.com" && url.pathname === "/api/public/aliedge-photos") {
+    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors, body: "" });
+    const body = JSON.parse(req.postData() || "{}");
+    barapicsCalls.push(body.action);
+    if (body.action === "credits") return route.fulfill({ headers: cors, json: { remaining: 12, unlimited: false, plan: "pro", planLabel: "Pro" } });
+    if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
+    await new Promise((r) => setTimeout(r, 400));
+    return route.fulfill({ headers: cors, json: { id: `p-${body.sceneId}`, url: "https://barapics.com/mock.png", attempts: 1, qualityReport: null } });
+  }
+  if (h === "barapics.com" && url.pathname === "/mock.png") return route.fulfill({ contentType: "image/png", body: PNG });
   if (/alicdn|vinted\.net|kwcdn|ltwebstatic/.test(h)) return route.fulfill({ contentType: "image/png", body: PNG });
   return route.fulfill({ status: 204, body: "" });
 });
@@ -115,6 +132,23 @@ if (await email.count()) {
 await page.screenshot({ path: `${shots}/2-compte-connecte.png`, fullPage: true });
 check("connecté avec l'accès complet", /Pro|Accès complet/.test((await page.locator("#plan").textContent()) || ""), await page.locator("#plan").textContent());
 
+// 1b. Prise en main au premier lancement : pays, analyse d'exemple, Radar
+await page.waitForSelector(".onboard", { timeout: 8000 }).catch(() => {});
+check("prise en main affichée au premier lancement", (await page.locator(".onboard").count()) === 1);
+await page.screenshot({ path: `${shots}/2b-bienvenue-1.png`, fullPage: true });
+await page.click('[data-next="2"]').catch(() => {});
+await page.waitForSelector("#ob-run", { timeout: 5000 }).catch(() => {});
+await page.click("#ob-run").catch(() => {});
+await page.waitForSelector("#ob-result .ticket, #ob-result .notice", { timeout: 20000 }).catch(() => {});
+check("prise en main : analyse d'exemple", (await page.locator("#ob-result .ticket").count()) === 1, await page.locator("#ob-result").innerText().catch(() => ""));
+await page.screenshot({ path: `${shots}/2c-bienvenue-2.png`, fullPage: true });
+await page.click('[data-next="3"]').catch(() => {});
+await page.waitForSelector("[data-done]", { timeout: 5000 }).catch(() => {});
+await page.screenshot({ path: `${shots}/2d-bienvenue-3.png`, fullPage: true });
+await page.click("[data-done]").catch(() => {});
+await page.waitForTimeout(500);
+check("prise en main terminée", await page.evaluate(async () => !!(await chrome.storage.local.get("ae_onboarded")).ae_onboarded));
+
 // 2. Analyse depuis une fiche AliExpress (panneau attaché à l'onglet produit)
 const product = await ctx.newPage();
 await product.goto("https://fr.aliexpress.com/item/1005006.html");
@@ -143,13 +177,21 @@ await panel.screenshot({ path: `${shots}/5-resultat.png`, fullPage: true });
 const margin = await panel.locator(".ticket .big").textContent().catch(() => null);
 check("analyse : marge calculée", !!margin && /€/.test(margin), margin ?? (await panel.locator(".notice").first().textContent()));
 check("analyse : ventes constatées affichées", (await panel.locator(".badge-sold").count()) === 3);
-const link = await panel.locator('main a[title^="Créer des photos"]').getAttribute("href");
-check("lien Barapics avec photos importées", /#import=/.test(link || ""), (link || "").slice(0, 80));
 check("analyse partagée au catalogue", calls.includes("/rest/v1/rpc/aliedge_contribute"));
 await panel.waitForSelector("#review-ask", { timeout: 6000 }).catch(() => {});
 check("demande d'avis après la 3e analyse", (await panel.locator("#review-ask").count()) === 1);
 await panel.screenshot({ path: `${shots}/5b-avis.png` });
 await panel.click("#review-later").catch(() => {});
+
+// 2b. Photos Barapics créées depuis le panneau AliEdge (API Barapics)
+await panel.click('[data-act="photos"]');
+await panel.waitForFunction(() => /disponible/.test(document.querySelector("#pcredits")?.textContent || ""), null, { timeout: 8000 }).catch(() => {});
+check("photos Barapics : solde affiché dans AliEdge", /12 photos disponibles/.test((await panel.locator("#pcredits").textContent().catch(() => "")) || ""));
+await panel.click("#pgo");
+await panel.waitForFunction(() => document.querySelectorAll(".pshot.done").length === 4, null, { timeout: 20000 }).catch(() => {});
+await panel.screenshot({ path: `${shots}/5c-photos.png`, fullPage: true });
+check("photos Barapics : 4 photos créées depuis AliEdge", (await panel.locator(".pshot.done").count()) === 4, barapicsCalls.join(","));
+await panel.keyboard.press("Escape");
 
 // 3. Catalogue
 await page.goto(app("/catalogue"));
@@ -159,6 +201,15 @@ check("catalogue affiché", (await page.locator("main").innerText()).includes("S
 await page.setViewportSize({ width: 1280, height: 900 });
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${shots}/7-catalogue-large.png`, fullPage: true });
+
+// 3a. Ajout des produits d'une page de résultats AliExpress au catalogue
+const listing = await ctx.newPage();
+await listing.goto("https://fr.aliexpress.com/w/wholesale-sac.html");
+await listing.bringToFront();
+const before = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
+const imported = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importPage" }));
+check("catalogue : produits d'une page de résultats ajoutés", imported?.ok && imported.data.found === 5 && calls.filter((c) => c.endsWith("aliedge_seen_products")).length > before, JSON.stringify(imported));
+await listing.close();
 
 // 3b. Radar : un filtre, puis de nouvelles annonces détectées
 await page.goto(app("/radar"));

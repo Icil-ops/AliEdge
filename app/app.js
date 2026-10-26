@@ -73,7 +73,7 @@ function announce(msg) {
 function route() {
   const h = location.hash.replace(/^#\/?/, "");
   const [name, qs] = h.split("?");
-  return { name: ["analyse", "catalogue", "radar", "suivis", "compte"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  return { name: ["analyse", "catalogue", "radar", "suivis", "compte", "bienvenue"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -454,7 +454,7 @@ function viewResult(entry) {
     <div class="grid3">
       <button class="btn" type="button" data-act="watch" data-key="${esc(watchKey)}">${ICON.eye}Suivre</button>
       <button class="btn" type="button" data-act="copy">${ICON.copy}Annonce</button>
-      <a class="btn" href="${esc(barapicsLink(entry.product))}" target="_blank" rel="noopener" title="Créer des photos portées réalistes avec Barapics">${ICON.camera}Photos</a>
+      <button class="btn" type="button" data-act="photos" title="Créer des photos réalistes avec Barapics, sans quitter AliEdge">${ICON.camera}Photos</button>
     </div>
     <details class="card pad">
       <summary style="cursor:pointer;font-weight:600">Texte d'annonce prêt à coller</summary>
@@ -512,6 +512,7 @@ function bindAnalyse() {
     const l = draftListing(state.entry.product || { title: state.entry.query }, state.entry.result.sell);
     try { await navigator.clipboard.writeText(`${l.title}\n\n${l.description}`); toast("Annonce copiée"); } catch { toast("Copie impossible : sélectionne le texte ci-dessous"); }
   });
+  document.querySelector('[data-act="photos"]')?.addEventListener("click", () => openPhotos(state.entry?.product));
   document.querySelectorAll(".ring circle.meter").forEach((c) => requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.target; }));
 }
 
@@ -570,6 +571,10 @@ function viewCatalogue() {
         </select>
       </div>
       <div class="seg" role="group" aria-label="Trier">${sorts.map(([k, l]) => `<button type="button" data-sort="${k}" aria-pressed="${f.sort === k}">${l}</button>`).join("")}</div>
+      <div class="import-row">
+        <button id="import-page" class="btn" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
+        <span class="small muted">Sur une recherche ou une catégorie AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
+      </div>
       ${!state.me.pro ? `<div class="notice info row between wrap"><span>Version gratuite : les 3 premiers produits sont visibles.</span><a class="btn primary" href="${BUY_URL}" target="_blank" rel="noopener">Tout débloquer</a></div>` : ""}
     </div>`;
   let body;
@@ -578,7 +583,7 @@ function viewCatalogue() {
   } else if (c.error) {
     body = `<div class="notice err">${esc(c.error)}</div>`;
   } else if (!c.rows.length) {
-    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Chaque analyse des membres y ajoute un produit et ses annonces Vinted. Lance une analyse pour l'enrichir.</p></div>`;
+    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Chaque fiche produit consultée par les membres y entre, puis AliEdge vérifie ses ventes sur Vinted. Pour l'accélérer, ouvre une page de résultats AliExpress, Temu ou Shein et clique sur « Ajouter les produits de la page ouverte ».</p></div>`;
   } else {
     body = `<div class="cat-grid">${c.rows.map((r, i) => `
       <button type="button" class="pcard ${r.locked ? "locked" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms">
@@ -612,6 +617,20 @@ function bindCatalogue() {
   document.getElementById("cplatform")?.addEventListener("change", (e) => { c.filters.platform = e.target.value; loadCatalog(); });
   document.querySelectorAll("[data-sort]").forEach((b) => b.addEventListener("click", () => { c.filters.sort = b.dataset.sort; loadCatalog(); }));
   document.getElementById("more")?.addEventListener("click", () => loadCatalog(true));
+  document.getElementById("import-page")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = "Lecture de la page…";
+    try {
+      const r = await api("catalog:importPage");
+      toast(`${r.added} produit${r.added > 1 ? "s" : ""} ajouté${r.added > 1 ? "s" : ""} au catalogue. Leurs ventes Vinted arrivent au fil des vérifications.`);
+      loadCatalog();
+    } catch (err) {
+      toast(err.message);
+      btn.disabled = false;
+      btn.innerHTML = `${ICON.tag}Ajouter les produits de la page ouverte`;
+    }
+  });
   document.querySelectorAll("[data-pid]").forEach((b) => b.addEventListener("click", () => openProduct(c.rows.find((r) => r.product_id === b.dataset.pid))));
 }
 
@@ -664,6 +683,105 @@ async function openProduct(row) {
   } catch (e) {
     d.querySelector("#ditems").innerHTML = `<p class="notice err">${esc(e.message)}</p>`;
   }
+}
+
+// ───────────────────────── Photos Barapics dans AliEdge (même compte, mêmes crédits)
+
+const PHOTO_SCENES = [
+  ["front-carpet", "Posé au sol"], ["side", "De côté"], ["detail", "Gros plan"], ["flat-lay", "À plat"],
+  ["worn", "Porté"], ["lifestyle", "Chez soi"], ["studio", "Studio"], ["outdoor", "Extérieur"],
+];
+
+async function openPhotos(product) {
+  const images = (product?.images?.length ? product.images : product?.image ? [product.image] : []).filter((u) => /^https:\/\//.test(u)).slice(0, 3);
+  closeDrawer();
+  const bg = document.createElement("div");
+  bg.className = "drawer-bg";
+  const d = document.createElement("div");
+  d.className = "drawer photos";
+  d.setAttribute("role", "dialog");
+  d.setAttribute("aria-modal", "true");
+  d.setAttribute("aria-label", "Photos Barapics");
+  const picked = new Set(["front-carpet", "side", "detail", "flat-lay"]);
+  d.innerHTML = `
+    <div class="stack">
+      <div class="row between"><h3>${ICON.camera} Photos Barapics</h3><button class="btn ghost" type="button" data-close aria-label="Fermer">✕</button></div>
+      ${!images.length ? `<div class="notice warn">Aucune photo du produit trouvée sur cette page. Ouvre la fiche produit puis relance l'analyse.</div>` : `
+      <div class="product">${images.map((u) => `<img src="${safeUrl(u)}" alt="" referrerpolicy="no-referrer">`).join("")}<div><h3>${esc(product.title || "Article")}</h3><p class="small muted" id="pcredits">Vérification du solde…</p></div></div>
+      <p class="small muted">Choisis les photos à créer. Chacune est contrôlée (fidélité, réalisme, texture) et refaite si besoin. 1 crédit par photo livrée.</p>
+      <div class="scene-grid" role="group" aria-label="Photos à créer">${PHOTO_SCENES.map(([id, label]) => `<button type="button" class="scene" data-scene="${id}" aria-pressed="${picked.has(id)}">${esc(label)}</button>`).join("")}</div>
+      <button id="pgo" class="btn primary block" type="button" disabled>Créer 4 photos</button>
+      <div id="presults" class="photo-grid"></div>
+      <a class="small" href="${esc(barapicsLink(product))}" target="_blank" rel="noopener">Plus de réglages (mannequins, décors, consignes) dans le studio Barapics</a>`}
+    </div>`;
+  document.body.append(bg, d);
+  const close = () => closeDrawer();
+  bg.addEventListener("click", close);
+  d.querySelector("[data-close]").addEventListener("click", close);
+  d.querySelector("[data-close]").focus();
+  if (!images.length) return;
+  const go = d.querySelector("#pgo");
+  const credits = d.querySelector("#pcredits");
+  let remaining = 0;
+  const refreshGo = () => {
+    const n = picked.size;
+    go.textContent = `Créer ${n} photo${n > 1 ? "s" : ""}`;
+    go.disabled = !n || (remaining !== null && remaining < 1);
+  };
+  d.querySelectorAll("[data-scene]").forEach((b) => b.addEventListener("click", () => {
+    const id = b.dataset.scene;
+    picked.has(id) ? picked.delete(id) : picked.add(id);
+    b.setAttribute("aria-pressed", String(picked.has(id)));
+    refreshGo();
+  }));
+  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Démarrer l'essai gratuit (3 jours, 3 photos)</a></div>`;
+  try {
+    const c = await api("barapics", { body: { action: "credits" } });
+    remaining = c.unlimited ? null : c.remaining;
+    credits.textContent = c.unlimited ? "Crédits illimités" : `${c.remaining} photo${c.remaining > 1 ? "s" : ""} disponible${c.remaining > 1 ? "s" : ""} · ${c.planLabel}`;
+    if (!c.unlimited && c.remaining < 1) d.querySelector("#presults").innerHTML = noAccess("Plus de photos disponibles sur ton compte Barapics.");
+  } catch (e) {
+    credits.textContent = "";
+    d.querySelector("#presults").innerHTML = e.code === "no_access" || e.code === "quota" ? noAccess(e.message) : `<p class="notice err">${esc(e.message)}</p>`;
+    remaining = 0;
+  }
+  refreshGo();
+  go.addEventListener("click", async () => {
+    let scenes = [...picked];
+    if (remaining !== null) scenes = scenes.slice(0, remaining);
+    if (!scenes.length) return;
+    go.disabled = true;
+    d.querySelectorAll("[data-scene]").forEach((b) => { b.disabled = true; });
+    const grid = d.querySelector("#presults");
+    grid.innerHTML = scenes.map((id) => `<figure class="pshot" data-shot="${id}"><div class="developing"></div><figcaption>${esc(PHOTO_SCENES.find((x) => x[0] === id)?.[1] || id)} · en attente</figcaption></figure>`).join("");
+    go.textContent = "Lecture des détails du produit…";
+    let spec = null;
+    try { spec = await api("barapics", { body: { action: "brief", title: product.title || "Article", description: "", images } }); } catch { spec = null; }
+    go.textContent = "Création en cours (1 à 2 min par photo)…";
+    const queue = [...scenes];
+    let stop = false;
+    const worker = async () => {
+      for (;;) {
+        const id = queue.shift();
+        if (!id) return;
+        const fig = grid.querySelector(`[data-shot="${id}"]`);
+        const label = PHOTO_SCENES.find((x) => x[0] === id)?.[1] || id;
+        if (stop) { fig.querySelector("figcaption").textContent = `${label} · non créée`; continue; }
+        fig.querySelector("figcaption").textContent = `${label} · création…`;
+        try {
+          const r = await api("barapics", { body: { action: "photo", productUrl: product.url || "", title: product.title || "Article", description: "", images, sceneId: id, quality: "medium", ...(product.priceEur ? { price: `${money(product.priceEur)} €` } : {}), ...(spec ? { spec } : {}) } });
+          fig.innerHTML = `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener"><img src="${safeUrl(r.url)}" alt="Photo ${esc(label)}"></a><figcaption>${esc(label)} · contrôlée${r.attempts > 1 ? `, corrigée ${r.attempts - 1}×` : ""}</figcaption>`;
+          fig.classList.add("done");
+        } catch (e) {
+          fig.innerHTML = `<div class="ph"></div><figcaption class="neg">${esc(label)} · ${esc(e.message)}</figcaption>`;
+          if (e.code === "quota" || e.code === "no_access" || e.code === "auth") stop = true;
+        }
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    go.textContent = "Photos enregistrées dans ta galerie Barapics";
+    grid.insertAdjacentHTML("afterend", `<a class="btn block" href="https://barapics.com/galerie" target="_blank" rel="noopener">${ICON.ext}Ouvrir ma galerie Barapics</a>`);
+  });
 }
 
 function closeDrawer() {
@@ -921,12 +1039,103 @@ function bindCompte(params) {
   document.getElementById("signout")?.addEventListener("click", async () => { await api("auth:signOut"); state.me = null; renderPlan(); render(); });
 }
 
+// ───────────────────────── Prise en main (premier lancement, 3 écrans)
+
+const ONBOARD_KEY = "ae_onboarded";
+const EXAMPLE_QUERY = "sac bandoulière cuir femme";
+let onboarded = true;
+async function loadOnboarded() {
+  try { onboarded = !!(await chrome.storage.local.get(ONBOARD_KEY))[ONBOARD_KEY]; } catch { onboarded = true; }
+}
+async function finishOnboarding(hash = "#/analyse") {
+  onboarded = true;
+  try { await chrome.storage.local.set({ [ONBOARD_KEY]: Date.now() }); } catch { /* stockage indisponible */ }
+  location.hash = hash;
+}
+
+function viewBienvenue(params) {
+  const step = Math.min(3, Math.max(1, Number(params.get("s")) || 1));
+  const dots = [1, 2, 3].map((n) => `<span class="ob-dot ${n <= step ? "on" : ""}" aria-hidden="true"></span>`).join("");
+  const market = state.settings?.market || "fr";
+  let body;
+  if (step === 1) {
+    body = `
+      <h2>Bienvenue sur AliEdge</h2>
+      <p class="muted">Avant de commander chez AliExpress, Temu ou Shein, AliEdge te montre ce que le produit vaut vraiment sur Vinted. Trois réglages et c'est parti.</p>
+      <label class="stack" style="gap:6px"><span class="small"><b>Sur quel Vinted tu vends ?</b></span>
+        <select id="ob-market" class="input">${Object.entries(MARKETS).map(([k, m]) => `<option value="${k}" ${k === market ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select>
+      </label>
+      <button class="btn primary block" type="button" data-next="2">Continuer</button>`;
+  } else if (step === 2) {
+    body = `
+      <h2>Ta première analyse</h2>
+      <p class="muted">Sur une fiche produit, le bouton « Analyser sur Vinted » fait tout. Essaie ici avec un exemple : AliEdge cherche les annonces identiques et calcule le prix de revente.</p>
+      <div class="row" style="gap:8px"><input id="ob-query" class="input" value="${esc(EXAMPLE_QUERY)}" aria-label="Mots-clés de l'exemple" style="flex:1"><button id="ob-run" class="btn primary" type="button">Analyser</button></div>
+      <div id="ob-result" aria-live="polite"></div>
+      <button class="btn block" type="button" data-next="3">Continuer</button>`;
+  } else {
+    body = `
+      <h2>Ton premier filtre Radar</h2>
+      <p class="muted">Le Radar surveille les nouvelles annonces Vinted et te prévient dès qu'une bonne affaire sort. L'achat se fait toujours toi-même.</p>
+      <div class="stack" style="gap:8px">
+        <input id="ob-rq" class="input" value="${esc(EXAMPLE_QUERY)}" aria-label="Mots-clés à surveiller">
+        <div class="row" style="gap:8px"><input id="ob-rmax" class="input" inputmode="decimal" placeholder="Prix max (€)" aria-label="Prix maximum" style="flex:1"><button id="ob-radar" class="btn primary" type="button">Créer le filtre</button></div>
+      </div>
+      <button class="btn ghost block" type="button" data-done>Passer et commencer</button>`;
+  }
+  return `<section class="card pad stack onboard" aria-label="Prise en main"><div class="ob-dots">${dots}<span class="small muted">Étape ${step} sur 3</span></div>${body}</section>`;
+}
+
+function bindBienvenue(params) {
+  const step = Number(params.get("s")) || 1;
+  document.querySelectorAll("[data-next]").forEach((b) => b.addEventListener("click", async () => {
+    if (step === 1) await saveSettings({ market: document.getElementById("ob-market").value });
+    location.hash = `#/bienvenue?s=${b.dataset.next}`;
+  }));
+  document.querySelector("[data-done]")?.addEventListener("click", () => finishOnboarding());
+  document.getElementById("ob-run")?.addEventListener("click", async (e) => {
+    const out = document.getElementById("ob-result");
+    const q = document.getElementById("ob-query").value.trim();
+    if (!q) return;
+    e.currentTarget.disabled = true;
+    out.innerHTML = `<div class="skel" style="height:64px"></div>`;
+    try {
+      const entry = await api("analyze", { product: null, query: q, market: state.settings?.market, condition: state.settings?.condition, shipping: 0 });
+      const r = entry.result;
+      out.innerHTML = r.sell == null ? `<div class="notice warn">Pas assez d'annonces pour cet exemple. Essaie d'autres mots-clés.</div>` : `
+        <div class="ticket ob-ticket"><div><div class="k">Prix de revente conseillé</div><div class="big num pos">${eur(r.sell)}</div>
+        <div class="sub">${entry.items.filter((i) => !i.excluded).length} annonces comparables · médiane ${eur(r.activeStats?.median)}</div>
+        <div class="sub" style="margin-top:6px">Sur une vraie fiche, AliEdge déduit le prix d'achat et te donne ta marge.</div></div></div>`;
+    } catch (err) {
+      out.innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
+    } finally {
+      e.currentTarget.disabled = false;
+    }
+  });
+  document.getElementById("ob-radar")?.addEventListener("click", async (e) => {
+    const query = document.getElementById("ob-rq").value.trim();
+    if (!query) return;
+    e.currentTarget.disabled = true;
+    try {
+      const max = parseFloat(document.getElementById("ob-rmax").value.replace(",", "."));
+      await api("radar:save", { filter: { query, name: query, market: state.settings?.market || "fr", priceMax: Number.isFinite(max) ? max : null } });
+      toast("Filtre créé : le Radar te prévient des nouvelles annonces");
+      finishOnboarding("#/radar");
+    } catch (err) {
+      toast(err.message);
+      e.currentTarget.disabled = false;
+    }
+  });
+}
+
 // ───────────────────────── Rendu
 
 let renderSeq = 0;
 async function render() {
   const seq = ++renderSeq;
-  const { name, params } = route();
+  let { name, params } = route();
+  // Premier lancement, compte connecté : prise en main avant tout le reste.
+  if (state.me && !onboarded && name !== "bienvenue" && name !== "compte") { location.hash = "#/bienvenue"; return; }
   document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name}`));
   document.querySelectorAll(".tabs a[aria-current]").forEach((a) => a.setAttribute("aria-current", "page"));
   let html;
@@ -934,6 +1143,7 @@ async function render() {
   else if (name === "catalogue") html = viewCatalogue();
   else if (name === "suivis") html = await viewSuivis();
   else if (name === "radar") html = await viewRadar();
+  else if (name === "bienvenue") html = viewBienvenue(params);
   else html = viewCompte(params);
   if (seq !== renderSeq) return;
   const keepFocus = document.activeElement?.id;
@@ -946,6 +1156,7 @@ async function render() {
   else if (name === "catalogue") bindCatalogue();
   else if (name === "suivis") bindSuivis();
   else if (name === "radar") bindRadar();
+  else if (name === "bienvenue") bindBienvenue(params);
   else bindCompte(params);
 }
 
@@ -982,7 +1193,7 @@ async function takePending() {
 }
 
 (async function init() {
-  await loadAuth();
+  await Promise.all([loadAuth(), loadOnboarded()]);
   lastRoute = route().name;
   render();
   if (!isTab) await loadProduct();
