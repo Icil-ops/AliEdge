@@ -98,6 +98,8 @@ await ctx.route("**/*", async (route) => {
     const body = JSON.parse(req.postData() || "{}");
     barapicsCalls.push(body.action);
     if (body.action === "credits") return route.fulfill({ headers: cors, json: { remaining: 12, unlimited: false, plan: "pro", planLabel: "Pro" } });
+    if (body.action === "keywords") return route.fulfill({ headers: cors, json: { queries: ["sac bandoulière noir", "petit sac cuir femme"] } });
+    if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
     if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
     await new Promise((r) => setTimeout(r, 400));
     return route.fulfill({ headers: cors, json: { id: `p-${body.sceneId}`, url: "https://barapics.com/mock.png", attempts: 1, qualityReport: null } });
@@ -176,6 +178,7 @@ await panel.waitForTimeout(1200);
 await panel.screenshot({ path: `${shots}/5-resultat.png`, fullPage: true });
 const margin = await panel.locator(".ticket .big").textContent().catch(() => null);
 check("analyse : marge calculée", !!margin && /€/.test(margin), margin ?? (await panel.locator(".notice").first().textContent()));
+check("analyse : recherche par image", (await panel.locator(".badge-photo").count()) >= 1 && barapicsCalls.includes("match"), `${await panel.locator(".badge-photo").count()} badge(s)`);
 check("analyse : ventes constatées affichées", (await panel.locator(".badge-sold").count()) === 3);
 check("analyse partagée au catalogue", calls.includes("/rest/v1/rpc/aliedge_contribute"));
 await panel.waitForSelector("#review-ask", { timeout: 6000 }).catch(() => {});

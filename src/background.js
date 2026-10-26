@@ -174,7 +174,32 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
   }
   meCache.at = 0;
 
-  const { items: found, total } = await vinted.searchText(query, { market, condition });
+  const first = await vinted.searchText(query, { market, condition });
+  const total = first.total;
+  let found = first.items;
+  // Recherche par image : les vendeurs Vinted titrent rarement comme le fournisseur.
+  // L'IA lit la photo du produit, propose les recherches que tapent les vendeurs, puis compare les photos.
+  const image = product?.image && /^https:\/\//.test(product.image) ? product.image : null;
+  let visual = false;
+  if (image) {
+    try {
+      const { queries = [] } = await barapics({ action: "keywords", image, title: product.title || query });
+      const seen = new Set(found.map((i) => i.vinted_id));
+      for (const q of queries.filter((x) => x.toLowerCase() !== query.toLowerCase()).slice(0, 2)) {
+        try {
+          const more = await vinted.searchText(q, { market, condition, perPage: 48 });
+          for (const it of more.items) if (!seen.has(it.vinted_id)) { seen.add(it.vinted_id); found.push(it); }
+        } catch (e) { if (["blocked", "rate_limited", "paused"].includes(e.code)) break; }
+      }
+      const pool = [...found].sort((a, b) => b.relevance - a.relevance).filter((i) => /^https:\/\//.test(i.photo_url || "")).slice(0, 48);
+      const { scores = {} } = await barapics({ action: "match", image, title: product.title || query, candidates: pool.map((i) => ({ id: i.vinted_id, photo: i.photo_url })) });
+      found = found.map((i) => {
+        const v = scores[i.vinted_id];
+        return v == null ? i : { ...i, visual: v, relevance: Math.max(i.relevance, v) };
+      });
+      visual = Object.keys(scores).length > 0;
+    } catch { /* recherche visuelle indisponible : on garde la recherche par mots-clés */ }
+  }
   // Annonces comparables : les plus pertinentes d'abord ; on garde le reste en réserve.
   found.sort((a, b) => b.relevance - a.relevance);
   let comparable = found.filter((i) => i.relevance >= 0.5);
@@ -225,7 +250,7 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
     at: Date.now(),
     product: product ? { platform: product.platform, source_id: product.source_id, url: product.url, title: product.title, image: product.image, images: (product.images || []).slice(0, 8), priceEur: product.priceEur, category: product.category } : null,
     query, market, condition, shipping: Number(shipping) || 0,
-    total, lowConfidence, productId,
+    total, lowConfidence, productId, visual,
     items: comparable,
     sold: sold.slice(0, 30),
     result,

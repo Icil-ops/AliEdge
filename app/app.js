@@ -437,6 +437,7 @@ function viewResult(entry) {
       </div>
       ${ring(r.score)}
     </div>`}
+    ${entry.visual ? `<div class="notice info">Recherche par image : ${entry.items.filter((i) => (i.visual ?? 0) >= 0.6).length} annonce${entry.items.filter((i) => (i.visual ?? 0) >= 0.6).length > 1 ? "s" : ""} reconnue${entry.items.filter((i) => (i.visual ?? 0) >= 0.6).length > 1 ? "s" : ""} sur photo, même avec un autre titre.</div>` : ""}
     ${entry.lowConfidence && r.sell != null ? `<div class="notice warn">Peu d'annonces identiques : vérifie la liste ci-dessous et décoche celles qui ne correspondent pas.</div>` : ""}
     <div class="stats">
       <div class="stat"><div class="k">Annonces comparables</div><div class="v num">${active}<span class="small muted"> / ${esc(entry.total)}</span></div></div>
@@ -470,7 +471,7 @@ function viewResult(entry) {
           ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
           <div>
             <a class="t" href="${safeUrl(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>
-            <div class="m">${[i.brand, i.size, i.condition].filter(Boolean).map(esc).join(" · ")}${i.favourites != null ? ` · ♥ ${i.favourites}` : ""}</div>
+            <div class="m">${(i.visual ?? 0) >= 0.6 ? `<span class="badge-photo">Même photo</span> ` : ""}${[i.brand, i.size, i.condition].filter(Boolean).map(esc).join(" · ")}${i.favourites != null ? ` · ♥ ${i.favourites}` : ""}</div>
           </div>
           <div class="stack" style="text-align:right">
             <div class="p num">${eur(i.price)}</div>
@@ -734,7 +735,7 @@ async function openPhotos(product) {
     b.setAttribute("aria-pressed", String(picked.has(id)));
     refreshGo();
   }));
-  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Démarrer l'essai gratuit (3 jours, 3 photos)</a></div>`;
+  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Démarrer l'essai gratuit (3 jours, 1 article par jour)</a></div>`;
   try {
     const c = await api("barapics", { body: { action: "credits" } });
     remaining = c.unlimited ? null : c.remaining;
