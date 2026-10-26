@@ -1,7 +1,7 @@
 {
-  "version": "3.1.4",
-  "notes": "Correctif : l'extension refonctionne (bouton sur les fiches produit, analyses). Barapics et Skool toujours visibles.",
+  "version": "3.2.0",
+  "notes": "Le catalogue se remplit en continu. Nouveau : suivre ce que vend un compte Vinted pendant 14 jours. Demande d'avis.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-10-24",
+  "releaseDate": "2026-10-26",
   "minVersion": "3.0.0"
 }

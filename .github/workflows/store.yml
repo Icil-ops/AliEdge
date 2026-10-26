@@ -5,6 +5,9 @@ name: Chrome Web Store
 on:
   push:
     branches: [main]
+  # Toutes les 6 h : une version en attente (examen Google en cours) part dès que la voie est libre.
+  schedule:
+    - cron: "23 */6 * * *"
   workflow_dispatch:
 
 concurrency:
