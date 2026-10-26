@@ -1,0 +1,51 @@
+name: Sauvegarde du catalogue
+
+# Chaque nuit : copie complète des tables du catalogue AliEdge (produits, annonces Vinted,
+# historique, trackers), compressée et conservée pour toujours sur la branche « backups »
+# de ce dépôt privé. Secret requis : SUPABASE_DB_URL (Supabase > Connect > Session pooler).
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: github.repository == 'Ivanbaraofm/Aliedge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Copie de la base
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DB_URL" ]; then
+            echo "::warning title=Sauvegarde::Secret SUPABASE_DB_URL manquant : aucune sauvegarde faite."
+            exit 0
+          fi
+          day=$(date -u +%F)
+          mkdir -p out
+          docker run --rm -e DB_URL="$DB_URL" postgres:17 \
+            pg_dump "$DB_URL" --no-owner --no-privileges \
+              -t 'public.aliedge_products' -t 'public.aliedge_vinted_items' -t 'public.aliedge_matches' \
+              -t 'public.aliedge_item_events' -t 'public.aliedge_product_events' -t 'public.aliedge_trackers' \
+            | gzip -9 > "out/aliedge-$day.sql.gz"
+          size=$(stat -c %s "out/aliedge-$day.sql.gz")
+          [ "$size" -gt 500 ] || { echo "::error title=Sauvegarde::copie vide ($size octets)"; exit 1; }
+          echo "::notice title=Sauvegarde::aliedge-$day.sql.gz ($size octets)"
+          echo "DAY=$day" >> "$GITHUB_ENV"
+      - name: Conserver sur la branche backups
+        if: env.DAY != ''
+        run: |
+          git init -q work && cd work
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          git config user.name "aliedge-backup"; git config user.email "backup@aliedge"
+          if git fetch -q --depth=1 origin backups 2>/dev/null; then git checkout -q -b backups FETCH_HEAD; else git checkout -q --orphan backups; fi
+          mkdir -p backups && cp ../out/*.sql.gz backups/
+          git add backups && git commit -qm "Sauvegarde $DAY" && git push -q origin HEAD:backups
