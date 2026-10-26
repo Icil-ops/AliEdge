@@ -2,7 +2,8 @@ name: Sauvegarde du catalogue
 
 # Chaque nuit : copie complète des tables du catalogue AliEdge (produits, annonces Vinted,
 # historique, trackers), compressée et conservée pour toujours sur la branche « backups »
-# de ce dépôt privé. Secret requis : SUPABASE_DB_URL (Supabase > Connect > Session pooler).
+# du dépôt Icil-ops/AliEdge (à garder privé). Secret requis dans ce dépôt : SUPABASE_DB_URL
+# (Supabase > Connect > Session pooler, avec le mot de passe de la base).
 on:
   schedule:
     - cron: "17 3 * * *"
@@ -17,7 +18,8 @@ concurrency:
 
 jobs:
   backup:
-    if: github.repository == 'Ivanbaraofm/Aliedge'
+    # Tâche planifiée : tourne sur la branche principale de Icil-ops/AliEdge (la copie à jour).
+    if: github.repository == 'Icil-ops/AliEdge'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
