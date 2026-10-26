@@ -51,7 +51,8 @@ const versions = (s) => [s.publishedItemRevisionStatus, s.submittedItemRevisionS
 const before = await status();
 const known = versions(before);
 const latest = known.reduce((m, v) => (newer(v, m) ? v : m), "0");
-console.log(`Manifest ${version} · store ${latest} (publié : ${before.publishedItemRevisionStatus?.state ?? "aucun"}, soumis : ${before.submittedItemRevisionStatus?.state ?? "aucun"})`);
+const ver = (r) => (r?.distributionChannels ?? []).map((c) => c.crxVersion).filter(Boolean).join("/") || "—";
+console.log(`Manifest ${version} · publié ${ver(before.publishedItemRevisionStatus)} (${before.publishedItemRevisionStatus?.state ?? "aucun"}) · en examen ${ver(before.submittedItemRevisionStatus)} (${before.submittedItemRevisionStatus?.state ?? "aucun"})`);
 if (!newer(version, latest)) {
   console.log("Rien à publier : augmentez « version » dans manifest.json pour envoyer une mise à jour.");
   process.exit(0);

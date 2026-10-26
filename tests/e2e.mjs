@@ -18,6 +18,7 @@ const prices = [22, 18, 19.5, 25, 20, 21, 17, 15, 23, 30];
 const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { amount: String(prices[i]), currency_code: "EUR" }, brand_title: i % 3 ? "Sans marque" : "Zara", size_title: "Taille unique", status: "Neuf avec étiquette", favourite_count: 4 + i, photo: { url: `https://images1.vinted.net/t/${i}.jpeg` }, url: `https://www.vinted.fr/items/${9000 + i}-sac` }));
 
 const calls = [];
+const startedAt = Date.now();
 const rpc = {
   aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
@@ -28,7 +29,17 @@ const rpc = {
     { vinted_id: 7003, title: "Sac bandoulière", price: 20, photo_url: "https://images1.vinted.net/t/s3.jpeg", url: "https://www.vinted.fr/items/7003", status: "sold", sold_at: new Date(Date.now() - 9 * 864e5).toISOString() },
   ],
   aliedge_report_items: 1,
-  aliedge_report_wardrobe: { updated: 2, sold: 1 },
+  aliedge_report_wardrobe: { updated: 2, sold: 1, tracked: true },
+  aliedge_tracker_add: "00000000-0000-0000-0000-0000000000aa",
+  aliedge_tracker_remove: true,
+  aliedge_trackers: [{ id: "00000000-0000-0000-0000-0000000000aa", seller_id: 555, market: "fr", label: "vendeuse", created_at: new Date(Date.now() - 2 * 864e5).toISOString(), expires_at: new Date(Date.now() + 12 * 864e5).toISOString(), last_checked_at: new Date(Date.now() - 18e5).toISOString(), active_count: 3, sold_count: 2, sold_amount: 41, last_sold_at: new Date().toISOString() }],
+  aliedge_tracker_items: [
+    { vinted_id: 9000, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", status: "sold", first_seen_at: new Date(Date.now() - 2 * 864e5).toISOString(), sold_at: new Date(Date.now() - 36e5).toISOString(), favourites: 4 },
+    { vinted_id: 9001, title: "Petit sac à main cuir femme", price: 18, photo_url: "https://images1.vinted.net/t/1.jpeg", url: "https://www.vinted.fr/items/9001-sac", status: "active", first_seen_at: new Date(Date.now() - 864e5).toISOString(), sold_at: null, favourites: 5 },
+  ],
+  aliedge_seen_products: 1,
+  aliedge_products_to_refresh: [],
+  aliedge_refresh: 0,
   aliedge_sellers_to_check: [],
   aliedge_public_stats: { products: 1280, items: 15400, sold: 3120, sold_7d: 410, contributors: 96 },
   aliedge_items_to_check: [],
@@ -144,9 +155,13 @@ await page.setViewportSize({ width: 1280, height: 900 });
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${shots}/7-catalogue-large.png`, fullPage: true });
 
-// 4. Suivis
+// 4. Suivis : trackers de vendeurs
 await page.goto(app("/suivis"));
-await page.waitForTimeout(800);
+await page.waitForSelector(".tracker", { timeout: 8000 }).catch(() => {});
+check("tracker de vendeur affiché dans Suivis", (await page.locator(".tracker").count()) === 1);
+await page.locator("[data-tracker]").first().click().catch(() => {});
+await page.waitForSelector(".tracker-body .badge-sold", { timeout: 6000 }).catch(() => {});
+check("ventes du vendeur suivi listées", (await page.locator(".tracker-body .badge-sold").count()) === 1);
 await page.screenshot({ path: `${shots}/8-suivis.png`, fullPage: true });
 
 // 5. Page d'une annonce Vinted vendue
@@ -163,6 +178,13 @@ const mbr = await ctx.newPage();
 await mbr.goto("https://www.vinted.fr/member/555-vendeuse");
 await mbr.waitForTimeout(3500);
 check("dressing d'un vendeur envoyé au catalogue", calls.some((c) => c.endsWith("aliedge_report_wardrobe")));
+const pillBox = await mbr.locator("div[style*='2147483646']").first().boundingBox().catch(() => null);
+if (pillBox) await mbr.mouse.click(pillBox.x + pillBox.width / 2, pillBox.y + pillBox.height / 2);
+await mbr.waitForTimeout(2500);
+check("bouton « Suivre ses ventes » sur un profil Vinted", calls.some((c) => c.endsWith("aliedge_tracker_add")));
+await mbr.screenshot({ path: `${shots}/10-profil.png` });
+await mbr.waitForTimeout(Math.max(0, 25_000 - (Date.now() - startedAt)));
+check("fiche fournisseur consultée enregistrée au catalogue", calls.some((c) => c.endsWith("aliedge_seen_products")));
 
 await ctx.close();
 const failed = results.filter((r) => !r.ok);

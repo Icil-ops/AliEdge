@@ -293,3 +293,20 @@ body { padding-bottom: 64px; }
 @keyframes star { from { transform: scale(0) rotate(-40deg); opacity: 0 } to { transform: none; opacity: 1 } }
 @keyframes review-rise { from { transform: translateY(30px); opacity: 0 } to { transform: none; opacity: 1 } }
 @media (prefers-reduced-motion: reduce) { .review-ask, .review-card, .review-stars span { animation: none } }
+
+/* Trackers de vendeurs */
+.trackers { display: grid; gap: 8px; }
+.tracker { border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow: hidden; }
+.tracker.ended { opacity: .7; }
+.tracker-head { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 10px 1fr auto auto; gap: 12px; align-items: center; padding: 12px 14px; }
+.tracker-head:focus-visible { outline: 3px solid var(--violet); outline-offset: -3px; }
+.tracker-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gain); box-shadow: 0 0 0 0 rgba(11,143,98,.5); animation: tracker-ping 2s ease-out infinite; }
+.tracker.ended .tracker-dot { background: var(--muted); animation: none; }
+.tracker-name { display: grid; gap: 2px; min-width: 0; }
+.tracker-name b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tracker-kpi { display: grid; justify-items: end; gap: 1px; }
+.tracker-body { padding: 0 14px 14px; }
+@keyframes tracker-ping { 0% { box-shadow: 0 0 0 0 rgba(11,143,98,.5) } 100% { box-shadow: 0 0 0 8px rgba(11,143,98,0) } }
+@media (prefers-reduced-motion: reduce) { .tracker-dot { animation: none } }
+
+.tracker a.item { text-decoration: none; color: inherit; }

@@ -9,6 +9,12 @@ const BRIDGE_IDLE_MS = 90_000;
 let bridgeTab = null;      // { id, market, owned }
 let bridgeTimer = null;
 let directBlockedUntil = 0;
+// Tâches de fond : jamais d'onglet ouvert pour elles (on réutilise un onglet Vinted déjà ouvert, sinon on attend).
+let quiet = false;
+export async function inBackground(fn) {
+  quiet = true;
+  try { return await fn(); } finally { quiet = false; }
+}
 
 export class VintedError extends Error {
   constructor(message, code = "") { super(message); this.code = code; }
@@ -67,6 +73,7 @@ async function getBridgeTab(market) {
     bridgeTab = { id: usable.id, market, owned: false };
     return usable.id;
   }
+  if (quiet) throw new VintedError("Vinted indisponible en arrière-plan pour l'instant.", "blocked");
   const created = await chrome.tabs.create({ url: `https://${h}/`, active: false, pinned: false });
   bridgeTab = { id: created.id, market, owned: true };
   const ok = await waitComplete(created.id);

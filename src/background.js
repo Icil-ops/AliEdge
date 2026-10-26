@@ -16,7 +16,8 @@ let meCache = { at: 0, value: null };
 
 async function getSettings() {
   const r = await chrome.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(r[SETTINGS_KEY] || {}) };
+  // Le partage au catalogue fait partie du fonctionnement d'AliEdge (voir la page confidentialité).
+  return { ...DEFAULT_SETTINGS, ...(r[SETTINGS_KEY] || {}), shareAnalyses: true };
 }
 
 async function setSettings(patch) {
@@ -31,7 +32,7 @@ async function setSettings(patch) {
 async function syncAlarms(settings) {
   const s = settings || (await getSettings());
   // La détection des ventes fait partie du fonctionnement d'AliEdge : toujours active (voir la page confidentialité).
-  chrome.alarms.create("community", { periodInMinutes: 60, delayInMinutes: 5 });
+  chrome.alarms.create("community", { periodInMinutes: 30, delayInMinutes: 3 });
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
 }
 
@@ -62,7 +63,33 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onActivated.addListener(() => broadcast({ type: "tab:changed" }));
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (info.status === "complete" && tab.active) broadcast({ type: "tab:changed" });
+  if (info.status === "complete" && tab.url && detectPlatform(tab.url)) setTimeout(() => recordSeen(tabId), 3000);
 });
+
+// Fiches fournisseur consultées : enregistrées au catalogue même sans analyse (par lots).
+const seenAt = new Map();
+let seenQueue = [];
+let seenTimer = null;
+async function recordSeen(tabId) {
+  try {
+    if (!(await sb.getSession())) return;
+    const p = await currentProduct(tabId);
+    if (!p?.supported || !p.title || !p.source_id) return;
+    const key = `${p.platform}:${p.source_id}`;
+    if (Date.now() - (seenAt.get(key) || 0) < 12 * 3600_000) return;
+    seenAt.set(key, Date.now());
+    if (seenAt.size > 1000) seenAt.delete(seenAt.keys().next().value);
+    seenQueue.push({ platform: p.platform, source_id: p.source_id, url: p.url, title: p.title, image_url: p.image, price: p.priceEur, category: p.category });
+    if (seenQueue.length >= 5) return flushSeen();
+    clearTimeout(seenTimer);
+    seenTimer = setTimeout(flushSeen, 20_000);
+  } catch { /* page fermée entre-temps */ }
+}
+async function flushSeen() {
+  clearTimeout(seenTimer);
+  const batch = seenQueue.splice(0, 20);
+  if (batch.length) await sb.rpc("aliedge_seen_products", { _products: batch }).catch(() => {});
+}
 
 function broadcast(msg) {
   chrome.runtime.sendMessage(msg).catch(() => {});
@@ -309,10 +336,53 @@ async function communityCheck() {
     await new Promise((r) => setTimeout(r, 2500 + Math.random() * 3500));
   }
   if (report.length) await sb.rpc("aliedge_report_items", { _items: report }).catch(() => {});
+  // 3) Rafraîchissement : quelques produits du catalogue relancés sur Vinted pour trouver les nouvelles annonces.
+  await refreshProducts();
+  await flushSeen();
+}
+
+async function refreshProducts() {
+  let rows = [];
+  try { rows = await sb.rpc("aliedge_products_to_refresh", { _limit: 2 }); } catch { return; }
+  const market = (await getSettings()).market || "fr";
+  for (const p of rows || []) {
+    try {
+      const { items } = await vinted.searchText(buildQuery(p.title), { market });
+      const good = items.filter((i) => i.relevance >= 0.5).sort((a, b) => b.relevance - a.relevance).slice(0, 40);
+      await sb.rpc("aliedge_refresh", {
+        _product_id: p.product_id,
+        _items: good.map((i) => ({ vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition, price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active" })),
+      });
+    } catch (e) {
+      if (e.code === "blocked" || e.code === "rate_limited") return;
+    }
+    await new Promise((r) => setTimeout(r, 5000 + Math.random() * 5000));
+  }
+}
+
+// ───────────────────────── Trackers de vendeurs (14 jours)
+
+async function addTracker({ sellerId, market = "fr", label = null }) {
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi à AliEdge pour suivre un vendeur.", 401, "auth");
+  const id = Number(sellerId);
+  if (!Number.isFinite(id) || id <= 0) throw new sb.ApiError("Profil Vinted introuvable.", 400, "invalid");
+  let trackerId;
+  try {
+    trackerId = await sb.rpc("aliedge_tracker_add", { _seller_id: id, _market: MARKETS[market] ? market : "fr", _label: label ? String(label).slice(0, 80) : null });
+  } catch (e) {
+    if (/too many/.test(e.message)) throw new sb.ApiError("Tu suis déjà 30 vendeurs : arrête un tracker avant d'en ajouter un.", 400, "limit");
+    throw e;
+  }
+  // Premier relevé tout de suite : c'est la photo de départ du dressing.
+  try {
+    const items = await vinted.sellerItems(id, market);
+    if (items.length) await reportWardrobe(id, market, items);
+  } catch { /* le prochain passage automatique s'en chargera */ }
+  return { id: trackerId };
 }
 
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "community") communityCheck();
+  if (a.name === "community") vinted.inBackground(communityCheck).catch(() => {});
   if (a.name === "watch") refreshWatches();
 });
 
@@ -380,6 +450,10 @@ const handlers = {
   "saved:remove": async ({ productId }) => sb.remove("aliedge_saved", `product_id=eq.${encodeURIComponent(productId)}`),
   "vinted:item": async ({ item }) => { await reportVintedItem(item); return {}; },
   "vinted:member": async (msg) => reportMember(msg),
+  "tracker:add": async (msg) => addTracker(msg),
+  "tracker:list": async () => sb.rpc("aliedge_trackers"),
+  "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
+  "tracker:remove": async ({ id }) => sb.rpc("aliedge_tracker_remove", { _id: id }),
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "pending:take": async () => {
     const r = await chrome.storage.session.get("ae_pending");
@@ -406,7 +480,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => sendResponse({ ok: false, error: e?.message || "Erreur inattendue.", code: e?.code || "" }));

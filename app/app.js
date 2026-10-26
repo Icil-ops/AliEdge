@@ -590,8 +590,37 @@ function sparkline(points) {
   return `<svg class="spark" viewBox="0 0 90 30" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--violet)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
+function viewTrackers(trackers) {
+  const now = Date.now();
+  const rows = (trackers || []).map((t) => {
+    const left = Math.ceil((new Date(t.expires_at).getTime() - now) / 864e5);
+    const live = left > 0;
+    return `
+      <div class="tracker ${live ? "" : "ended"}">
+        <button class="tracker-head" type="button" data-tracker="${esc(t.id)}" aria-expanded="false">
+          <span class="tracker-dot" aria-hidden="true"></span>
+          <span class="tracker-name"><b>${esc(t.label || `Vendeur ${t.seller_id}`)}</b><span class="small muted">${live ? `${left} j restant${left > 1 ? "s" : ""}` : "Terminé"} · ${esc((t.market || "fr").toUpperCase())}${t.last_checked_at ? ` · vérifié ${esc(ago(new Date(t.last_checked_at).getTime()))}` : " · premier relevé en cours"}</span></span>
+          <span class="tracker-kpi num"><b>${t.sold_count}</b><span class="small muted">vente${t.sold_count > 1 ? "s" : ""}</span></span>
+          <span class="tracker-kpi num"><b>${eur(Number(t.sold_amount))}</b><span class="small muted">${t.active_count} en ligne</span></span>
+        </button>
+        <div class="tracker-body" id="tb-${esc(t.id)}" hidden></div>
+      </div>`;
+  }).join("");
+  return `
+    <section class="stack">
+      <div class="row between"><h2>Vendeurs suivis (14 jours)</h2></div>
+      <p class="small muted">Colle le lien d'un profil Vinted, ou clique sur « Suivre ses ventes 14 jours » sur sa page : AliEdge relève son dressing régulièrement et liste tout ce qu'il vend.</p>
+      <form id="trackform" class="row" style="gap:8px">
+        <input class="input" id="trackurl" type="url" inputmode="url" placeholder="https://www.vinted.fr/member/123456-pseudo" aria-label="Lien du profil Vinted" style="flex:1">
+        <button class="btn primary" type="submit">Suivre</button>
+      </form>
+      <div id="trackerr" role="alert"></div>
+      <div class="trackers">${rows || `<p class="muted small">Aucun vendeur suivi pour l'instant.</p>`}</div>
+    </section>`;
+}
+
 async function viewSuivis() {
-  const [watch, hist] = await Promise.all([api("watch:list").catch(() => []), api("history:list").catch(() => [])]);
+  const [watch, hist, trackers] = await Promise.all([api("watch:list").catch(() => []), api("history:list").catch(() => []), state.me ? api("tracker:list").catch(() => []) : Promise.resolve([])]);
   const w = watch.length ? watch.map((x) => {
     const first = x.points[0]?.median, last = x.points[x.points.length - 1]?.median;
     const delta = first && last ? Math.round(((last - first) / first) * 100) : 0;
@@ -610,11 +639,59 @@ async function viewSuivis() {
       <div class="p num" style="color:${(e.result.margin ?? 0) > 0 ? "var(--gain)" : "var(--loss)"}">${eur(e.result.margin, true)}</div>
     </button>`).join("") : `<p class="muted">Tes analyses apparaîtront ici.</p>`;
   return `
-    <section class="stack"><h2>Produits suivis</h2><div class="items">${w}</div></section>
+    ${state.me ? viewTrackers(trackers) : ""}
+    <section class="stack" style="margin-top:22px"><h2>Produits suivis</h2><div class="items">${w}</div></section>
     <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
 
+function bindTrackers() {
+  document.getElementById("trackform")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = document.getElementById("trackerr");
+    const raw = document.getElementById("trackurl").value.trim();
+    const m = raw.match(/vinted\.([a-z.]+)\/member\/(\d+)(?:-([^/?#]+))?/i) || raw.match(/^(\d{3,15})$/);
+    if (!m) { err.innerHTML = `<div class="notice err">Colle le lien d'un profil Vinted (…/member/123456-pseudo).</div>`; return; }
+    const sellerId = m.length > 2 ? m[2] : m[1];
+    const tld = m.length > 2 ? m[1].toLowerCase() : "fr";
+    const market = tld === "co.uk" ? "uk" : tld;
+    const label = m[3] ? decodeURIComponent(m[3]).replace(/[-_]+/g, " ") : null;
+    err.innerHTML = "";
+    try { await api("tracker:add", { sellerId, market, label }); toast("Vendeur suivi pendant 14 jours"); render(); }
+    catch (x) { err.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+  });
+  document.querySelectorAll("[data-tracker]").forEach((b) => b.addEventListener("click", async () => {
+    const body = document.getElementById(`tb-${b.dataset.tracker}`);
+    const open = b.getAttribute("aria-expanded") === "true";
+    b.setAttribute("aria-expanded", String(!open));
+    body.hidden = open;
+    if (open || body.dataset.loaded) return;
+    body.innerHTML = `<p class="small muted">Chargement…</p>`;
+    try {
+      const items = await api("tracker:items", { id: b.dataset.tracker });
+      const sold = items.filter((i) => i.status === "sold");
+      const active = items.filter((i) => i.status === "active");
+      const line = (i) => `
+        <a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">
+          ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+          <div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.status === "sold" ? `<span class="badge-sold">Vendu</span> ${esc(ago(new Date(i.sold_at).getTime()))}` : `en ligne depuis ${esc(ago(new Date(i.first_seen_at).getTime()))}`}</div></div>
+          <div class="p num">${eur(Number(i.price))}</div>
+        </a>`;
+      body.innerHTML = `
+        <div class="stack" style="gap:6px;margin-top:8px">
+          <h3 class="small">Ventes constatées (${sold.length})</h3>
+          ${sold.length ? `<div class="items">${sold.map(line).join("")}</div>` : `<p class="small muted">Aucune vente constatée pour l'instant. Les ventes apparaissent au fil des relevés.</p>`}
+          <h3 class="small" style="margin-top:8px">En ligne (${active.length})</h3>
+          ${active.length ? `<div class="items">${active.slice(0, 60).map(line).join("")}</div>` : ""}
+          <button class="btn ghost small" type="button" data-untrack="${esc(b.dataset.tracker)}">Arrêter le suivi</button>
+        </div>`;
+      body.dataset.loaded = "1";
+      body.querySelector("[data-untrack]")?.addEventListener("click", async (ev) => { await api("tracker:remove", { id: ev.currentTarget.dataset.untrack }); toast("Suivi arrêté"); render(); });
+    } catch (x) { body.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+  }));
+}
+
 function bindSuivis(hist) {
+  bindTrackers();
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.addEventListener("click", async () => { await api("watch:remove", { key: b.dataset.unwatch }); render(); }));
   document.getElementById("clearhist")?.addEventListener("click", async () => { await api("history:clear"); render(); });
   document.querySelectorAll("[data-hist]").forEach((b) => b.addEventListener("click", async () => {
@@ -691,7 +768,6 @@ function viewCompte(params) {
         <label class="field"><span>Coût par vente</span><div class="input-euro"><input class="input num" data-set="costPerSale" inputmode="decimal" value="${String(s.costPerSale ?? 0.5).replace(".", ",")}"></div></label>
       </div>
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
-      <label class="switch"><span><b>Partager mes analyses</b><br><span class="small muted">Le produit et les annonces trouvées rejoignent le catalogue commun. Rien de personnel n'est partagé.</span></span><input type="checkbox" data-set="shareAnalyses" ${s.shareAnalyses ? "checked" : ""}></label>
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
