@@ -59,6 +59,13 @@ if (!newer(version, latest)) {
 }
 
 // Une version plus ancienne attend l'examen : on retire sa soumission pour envoyer la nouvelle à sa place.
+const pendingVer = ver(before.submittedItemRevisionStatus);
+const publishedVer = ver(before.publishedItemRevisionStatus);
+if (before.submittedItemRevisionStatus?.state === "PENDING_REVIEW" && pendingVer === publishedVer) {
+  // Examen de la fiche (textes, visuels, confidentialité) sur la version déjà publiée : on ne l'annule pas.
+  console.log(`Examen de la fiche en cours (version ${pendingVer}) : la ${version} partira automatiquement au prochain envoi, une fois l'examen terminé.`);
+  process.exit(0);
+}
 if (before.submittedItemRevisionStatus?.state === "PENDING_REVIEW") {
   const c = await fetch(`${base}:cancelSubmission`, { method: "POST", headers: auth });
   if (!c.ok) throw new Error(`Annulation de la soumission en cours refusée (${c.status}) : ${(await c.text()).slice(0, 300)}`);
