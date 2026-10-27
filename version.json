@@ -1,7 +1,7 @@
 {
   "version": "3.2.0",
-  "notes": "Nouveau : Radar des nouvelles annonces Vinted avec notifications, suivi des ventes d'un compte Vinted pendant 14 jours, catalogue alimenté en continu.",
+  "notes": "Radar des nouvelles annonces avec alertes sur ton téléphone (Telegram, Discord), recherche par image sur Vinted, suivi des ventes d'un vendeur pendant 14 jours, tendances du marché, annonce Vinted complète en un clic.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-10-26",
+  "releaseDate": "2026-10-27",
   "minVersion": "3.0.0"
 }

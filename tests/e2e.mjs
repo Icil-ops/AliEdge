@@ -169,6 +169,20 @@ await page.click("[data-done]").catch(() => {});
 await page.waitForTimeout(500);
 check("prise en main terminée", await page.evaluate(async () => !!(await chrome.storage.local.get("ae_onboarded")).ae_onboarded));
 
+// 1c. Mise à jour : bandeau « Nouvelle version prête » puis nouveautés
+await page.evaluate(() => chrome.storage.local.set({ ae_update_ready: { version: "9.9.9", at: Date.now() } }));
+await page.goto(app("/catalogue"));
+await page.waitForSelector(".update-banner.ready", { timeout: 6000 }).catch(() => {});
+check("mise à jour : bandeau pour installer la nouvelle version", (await page.locator('.update-banner.ready [data-update="apply"]').count()) === 1);
+await page.evaluate(() => chrome.storage.local.set({ ae_update_ready: null, ae_whatsnew: { version: "3.2.0", notes: "Radar et alertes sur téléphone.", at: Date.now() } }));
+await page.reload();
+await page.waitForFunction(() => /Radar/.test(document.querySelector(".update-banner")?.textContent || ""), null, { timeout: 6000 }).catch(() => {});
+await page.waitForSelector(".update-banner", { timeout: 6000 }).catch(() => {});
+const wn = await page.locator(".update-banner").innerText().catch(() => "");
+await page.click('[data-update="seen"]').catch(() => {});
+await page.waitForTimeout(300);
+check("mise à jour : nouveautés affichées une fois", /Radar/.test(wn) && !(await page.evaluate(async () => (await chrome.storage.local.get("ae_whatsnew")).ae_whatsnew)), wn.slice(0, 60));
+
 // 2. Analyse depuis une fiche AliExpress (panneau attaché à l'onglet produit)
 const product = await ctx.newPage();
 await product.goto("https://fr.aliexpress.com/item/1005006.html");

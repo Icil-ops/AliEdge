@@ -46,14 +46,61 @@ async function setup() {
     chrome.contextMenus.create({ id: "ae-search", title: "Chercher « %s » sur Vinted avec AliEdge", contexts: ["selection"] });
   });
   await syncAlarms();
+  checkForUpdate().catch(() => {});
 }
 
-chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+chrome.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
   await setup();
   if (reason === "install") chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/compte?welcome=1") });
-  // Membres existants : pas de prise en main après une mise à jour.
-  if (reason === "update") chrome.storage.local.set({ ae_onboarded: Date.now() }).catch(() => {});
+  // Membres existants : pas de prise en main après une mise à jour, mais les nouveautés.
+  if (reason === "update") {
+    chrome.storage.local.set({ ae_onboarded: Date.now() }).catch(() => {});
+    announceUpdate(previousVersion).catch(() => {});
+  }
 });
+
+// ───────────────────────── Mises à jour : Chrome installe les nouvelles versions tout seul ;
+// AliEdge le signale, propose de l'appliquer tout de suite, puis montre les nouveautés.
+
+async function releaseNotes() {
+  try { return await (await fetch(chrome.runtime.getURL("version.json"))).json(); } catch { return {}; }
+}
+
+async function announceUpdate(previousVersion) {
+  const version = chrome.runtime.getManifest().version;
+  if (!previousVersion || previousVersion === version) return;
+  const { notes = "" } = await releaseNotes();
+  await chrome.storage.local.set({ ae_whatsnew: { version, notes, at: Date.now() }, ae_update_ready: null });
+  chrome.notifications.create("ae-updated", {
+    type: "basic", iconUrl: "icons/icon128.png",
+    title: `AliEdge est à jour (${version})`,
+    message: (notes || "Découvre les nouveautés dans le panneau AliEdge.").slice(0, 200),
+    priority: 1,
+  });
+}
+
+// Une nouvelle version a été téléchargée par Chrome : on prévient, un clic l'installe immédiatement.
+chrome.runtime.onUpdateAvailable.addListener(async ({ version }) => {
+  await chrome.storage.local.set({ ae_update_ready: { version, at: Date.now() } });
+  chrome.action.setBadgeBackgroundColor({ color: "#6d3bff" });
+  chrome.action.setBadgeText({ text: "↑" });
+  chrome.notifications.create("ae-update-ready", {
+    type: "basic", iconUrl: "icons/icon128.png",
+    title: `Nouvelle version d'AliEdge (${version})`,
+    message: "Clique ici pour l'installer maintenant (quelques secondes). Sinon, elle s'installera au prochain redémarrage de Chrome.",
+    priority: 2,
+    requireInteraction: true,
+  });
+  broadcast({ type: "update:ready", version });
+});
+
+/** Demande à Chrome de vérifier s'il existe une nouvelle version (au plus toutes les 6 heures). */
+async function checkForUpdate() {
+  const { ae_update_check: last = 0 } = await chrome.storage.local.get("ae_update_check");
+  if (Date.now() - last < 6 * 3600_000) return;
+  await chrome.storage.local.set({ ae_update_check: Date.now() });
+  try { chrome.runtime.requestUpdateCheck(() => void chrome.runtime.lastError); } catch { /* indisponible en mode développeur */ }
+}
 chrome.runtime.onStartup.addListener(setup);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -462,6 +509,12 @@ async function sendPhoneAlerts(items) {
 const eur0 = (n) => `${Number(n).toFixed(2).replace(".", ",")} €`;
 
 chrome.notifications.onClicked.addListener(async (id) => {
+  if (id === "ae-update-ready") { chrome.notifications.clear(id); chrome.runtime.reload(); return; }
+  if (id === "ae-updated") {
+    chrome.notifications.clear(id);
+    chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/analyse") });
+    return;
+  }
   if (!id.startsWith("radar-")) return;
   const vid = id.slice(6);
   const st = await radarState();
@@ -519,7 +572,7 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
 }
 
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "community") vinted.inBackground(communityCheck).catch(() => {});
+  if (a.name === "community") { vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "watch") refreshWatches();
 });
@@ -753,6 +806,12 @@ const handlers = {
   "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
   "radar:remove": async ({ id }) => { const st = await radarState(); st.filters = st.filters.filter((f) => f.id !== id); delete st.seen[id]; st.feed = st.feed.filter((x) => x.filterId !== id); await saveRadar(st); await syncRadarAlarm(st); return { filters: st.filters, feed: st.feed }; },
   "guard:status": () => vinted.guardStatus(),
+  "update:state": async () => {
+    const r = await chrome.storage.local.get(["ae_update_ready", "ae_whatsnew"]);
+    return { version: chrome.runtime.getManifest().version, ready: r.ae_update_ready || null, whatsnew: r.ae_whatsnew || null };
+  },
+  "update:apply": async () => { setTimeout(() => chrome.runtime.reload(), 300); return {}; },
+  "update:seen": async () => { await chrome.storage.local.remove("ae_whatsnew"); return {}; },
   "radar:tick": async () => { await vinted.inBackground(radarTick); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
   "radar:clear": async () => { const st = await radarState(); st.feed = []; await saveRadar(st); return { filters: st.filters, feed: [] }; },
   "tracker:list": async () => sb.rpc("aliedge_trackers"),
