@@ -152,3 +152,15 @@ test("le vendeur d'une annonce est conservé", () => {
   assert.equal(normaliseItem({ id: 3, title: "x", price: "5", user: { id: 4242 } }, "fr").seller_id, 4242);
   assert.equal(normaliseItem({ id: 3, title: "x", price: "5" }, "fr").seller_id, null);
 });
+
+test("lien de recherche Vinted → paramètres du Radar", async () => {
+  const { parseSearchUrl } = await import("../src/lib/vinted.js");
+  const r = parseSearchUrl("https://www.vinted.fr/catalog?search_text=nike%20tech&brand_ids[]=53&brand_ids[]=88&size_ids[]=207&status_ids[]=6&price_from=5&price_to=30&order=relevance&page=3");
+  assert.equal(r.market, "fr");
+  assert.deepEqual(r.params, { search_text: "nike tech", brand_ids: "53,88", size_ids: "207", status_ids: "6", price_from: "5", price_to: "30" });
+  assert.deepEqual(parseSearchUrl("https://www.vinted.co.uk/catalog/2050-clothing").params, { catalog_ids: "2050" });
+  assert.equal(parseSearchUrl("https://www.vinted.de/brand/53-nike").params.brand_ids, "53");
+  assert.equal(parseSearchUrl("https://example.com/catalog?search_text=x"), null);
+  assert.equal(parseSearchUrl("pas un lien"), null);
+  assert.equal(parseSearchUrl("https://www.vinted.fr/catalog?brand_ids[]=abc"), null);
+});

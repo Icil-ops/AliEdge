@@ -1,6 +1,6 @@
 {
-  "version": "3.2.0",
-  "notes": "Radar des nouvelles annonces avec alertes sur ton téléphone (Telegram, Discord), recherche par image sur Vinted, suivi des ventes d'un vendeur pendant 14 jours, tendances du marché, annonce Vinted complète en un clic.",
+  "version": "3.2.1",
+  "notes": "Onglet Concurrents : colle le lien d'un profil ou clique sur « + Concurrent » à côté de n'importe quel vendeur sur Vinted, et vois tout ce qu'il vend, à quel prix et en combien de temps. Radar : colle directement un lien de recherche Vinted (marque, catégorie, taille, prix). Alertes sur téléphone, recherche par image, tendances du marché.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-27",
   "minVersion": "3.0.0"

@@ -178,6 +178,13 @@ function num(v) {
   return Number.isFinite(n) && n > 0 && n < 100000 ? Math.round(n * 100) / 100 : null;
 }
 
+function listedAt(it, photo) {
+  const ts = Number(photo?.high_resolution?.timestamp ?? it.created_at_ts ?? 0);
+  if (ts > 1e9 && ts < 1e11) return Math.round(ts);
+  const iso = Date.parse(it.created_at || "");
+  return Number.isFinite(iso) ? Math.round(iso / 1000) : null;
+}
+
 export function normaliseItem(it, market) {
   const photo = it.photo || (Array.isArray(it.photos) ? it.photos[0] : null);
   const thumb = photo?.thumbnails?.find?.((t) => t.type === "thumb310x430")?.url;
@@ -196,6 +203,8 @@ export function normaliseItem(it, market) {
     favourites: Number.isFinite(it.favourite_count) ? it.favourite_count : null,
     seller_id: Number(it.user?.id ?? it.user_id ?? it.seller_id) || null,
     views: Number.isFinite(it.view_count) ? it.view_count : null,
+    // Mise en ligne : horodatage de la première photo (secondes), à défaut la date de création.
+    listed_at: listedAt(it, photo),
   };
 }
 
@@ -220,15 +229,49 @@ export async function searchText(query, { market = "fr", condition = "all", perP
 }
 
 /** Nouvelles annonces pour le Radar : les plus récentes d'abord, avec fourchette de prix. */
-export async function searchNewest({ query, market = "fr", condition = "all", priceMin = null, priceMax = null, perPage = 40 }) {
+/**
+ * Lien de recherche Vinted collé par le membre (…/catalog?search_text=…&brand_ids[]=…) → paramètres de l'API.
+ * Seuls les filtres de recherche sont repris (marque, catégorie, taille, état, couleur, matière, prix…).
+ */
+const SEARCH_KEYS = { catalog: "catalog_ids", catalog_ids: "catalog_ids", brand_ids: "brand_ids", size_ids: "size_ids", status_ids: "status_ids",
+  color_ids: "color_ids", material_ids: "material_ids", patterns_ids: "patterns_ids", country_ids: "country_ids", city_ids: "city_ids",
+  video_game_rating_ids: "video_game_rating_ids", search_text: "search_text", price_from: "price_from", price_to: "price_to", currency: "currency", disposal: "disposal" };
+export function parseSearchUrl(raw) {
+  let u;
+  try { u = new URL(String(raw || "").trim()); } catch { return null; }
+  const m = u.hostname.match(/^(?:www\.)?vinted\.([a-z.]+)$/i);
+  if (!m || !/^\/(?:catalog|vetements|brand|[a-z-]+\/catalog)/i.test(u.pathname) && !u.search) return null;
+  const tld = m[1].toLowerCase();
+  const market = tld === "co.uk" ? "uk" : tld;
+  if (!MARKETS[market]) return null;
+  const params = {};
+  for (const [k, v] of u.searchParams) {
+    const key = SEARCH_KEYS[k.replace(/\[\]$/, "")];
+    if (!key || v === "") continue;
+    const val = String(v).slice(0, 120);
+    if (key.endsWith("_ids")) { if (!/^\d{1,12}$/.test(val)) continue; params[key] = params[key] ? `${params[key]},${val}` : val; }
+    else if (/^price_/.test(key)) { if (/^\d+(\.\d+)?$/.test(val)) params[key] = val; }
+    else params[key] = val;
+  }
+  // Pages de catégorie (/catalog/2050-vetements) : l'identifiant est dans le chemin.
+  const cat = u.pathname.match(/\/catalog\/(\d+)/)?.[1];
+  if (cat && !params.catalog_ids) params.catalog_ids = cat;
+  const brand = u.pathname.match(/\/brand\/(\d+)/)?.[1];
+  if (brand && !params.brand_ids) params.brand_ids = brand;
+  if (!Object.keys(params).length) return null;
+  return { market, params };
+}
+
+export async function searchNewest({ query, market = "fr", condition = "all", priceMin = null, priceMax = null, perPage = 40, params = null }) {
   const url = new URL(`https://${host(market)}/api/v2/catalog/items`);
+  if (params && typeof params === "object") for (const [k, v] of Object.entries(params)) if (Object.values(SEARCH_KEYS).includes(k)) url.searchParams.set(k, String(v));
   if (query) url.searchParams.set("search_text", String(query).trim());
   url.searchParams.set("per_page", String(perPage));
   url.searchParams.set("page", "1");
   url.searchParams.set("order", "newest_first");
   if (priceMin != null && priceMin !== "") url.searchParams.set("price_from", String(priceMin));
   if (priceMax != null && priceMax !== "") url.searchParams.set("price_to", String(priceMax));
-  (CONDITION_IDS[condition] || []).forEach((id) => url.searchParams.append("status_ids[]", String(id)));
+  if (!params?.status_ids) (CONDITION_IDS[condition] || []).forEach((id) => url.searchParams.append("status_ids[]", String(id)));
   const res = await vFetch(url.toString(), "json", market);
   const raw = Array.isArray(res.body?.items) ? res.body.items : [];
   return raw.map((it) => normaliseItem(it, market)).filter((i) => i.vinted_id && i.price != null);
@@ -266,12 +309,19 @@ export function statusFromJson(it) {
  * Dressing d'un vendeur (une requête pour toutes ses annonces récentes, vendues comprises
  * quand le vendeur les affiche). C'est ce qui rend la détection des ventes économe.
  */
-export async function sellerItems(sellerId, market = "fr") {
+export async function sellerItems(sellerId, market = "fr", { pages = 1 } = {}) {
   const id = Number(sellerId);
   if (!Number.isSafeInteger(id) || id <= 0) return [];
-  const res = await vFetch(`https://${host(market)}/api/v2/users/${id}/items?page=1&per_page=96&order=newest_first`, "json", market);
-  const raw = Array.isArray(res.body?.items) ? res.body.items : [];
-  return raw.map((it) => ({ ...normaliseItem(it, market), seller_id: id, status: statusFromJson(it) })).filter((i) => i.vinted_id);
+  const out = [];
+  for (let page = 1; page <= Math.min(Math.max(1, pages), 12); page++) {
+    const res = await vFetch(`https://${host(market)}/api/v2/users/${id}/items?page=${page}&per_page=96&order=newest_first`, "json", market);
+    const raw = Array.isArray(res.body?.items) ? res.body.items : [];
+    out.push(...raw.map((it) => ({ ...normaliseItem(it, market), seller_id: id, status: statusFromJson(it) })).filter((i) => i.vinted_id));
+    const total = Number(res.body?.pagination?.total_pages);
+    if (raw.length < 96 || (Number.isFinite(total) && page >= total)) break;
+    await new Promise((r) => setTimeout(r, 1500 + Math.random() * 2500));
+  }
+  return out;
 }
 
 export async function itemStatus(vintedId, market = "fr") {

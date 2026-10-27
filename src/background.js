@@ -411,9 +411,14 @@ async function communityCheck() {
   // 1) Par vendeur : un dressing lu = toutes ses annonces suivies revérifiées d'un coup.
   let sellers = [];
   try { sellers = await sb.rpc("aliedge_sellers_to_check", { _limit: 4 }); } catch { /* fonction absente : on passe aux annonces */ }
-  for (const { seller_id, market } of sellers || []) {
+  const { ae_fullscan: full = {} } = await chrome.storage.local.get("ae_fullscan");
+  for (const { seller_id, market, pending } of sellers || []) {
     try {
-      const items = await vinted.sellerItems(seller_id, market);
+      // Concurrent suivi : dressing complet (toutes les pages) toutes les 3 h, première page entre-temps.
+      const key = `${market}:${seller_id}`;
+      const deep = pending === -1 && Date.now() - (full[key] || 0) > 3 * 3600_000;
+      const items = await vinted.sellerItems(seller_id, market, { pages: deep ? 10 : 1 });
+      if (deep) { full[key] = Date.now(); await chrome.storage.local.set({ ae_fullscan: Object.fromEntries(Object.entries(full).slice(-200)) }); }
       if (items.length) await reportWardrobe(seller_id, market, items);
     } catch (e) {
       if (STOP_CODES.has(e.code)) return;
@@ -488,7 +493,7 @@ async function radarTick() {
     let fresh = 0;
     for (const f of active) {
       let items;
-      try { items = await vinted.searchNewest({ query: f.query, market: f.market, condition: f.condition, priceMin: f.priceMin, priceMax: f.priceMax }); }
+      try { items = await vinted.searchNewest({ query: f.query, market: f.market, condition: f.condition, priceMin: f.priceMin, priceMax: f.priceMax, params: f.params || null }); }
       catch (e) { if (["blocked", "rate_limited", "paused", "budget"].includes(e.code)) break; continue; }
       const seen = new Set(st.seen[f.id] || []);
       const first = seen.size === 0;            // premier passage : on mémorise sans notifier
@@ -550,18 +555,24 @@ chrome.notifications.onClicked.addListener(async (id) => {
 
 async function radarSave({ filter }) {
   const st = await radarState();
+  // Lien de recherche Vinted (marque, catégorie, taille…) : repris tel quel par le Radar.
+  const link = filter.link ? vinted.parseSearchUrl(filter.link) : null;
+  if (filter.link && !link) throw new sb.ApiError("Ce lien n'est pas une recherche Vinted : fais ta recherche sur Vinted avec tes filtres, puis copie l'adresse de la page.", 400, "invalid");
+  const linkQuery = link?.params?.search_text || "";
   const f = {
     id: filter.id || `f${Date.now().toString(36)}`,
-    name: String(filter.name || filter.query || "Filtre").slice(0, 40),
-    query: String(filter.query || "").slice(0, 120),
-    market: MARKETS[filter.market] ? filter.market : "fr",
+    name: String(filter.name || filter.query || linkQuery || "Recherche Vinted").slice(0, 40),
+    query: link ? "" : String(filter.query || "").slice(0, 120),
+    link: link ? String(filter.link).slice(0, 1000) : null,
+    params: link ? link.params : null,
+    market: link ? link.market : MARKETS[filter.market] ? filter.market : "fr",
     condition: ["all", "new", "very_good"].includes(filter.condition) ? filter.condition : "all",
     priceMin: filter.priceMin === "" || filter.priceMin == null ? null : Math.max(0, Number(filter.priceMin) || 0),
     priceMax: filter.priceMax === "" || filter.priceMax == null ? null : Math.max(0, Number(filter.priceMax) || 0),
     notify: filter.notify !== false,
     active: filter.active !== false,
   };
-  if (!f.query) throw new sb.ApiError("Indique des mots-clés à surveiller.", 400, "invalid");
+  if (!f.query && !f.params) throw new sb.ApiError("Indique des mots-clés ou colle un lien de recherche Vinted.", 400, "invalid");
   const i = st.filters.findIndex((x) => x.id === f.id);
   if (i >= 0) st.filters[i] = f;
   else {
@@ -578,6 +589,17 @@ async function radarSave({ filter }) {
 
 // ───────────────────────── Trackers de vendeurs (14 jours)
 
+// Concurrents déjà suivis (pour les boutons affichés sur Vinted).
+let competitorIds = null;
+async function getCompetitorIds() {
+  if (competitorIds && Date.now() - competitorIds.at < 120_000) return competitorIds.ids;
+  if (!(await sb.getSession())) return [];
+  const rows = await sb.rpc("aliedge_trackers").catch(() => []);
+  const ids = (rows || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).map((t) => `${t.market}:${t.seller_id}`);
+  competitorIds = { at: Date.now(), ids };
+  return ids;
+}
+
 async function addTracker({ sellerId, market = "fr", label = null }) {
   if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi à AliEdge pour suivre un vendeur.", 401, "auth");
   const id = Number(sellerId);
@@ -586,14 +608,18 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
   try {
     trackerId = await sb.rpc("aliedge_tracker_add", { _seller_id: id, _market: MARKETS[market] ? market : "fr", _label: label ? String(label).slice(0, 80) : null });
   } catch (e) {
-    if (/too many/.test(e.message)) throw new sb.ApiError("Tu suis déjà 30 vendeurs : arrête un tracker avant d'en ajouter un.", 400, "limit");
+    if (/too many/.test(e.message)) throw new sb.ApiError("Tu suis déjà 30 concurrents : retires-en un avant d'en ajouter.", 400, "limit");
     throw e;
   }
-  // Premier relevé tout de suite : c'est la photo de départ du dressing.
-  try {
-    const items = await vinted.sellerItems(id, market);
+  competitorIds = null;
+  // Premier relevé tout de suite, dressing complet : c'est la photo de départ (annonces en ligne et déjà vendues).
+  (async () => {
+    const items = await vinted.sellerItems(id, market, { pages: 10 });
     if (items.length) await reportWardrobe(id, market, items);
-  } catch { /* le prochain passage automatique s'en chargera */ }
+    const { ae_fullscan: full = {} } = await chrome.storage.local.get("ae_fullscan");
+    full[`${market}:${id}`] = Date.now();
+    await chrome.storage.local.set({ ae_fullscan: full });
+  })().catch(() => { /* le prochain passage automatique s'en chargera */ });
   return { id: trackerId };
 }
 
@@ -606,7 +632,7 @@ chrome.alarms.onAlarm.addListener((a) => {
 async function reportWardrobe(sellerId, market, items) {
   return sb.rpc("aliedge_report_wardrobe", {
     _seller_id: Number(sellerId), _market: market,
-    _items: items.slice(0, 200).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, photo_url: i.photo_url, url: i.url, favourites: i.favourites })),
+    _items: items.slice(0, 1000).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, brand: i.brand, size: i.size, photo_url: i.photo_url, url: i.url, favourites: i.favourites, listed_at: i.listed_at })),
   });
 }
 
@@ -842,7 +868,9 @@ const handlers = {
   "radar:clear": async () => { const st = await radarState(); st.feed = []; await saveRadar(st); return { filters: st.filters, feed: [] }; },
   "tracker:list": async () => sb.rpc("aliedge_trackers"),
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
-  "tracker:remove": async ({ id }) => sb.rpc("aliedge_tracker_remove", { _id: id }),
+  "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
+  "competitor:ids": async () => getCompetitorIds(),
+  "tracker:remove": async ({ id }) => { competitorIds = null; return sb.rpc("aliedge_tracker_remove", { _id: id }); },
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "catalog:importPage": async () => importPage(),
   "catalog:importVinted": async ({ links }) => importVintedLinks(links),
@@ -862,11 +890,11 @@ const handlers = {
     const p = r.ae_pending;
     return p && Date.now() - p.at < 60_000 ? p : null;
   },
-  "open:panel": async (_msg, sender) => {
+  "open:panel": async (msg, sender) => {
     if (sender.tab?.id != null) {
       // sidePanel.open doit partir avant tout await pour garder le geste de l'utilisateur.
       const opening = chrome.sidePanel.open({ tabId: sender.tab.id });
-      await chrome.storage.session.set({ ae_pending: { analyze: true, at: Date.now() } });
+      await chrome.storage.session.set({ ae_pending: msg.route === "concurrents" ? { route: "concurrents", at: Date.now() } : { analyze: true, at: Date.now() } });
       await opening;
       broadcast({ type: "pending" });
     }
@@ -881,7 +909,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => sendResponse({ ok: false, error: e?.message || "Erreur inattendue.", code: e?.code || "" }));

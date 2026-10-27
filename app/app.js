@@ -73,7 +73,7 @@ function announce(msg) {
 function route() {
   const h = location.hash.replace(/^#\/?/, "");
   const [name, qs] = h.split("?");
-  return { name: ["analyse", "catalogue", "radar", "suivis", "compte", "bienvenue"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  return { name: ["analyse", "catalogue", "radar", "concurrents", "suivis", "compte", "bienvenue"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -101,6 +101,9 @@ function radarFeedHtml(feed) {
     </a>`).join("")}</div>`;
 }
 
+const radarMode = (f) => (f.id ? (f.params ? "link" : "query") : radarModePref);
+let radarModePref = "link";
+
 async function viewRadar() {
   if (!state.me) return `<section class="card pad stack"><h2>Radar</h2><p class="muted">Connecte-toi pour surveiller les nouvelles annonces Vinted.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
   const { filters, feed } = await api("radar:state").catch(() => ({ filters: [], feed: [] }));
@@ -118,17 +121,29 @@ async function viewRadar() {
       ${guardLine}
       <form id="radarform" class="card pad stack">
         <input type="hidden" name="id" value="${esc(f.id || "")}">
-        <div class="grid2">
-          <label class="field"><span>Mots-clés</span><input class="input" name="query" value="${esc(f.query || "")}" placeholder="ex. sac bandoulière cuir" required></label>
-          <label class="field"><span>Nom du filtre</span><input class="input" name="name" value="${esc(f.name || "")}" placeholder="facultatif"></label>
+        <input type="hidden" name="mode" value="${radarMode(f)}">
+        <div class="seg" role="tablist" aria-label="Type de filtre">
+          <button type="button" role="tab" data-rmode="link" aria-selected="${radarMode(f) === "link"}">Lien de recherche Vinted</button>
+          <button type="button" role="tab" data-rmode="query" aria-selected="${radarMode(f) === "query"}">Mots-clés</button>
         </div>
-        <div class="grid2">
-          <label class="field"><span>Prix min.</span><div class="input-euro"><input class="input num" name="priceMin" inputmode="decimal" value="${f.priceMin ?? ""}"></div></label>
-          <label class="field"><span>Prix max.</span><div class="input-euro"><input class="input num" name="priceMax" inputmode="decimal" value="${f.priceMax ?? ""}"></div></label>
+        <div class="stack" data-rpane="link" ${radarMode(f) === "link" ? "" : "hidden"}>
+          <label class="field"><span>Lien de la recherche</span><input class="input" name="link" type="url" inputmode="url" value="${esc(f.link || "")}" placeholder="https://www.vinted.fr/catalog?search_text=…&brand_ids[]=…"></label>
+          <p class="small muted">Fais ta recherche sur Vinted avec tous tes filtres (marque, catégorie, taille, état, couleur, prix), puis copie l'adresse de la page ici. AliEdge surveille exactement cette recherche.</p>
+          <label class="field"><span>Nom du filtre</span><input class="input" name="lname" value="${esc(f.name || "")}" placeholder="ex. Nike Tech taille M"></label>
         </div>
-        <div class="grid2">
-          <label class="field"><span>Pays</span><select class="input" name="market">${marketOpts}</select></label>
-          <label class="field"><span>État</span><select class="input" name="condition">${condOpts}</select></label>
+        <div class="stack" data-rpane="query" ${radarMode(f) === "query" ? "" : "hidden"}>
+          <div class="grid2">
+            <label class="field"><span>Mots-clés</span><input class="input" name="query" value="${esc(f.query || "")}" placeholder="ex. sac bandoulière cuir"></label>
+            <label class="field"><span>Nom du filtre</span><input class="input" name="name" value="${esc(f.name || "")}" placeholder="facultatif"></label>
+          </div>
+          <div class="grid2">
+            <label class="field"><span>Prix min.</span><div class="input-euro"><input class="input num" name="priceMin" inputmode="decimal" value="${f.priceMin ?? ""}"></div></label>
+            <label class="field"><span>Prix max.</span><div class="input-euro"><input class="input num" name="priceMax" inputmode="decimal" value="${f.priceMax ?? ""}"></div></label>
+          </div>
+          <div class="grid2">
+            <label class="field"><span>Pays</span><select class="input" name="market">${marketOpts}</select></label>
+            <label class="field"><span>État</span><select class="input" name="condition">${condOpts}</select></label>
+          </div>
         </div>
         <label class="switch small"><span>Notification à chaque nouvelle annonce</span><input type="checkbox" name="notify" ${f.notify === false ? "" : "checked"}></label>
         <div id="radarerr" role="alert"></div>
@@ -136,7 +151,7 @@ async function viewRadar() {
       </form>
       ${filters.length ? `<div class="radar-filters">${filters.map((x) => `
         <div class="radar-filter ${x.active ? "" : "off"}">
-          <div><b>${esc(x.name)}</b><div class="small muted">${esc(x.query)}${x.priceMin != null ? ` · dès ${eur(x.priceMin)}` : ""}${x.priceMax != null ? ` · jusqu'à ${eur(x.priceMax)}` : ""} · ${esc((x.market || "fr").toUpperCase())}</div></div>
+          <div><b>${esc(x.name)}</b><div class="small muted">${x.params ? `Recherche Vinted${x.params.brand_ids ? " · marque" : ""}${x.params.catalog_ids ? " · catégorie" : ""}${x.params.size_ids ? " · taille" : ""}${x.params.price_from || x.params.price_to ? " · prix" : ""}` : esc(x.query)}${x.priceMin != null ? ` · dès ${eur(x.priceMin)}` : ""}${x.priceMax != null ? ` · jusqu'à ${eur(x.priceMax)}` : ""} · ${esc((x.market || "fr").toUpperCase())}</div></div>
           <div class="row" style="gap:6px">
             <button class="btn ghost small" type="button" data-rtoggle="${esc(x.id)}">${x.active ? "Pause" : "Reprendre"}</button>
             <button class="btn ghost small" type="button" data-redit="${esc(x.id)}">Modifier</button>
@@ -210,10 +225,22 @@ function bindRadar() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const num = (v) => (String(v || "").trim() === "" ? null : Number(String(v).replace(",", ".")));
-    const filter = { id: fd.get("id") || undefined, query: fd.get("query"), name: fd.get("name"), priceMin: num(fd.get("priceMin")), priceMax: num(fd.get("priceMax")), market: fd.get("market"), condition: fd.get("condition"), notify: fd.get("notify") === "on", active: true };
+    const link = fd.get("mode") === "link";
+    if (link && !String(fd.get("link") || "").trim()) { document.getElementById("radarerr").innerHTML = `<div class="notice err">Colle le lien d'une recherche Vinted.</div>`; return; }
+    if (!link && !String(fd.get("query") || "").trim()) { document.getElementById("radarerr").innerHTML = `<div class="notice err">Indique des mots-clés à surveiller.</div>`; return; }
+    const filter = link
+      ? { id: fd.get("id") || undefined, link: String(fd.get("link")).trim(), name: fd.get("lname"), notify: fd.get("notify") === "on", active: true }
+      : { id: fd.get("id") || undefined, query: fd.get("query"), name: fd.get("name"), priceMin: num(fd.get("priceMin")), priceMax: num(fd.get("priceMax")), market: fd.get("market"), condition: fd.get("condition"), notify: fd.get("notify") === "on", active: true };
     try { await api("radar:save", { filter }); radarEdit = null; toast("Filtre enregistré : surveillance lancée"); render(); }
     catch (x) { document.getElementById("radarerr").innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
   });
+  document.querySelectorAll("[data-rmode]").forEach((b) => b.addEventListener("click", () => {
+    const mode = b.dataset.rmode;
+    radarModePref = mode;
+    document.querySelector('#radarform [name="mode"]').value = mode;
+    document.querySelectorAll("[data-rmode]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    document.querySelectorAll("[data-rpane]").forEach((p) => { p.hidden = p.dataset.rpane !== mode; });
+  }));
   document.getElementById("radarcancel")?.addEventListener("click", () => { radarEdit = null; render(); });
   document.getElementById("radarclear")?.addEventListener("click", async () => { await api("radar:clear"); render(); });
   document.querySelectorAll("[data-redit]").forEach((b) => b.addEventListener("click", () => { radarEdit = b.dataset.redit; render(); }));
@@ -982,37 +1009,79 @@ function sparkline(points) {
   return `<svg class="spark" viewBox="0 0 90 30" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--violet)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
+// ───────────────────────── Concurrents (suivis en continu)
+
 function viewTrackers(trackers) {
-  const now = Date.now();
-  const rows = (trackers || []).map((t) => {
-    const left = Math.ceil((new Date(t.expires_at).getTime() - now) / 864e5);
-    const live = left > 0;
-    return `
-      <div class="tracker ${live ? "" : "ended"}">
+  const rows = (trackers || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).map((t) => `
+      <div class="tracker">
         <button class="tracker-head" type="button" data-tracker="${esc(t.id)}" aria-expanded="false">
           <span class="tracker-dot" aria-hidden="true"></span>
-          <span class="tracker-name"><b>${esc(t.label || `Vendeur ${t.seller_id}`)}</b><span class="small muted">${live ? `${left} j restant${left > 1 ? "s" : ""}` : "Terminé"} · ${esc((t.market || "fr").toUpperCase())}${t.last_checked_at ? ` · vérifié ${esc(ago(new Date(t.last_checked_at).getTime()))}` : " · premier relevé en cours"}</span></span>
-          <span class="tracker-kpi num"><b>${t.sold_count}</b><span class="small muted">vente${t.sold_count > 1 ? "s" : ""}</span></span>
-          <span class="tracker-kpi num"><b>${eur(Number(t.sold_amount))}</b><span class="small muted">${t.active_count} en ligne</span></span>
+          <span class="tracker-name"><b>${esc(t.label || `Vendeur ${t.seller_id}`)}</b><span class="small muted">${esc((t.market || "fr").toUpperCase())} · suivi depuis ${esc(ago(new Date(t.created_at).getTime()))}${t.last_checked_at ? ` · vérifié ${esc(ago(new Date(t.last_checked_at).getTime()))}` : " · premier relevé en cours"}</span></span>
+          <span class="tracker-kpi num"><b>${t.sold_7d ?? 0}</b><span class="small muted">ventes 7 j</span></span>
+          <span class="tracker-kpi num"><b>${eur(Number(t.amount_30d ?? t.sold_amount))}</b><span class="small muted">${t.sold_30d ?? t.sold_count} ventes 30 j</span></span>
         </button>
         <div class="tracker-body" id="tb-${esc(t.id)}" hidden></div>
-      </div>`;
-  }).join("");
+      </div>`).join("");
   return `
     <section class="stack">
-      <div class="row between"><h2>Vendeurs suivis (14 jours)</h2></div>
-      <p class="small muted">Colle le lien d'un profil Vinted, ou clique sur « Suivre ses ventes 14 jours » sur sa page : AliEdge relève son dressing régulièrement et liste tout ce qu'il vend.</p>
+      <div class="row between"><h2>Concurrents</h2><span class="small muted">${rows ? (trackers || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).length : 0} / 30</span></div>
+      <p class="small muted">Colle le lien du profil Vinted d'un concurrent, ou clique sur « + Concurrent » à côté de son pseudo sur Vinted. AliEdge enregistre toutes ses annonces, repère chaque vente et mesure en combien de temps elle est partie.</p>
       <form id="trackform" class="row" style="gap:8px">
         <input class="input" id="trackurl" type="url" inputmode="url" placeholder="https://www.vinted.fr/member/123456-pseudo" aria-label="Lien du profil Vinted" style="flex:1">
         <button class="btn primary" type="submit">Suivre</button>
       </form>
       <div id="trackerr" role="alert"></div>
-      <div class="trackers">${rows || `<p class="muted small">Aucun vendeur suivi pour l'instant.</p>`}</div>
+      <div class="trackers">${rows || `<div class="card empty">${ICON.eye}<h2>Aucun concurrent suivi</h2><p class="muted">Ajoute les vendeurs qui cartonnent dans ta niche : tu verras ce qu'ils vendent, à quel prix et en combien de temps.</p></div>`}</div>
     </section>`;
 }
 
+async function viewConcurrents() {
+  if (!state.me) return `<section class="card pad stack"><h2>Concurrents</h2><p class="muted">Connecte-toi pour suivre les ventes de tes concurrents.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
+  const trackers = await api("tracker:list").catch(() => []);
+  return viewTrackers(trackers);
+}
+
+function recapHtml(r, items) {
+  const days = (d) => (d == null ? "–" : d < 1 ? "moins d'1 j" : `${String(d).replace(".", ",")} j`);
+  const kpi = (v, l) => `<div class="kpi"><b class="num">${v}</b><span class="small muted">${l}</span></div>`;
+  const maxW = Math.max(1, ...r.per_week.map((w) => w.sold));
+  const weeks = r.per_week.length ? `<div class="bars" aria-label="Ventes par semaine">${r.per_week.map((w) => `<span title="Semaine du ${esc(new Date(w.week).toLocaleDateString("fr-FR"))} : ${w.sold} vente${w.sold > 1 ? "s" : ""}" style="height:${Math.max(6, Math.round((w.sold / maxW) * 100))}%"></span>`).join("")}</div>` : "";
+  const line = (i) => `
+    <a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">
+      ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+      <div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.status === "sold"
+        ? i.sold_before ? `<span class="badge-sold">Vendu</span> avant le suivi` : `<span class="badge-sold">Vendu</span> en ${esc(days(i.days_to_sell))} · ${esc(ago(new Date(i.sold_at).getTime()))}`
+        : `en ligne depuis ${esc(ago(new Date(i.listed_at || i.first_seen_at).getTime()))}${i.favourites ? ` · ${i.favourites} ♥` : ""}`}</div></div>
+      <div class="p num">${eur(Number(i.price))}</div>
+    </a>`;
+  const seen = items.filter((i) => i.status === "sold" && !i.sold_before);
+  const before = items.filter((i) => i.sold_before);
+  const active = items.filter((i) => i.status === "active");
+  return `
+    <div class="stack" style="gap:10px;margin-top:8px">
+      <div class="kpis">
+        ${kpi(r.sold_seen, "ventes constatées")}
+        ${kpi(eur(Number(r.revenue_seen)), "chiffre constaté")}
+        ${kpi(days(r.median_days), "délai de vente médian")}
+        ${kpi(r.median_price_sold != null ? eur(Number(r.median_price_sold)) : "–", "prix médian vendu")}
+        ${kpi(r.active, `en ligne · ${eur(Number(r.active_value))}`)}
+        ${kpi(r.new_listings_7d, "nouvelles annonces 7 j")}
+      </div>
+      ${weeks}
+      ${r.brands.length ? `<div><h3 class="small">Ce qui se vend</h3><div class="items">${r.brands.map((b) => `<div class="item" style="grid-template-columns:1fr auto"><div><div class="t">${esc(b.name)}</div><div class="m">${b.sold} vendu${b.sold > 1 ? "s" : ""}${b.median_days != null ? ` · en ${esc(days(b.median_days))}` : ""}</div></div><div class="p num">${b.median_price != null ? eur(Number(b.median_price)) : ""}</div></div>`).join("")}</div></div>` : ""}
+      ${r.price_bands.length ? `<div><h3 class="small">Prix : vendus / en ligne</h3><div class="bands">${r.price_bands.map((b) => `<div><span>${esc(b.band)}</span><b class="num">${b.sold}</b><span class="muted num">${b.active}</span></div>`).join("")}</div></div>` : ""}
+      ${r.fastest.length ? `<div><h3 class="small">Partis le plus vite</h3><div class="items">${r.fastest.map((i) => line({ ...i, status: "sold", days_to_sell: i.days, sold_at: Date.now() })).join("")}</div></div>` : ""}
+      <h3 class="small">Ventes constatées (${seen.length})</h3>
+      ${seen.length ? `<div class="items">${seen.map(line).join("")}</div>` : `<p class="small muted">Les ventes apparaissent au fil des relevés (plusieurs fois par jour).</p>`}
+      <h3 class="small">En ligne (${active.length})</h3>
+      ${active.length ? `<div class="items">${active.slice(0, 120).map(line).join("")}</div>${active.length > 120 ? `<p class="small muted">Et ${active.length - 120} autres.</p>` : ""}` : ""}
+      ${before.length ? `<details><summary class="small">Déjà vendus avant le suivi (${before.length})</summary><div class="items" style="margin-top:6px">${before.slice(0, 120).map(line).join("")}</div></details>` : ""}
+      <button class="btn ghost small" type="button" data-untrack="__ID__">Arrêter le suivi</button>
+    </div>`;
+}
+
 async function viewSuivis() {
-  const [watch, hist, trackers] = await Promise.all([api("watch:list").catch(() => []), api("history:list").catch(() => []), state.me ? api("tracker:list").catch(() => []) : Promise.resolve([])]);
+  const [watch, hist] = await Promise.all([api("watch:list").catch(() => []), api("history:list").catch(() => [])]);
   const w = watch.length ? watch.map((x) => {
     const first = x.points[0]?.median, last = x.points[x.points.length - 1]?.median;
     const delta = first && last ? Math.round(((last - first) / first) * 100) : 0;
@@ -1031,8 +1100,7 @@ async function viewSuivis() {
       <div class="p num" style="color:${(e.result.margin ?? 0) > 0 ? "var(--gain)" : "var(--loss)"}">${eur(e.result.margin, true)}</div>
     </button>`).join("") : `<p class="muted">Tes analyses apparaîtront ici.</p>`;
   return `
-    ${state.me ? viewTrackers(trackers) : ""}
-    <section class="stack" style="margin-top:22px"><h2>Produits suivis</h2><div class="items">${w}</div></section>
+    <section class="stack"><h2>Produits suivis</h2><div class="items">${w}</div></section>
     <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
 
@@ -1048,42 +1116,27 @@ function bindTrackers() {
     const market = tld === "co.uk" ? "uk" : tld;
     const label = m[3] ? decodeURIComponent(m[3]).replace(/[-_]+/g, " ") : null;
     err.innerHTML = "";
-    try { await api("tracker:add", { sellerId, market, label }); toast("Vendeur suivi pendant 14 jours"); render(); }
+    try { await api("tracker:add", { sellerId, market, label }); toast("Concurrent ajouté : relevé de son dressing en cours"); render(); }
     catch (x) { err.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
   });
   document.querySelectorAll("[data-tracker]").forEach((b) => b.addEventListener("click", async () => {
-    const body = document.getElementById(`tb-${b.dataset.tracker}`);
+    const id = b.dataset.tracker;
+    const body = document.getElementById(`tb-${id}`);
     const open = b.getAttribute("aria-expanded") === "true";
     b.setAttribute("aria-expanded", String(!open));
     body.hidden = open;
     if (open || body.dataset.loaded) return;
-    body.innerHTML = `<p class="small muted">Chargement…</p>`;
+    body.innerHTML = `<div class="skel" style="height:120px;margin-top:8px"></div>`;
     try {
-      const items = await api("tracker:items", { id: b.dataset.tracker });
-      const sold = items.filter((i) => i.status === "sold");
-      const active = items.filter((i) => i.status === "active");
-      const line = (i) => `
-        <a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">
-          ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
-          <div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.status === "sold" ? `<span class="badge-sold">Vendu</span> ${esc(ago(new Date(i.sold_at).getTime()))}` : `en ligne depuis ${esc(ago(new Date(i.first_seen_at).getTime()))}`}</div></div>
-          <div class="p num">${eur(Number(i.price))}</div>
-        </a>`;
-      body.innerHTML = `
-        <div class="stack" style="gap:6px;margin-top:8px">
-          <h3 class="small">Ventes constatées (${sold.length})</h3>
-          ${sold.length ? `<div class="items">${sold.map(line).join("")}</div>` : `<p class="small muted">Aucune vente constatée pour l'instant. Les ventes apparaissent au fil des relevés.</p>`}
-          <h3 class="small" style="margin-top:8px">En ligne (${active.length})</h3>
-          ${active.length ? `<div class="items">${active.slice(0, 60).map(line).join("")}</div>` : ""}
-          <button class="btn ghost small" type="button" data-untrack="${esc(b.dataset.tracker)}">Arrêter le suivi</button>
-        </div>`;
+      const [recap, items] = await Promise.all([api("tracker:recap", { id }), api("tracker:items", { id })]);
+      body.innerHTML = recapHtml(recap || { per_week: [], brands: [], price_bands: [], fastest: [], sold_seen: 0, revenue_seen: 0, active: 0, active_value: 0, new_listings_7d: 0 }, items || []).replace("__ID__", esc(id));
       body.dataset.loaded = "1";
-      body.querySelector("[data-untrack]")?.addEventListener("click", async (ev) => { await api("tracker:remove", { id: ev.currentTarget.dataset.untrack }); toast("Suivi arrêté"); render(); });
+      body.querySelector("[data-untrack]")?.addEventListener("click", async (ev) => { await api("tracker:remove", { id: ev.currentTarget.dataset.untrack }); toast("Concurrent retiré"); render(); });
     } catch (x) { body.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
   }));
 }
 
 function bindSuivis(hist) {
-  bindTrackers();
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.addEventListener("click", async () => { await api("watch:remove", { key: b.dataset.unwatch }); render(); }));
   document.getElementById("clearhist")?.addEventListener("click", async () => { await api("history:clear"); render(); });
   document.querySelectorAll("[data-hist]").forEach((b) => b.addEventListener("click", async () => {
@@ -1324,6 +1377,7 @@ async function render() {
   if (name === "analyse") html = viewAnalyse();
   else if (name === "catalogue") html = viewCatalogue();
   else if (name === "suivis") html = await viewSuivis();
+  else if (name === "concurrents") html = await viewConcurrents();
   else if (name === "radar") html = await viewRadar();
   else if (name === "bienvenue") html = viewBienvenue(params);
   else html = viewCompte(params);
@@ -1346,6 +1400,7 @@ async function render() {
   if (name === "analyse") { bindAnalyse(); renderSteps(); }
   else if (name === "catalogue") bindCatalogue();
   else if (name === "suivis") bindSuivis();
+  else if (name === "concurrents") bindTrackers();
   else if (name === "radar") bindRadar();
   else if (name === "bienvenue") bindBienvenue(params);
   else bindCompte(params);
@@ -1371,6 +1426,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 async function takePending() {
   const p = await api("pending:take").catch(() => null);
   if (!p) return;
+  if (p.route === "concurrents") { location.hash = "#/concurrents"; return; }
   location.hash = "#/analyse";
   if (p.query) {
     state.query = p.query;

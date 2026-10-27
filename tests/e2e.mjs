@@ -35,9 +35,10 @@ const rpc = {
   aliedge_report_wardrobe: { updated: 2, sold: 1, tracked: true },
   aliedge_tracker_add: "00000000-0000-0000-0000-0000000000aa",
   aliedge_tracker_remove: true,
-  aliedge_trackers: [{ id: "00000000-0000-0000-0000-0000000000aa", seller_id: 555, market: "fr", label: "vendeuse", created_at: new Date(Date.now() - 2 * 864e5).toISOString(), expires_at: new Date(Date.now() + 12 * 864e5).toISOString(), last_checked_at: new Date(Date.now() - 18e5).toISOString(), active_count: 3, sold_count: 2, sold_amount: 41, last_sold_at: new Date().toISOString() }],
+  aliedge_trackers: [{ id: "00000000-0000-0000-0000-0000000000aa", seller_id: 555, market: "fr", label: "vendeuse", created_at: new Date(Date.now() - 2 * 864e5).toISOString(), expires_at: new Date(Date.now() + 12 * 864e5).toISOString(), last_checked_at: new Date(Date.now() - 18e5).toISOString(), active_count: 3, sold_count: 2, sold_amount: 41, last_sold_at: new Date().toISOString(), sold_7d: 2, sold_30d: 2, amount_30d: 41, median_price_30d: 20 }],
+  aliedge_competitor_recap: { since: new Date(Date.now() - 2 * 864e5).toISOString(), active: 3, active_value: 57, sold_total: 3, sold_seen: 2, sold_before: 1, revenue_seen: 41, median_price_sold: 20, median_price_active: 18, median_days: 2.5, sold_under_7d: 2, new_listings_7d: 4, per_week: [{ week: "2026-10-12", sold: 1, revenue: 20 }, { week: "2026-10-19", sold: 2, revenue: 41 }], brands: [{ name: "Sans marque", sold: 2, median_price: 20, median_days: 2.5 }], price_bands: [{ band: "10 à 20 €", sold: 1, active: 2 }, { band: "20 à 35 €", sold: 1, active: 1 }], fastest: [{ title: "Sac bandoulière cuir noir", price: 21, days: 1.2, url: "https://www.vinted.fr/items/9000-sac", photo_url: "https://images1.vinted.net/t/0.jpeg" }] },
   aliedge_tracker_items: [
-    { vinted_id: 9000, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", status: "sold", first_seen_at: new Date(Date.now() - 2 * 864e5).toISOString(), sold_at: new Date(Date.now() - 36e5).toISOString(), favourites: 4 },
+    { vinted_id: 9000, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", status: "sold", first_seen_at: new Date(Date.now() - 2 * 864e5).toISOString(), sold_at: new Date(Date.now() - 36e5).toISOString(), favourites: 4, days_to_sell: 1.2, sold_before: false },
     { vinted_id: 9001, title: "Petit sac à main cuir femme", price: 18, photo_url: "https://images1.vinted.net/t/1.jpeg", url: "https://www.vinted.fr/items/9001-sac", status: "active", first_seen_at: new Date(Date.now() - 864e5).toISOString(), sold_at: null, favourites: 5 },
   ],
   aliedge_seen_products: 1,
@@ -66,6 +67,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
   viewport: { width: 420, height: 900 },
 });
 
+const radarUrls = [];
 await ctx.route("**/*", async (route) => {
   const req = route.request();
   const url = new URL(req.url());
@@ -83,13 +85,14 @@ await ctx.route("**/*", async (route) => {
   if (/vinted\.(fr|be|de)$/.test(h)) {
     if (url.pathname.startsWith("/api/v2/catalog/items") && url.searchParams.get("order") === "newest_first") {
       radarCalls++;
+      radarUrls.push(url.search);
       return route.fulfill({ json: { items: radarCalls === 1 ? catalogItems.slice(2) : catalogItems, pagination: { total_entries: 10 } } });
     }
     const det = url.pathname.match(/^\/api\/v2\/items\/(\d+)(\/details)?$/);
     if (det) { const it = catalogItems.find((x) => String(x.id) === det[1]) || catalogItems[0]; return route.fulfill({ json: { item: { ...it, is_closed: det[1] === "9000", item_closing_action: det[1] === "9000" ? "sold" : null } } }); }
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
-    if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><h1>vendeuse</h1>" });
+    if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
@@ -272,8 +275,8 @@ check("catalogue : annonces Vinted ajoutées par lien", imp?.ok && imp.data.adde
 // 3b. Radar : un filtre, puis de nouvelles annonces détectées
 await page.goto(app("/radar"));
 await page.waitForSelector("#radarform", { timeout: 8000 }).catch(() => {});
-await page.fill('#radarform input[name="query"]', "sac bandoulière cuir").catch(() => {});
-await page.fill('#radarform input[name="priceMax"]', "25").catch(() => {});
+await page.fill('#radarform input[name="link"]', "https://www.vinted.fr/catalog?search_text=sac%20bandouli%C3%A8re&brand_ids[]=53&brand_ids[]=88&catalog[]=1242&price_to=25&order=relevance").catch(() => {});
+await page.fill('#radarform input[name="lname"]', "Sacs Zara").catch(() => {});
 await page.click('#radarform button[type="submit"]').catch(() => {});
 await page.waitForSelector(".radar-filter", { timeout: 8000 }).catch(() => {});
 check("radar : filtre enregistré", (await page.locator(".radar-filter").count()) === 1);
@@ -283,18 +286,26 @@ await page.waitForTimeout(1500);
 await page.evaluate(() => chrome.runtime.sendMessage({ type: "radar:tick" }));
 await page.goto(app("/radar"));
 await page.waitForSelector(".radar-item", { timeout: 8000 }).catch(() => {});
+check("radar : lien de recherche Vinted repris (marques, catégorie, prix)", radarUrls.some((q) => q.includes("brand_ids=53%2C88") && q.includes("catalog_ids=1242") && q.includes("price_to=25") && q.includes("order=newest_first")), radarUrls[0] || "aucune requête");
 check("radar : nouvelles annonces dans le flux", (await page.locator(".radar-item").count()) === 2, `${await page.locator(".radar-item").count()} annonce(s)`);
 check("radar : alerte envoyée sur le téléphone", barapicsCalls.includes("alerts:send"));
 await page.screenshot({ path: `${shots}/7b-radar.png`, fullPage: true });
 
-// 4. Suivis : trackers de vendeurs
-await page.goto(app("/suivis"));
+// 4. Concurrents : suivi en continu et récap
+await page.goto(app("/concurrents"));
 await page.waitForSelector(".tracker", { timeout: 8000 }).catch(() => {});
-check("tracker de vendeur affiché dans Suivis", (await page.locator(".tracker").count()) === 1);
+check("concurrent affiché dans l'onglet Concurrents", (await page.locator(".tracker").count()) === 1);
+await page.fill("#trackurl", "https://www.vinted.fr/member/4242-boutique-sacs").catch(() => {});
+const addsBefore = calls.filter((c) => c.endsWith("aliedge_tracker_add")).length;
+await page.click('#trackform button[type="submit"]').catch(() => {});
+await page.waitForTimeout(1500);
+check("concurrent ajouté par le lien de son profil", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > addsBefore);
+await page.waitForSelector("[data-tracker]", { timeout: 6000 }).catch(() => {});
 await page.locator("[data-tracker]").first().click().catch(() => {});
-await page.waitForSelector(".tracker-body .badge-sold", { timeout: 6000 }).catch(() => {});
-check("ventes du vendeur suivi listées", (await page.locator(".tracker-body .badge-sold").count()) === 1);
-await page.screenshot({ path: `${shots}/8-suivis.png`, fullPage: true });
+await page.waitForSelector(".tracker-body .kpis", { timeout: 6000 }).catch(() => {});
+check("récap du concurrent (délai de vente, ce qui se vend)", (await page.locator(".tracker-body .kpi").count()) === 6 && (await page.locator(".tracker-body").innerText().catch(() => "")).includes("2,5 j"));
+check("ventes du concurrent listées", (await page.locator(".tracker-body .badge-sold").count()) >= 1);
+await page.screenshot({ path: `${shots}/8-concurrents.png`, fullPage: true });
 
 // 5. Page d'une annonce Vinted vendue
 const v = await ctx.newPage();
@@ -310,10 +321,13 @@ const mbr = await ctx.newPage();
 await mbr.goto("https://www.vinted.fr/member/555-vendeuse");
 await mbr.waitForTimeout(3500);
 check("dressing d'un vendeur envoyé au catalogue", calls.some((c) => c.endsWith("aliedge_report_wardrobe")));
-const pillBox = await mbr.locator("div[style*='2147483646']").first().boundingBox().catch(() => null);
-if (pillBox) await mbr.mouse.click(pillBox.x + pillBox.width / 2, pillBox.y + pillBox.height / 2);
+await mbr.waitForSelector(".aliedge-competitor", { timeout: 6000, state: "attached" }).catch(() => {});
+check("bouton « + Concurrent » à côté des profils Vinted", (await mbr.locator(".aliedge-competitor").count()) === 2);
+const addsBefore2 = calls.filter((c) => c.endsWith("aliedge_tracker_add")).length;
+const chip = await mbr.locator("a[href*='777'] + .aliedge-competitor").boundingBox().catch(() => null);
+if (chip) await mbr.mouse.click(chip.x + chip.width / 2, chip.y + chip.height / 2);
 await mbr.waitForTimeout(2500);
-check("bouton « Suivre ses ventes » sur un profil Vinted", calls.some((c) => c.endsWith("aliedge_tracker_add")));
+check("clic sur « + Concurrent » : vendeur ajouté sans quitter Vinted", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > addsBefore2 && mbr.url().includes("555"));
 await mbr.screenshot({ path: `${shots}/10-profil.png` });
 await mbr.waitForTimeout(Math.max(0, 25_000 - (Date.now() - startedAt)));
 check("fiche fournisseur consultée enregistrée au catalogue", calls.some((c) => c.endsWith("aliedge_seen_products")));
@@ -337,7 +351,7 @@ if (process.env.STORE_SHOTS) {
     ["/radar", "2-radar", async () => { await page.click("#phonealerts summary").catch(() => {}); }],
     ["/catalogue", "3-catalogue", async () => {}],
     ["/catalogue", "4-tendances", async () => { await page.click("#trends summary").catch(() => {}); await page.waitForSelector(".trend-list li", { timeout: 6000 }).catch(() => {}); await page.evaluate(() => document.getElementById("trends")?.scrollIntoView()); }],
-    ["/suivis", "5-suivis", async () => { await page.locator("[data-tracker]").first().click().catch(() => {}); await page.waitForTimeout(1200); }],
+    ["/concurrents", "5-concurrents", async () => { await page.locator("[data-tracker]").first().click().catch(() => {}); await page.waitForTimeout(1200); }],
   ]) {
     await page.goto(app(hash));
     await page.waitForTimeout(1800);
