@@ -610,6 +610,37 @@ async function importPage() {
   return { found: cards.length, added };
 }
 
+// ───────────────────────── Catalogue : ajout d'annonces Vinted par leur lien (données réelles)
+
+async function importVintedLinks(links) {
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi pour ajouter des annonces.", 401, "auth");
+  const found = [];
+  for (const raw of String(links || "").split(/[\s,;]+/).filter(Boolean).slice(0, 20)) {
+    let u;
+    try { u = new URL(raw); } catch { continue; }
+    const m = u.hostname.match(/(?:^|\.)vinted\.([a-z.]+)$/);
+    const id = u.pathname.match(/\/items\/(\d+)/)?.[1];
+    if (!m || !id) continue;
+    const market = Object.keys(MARKETS).find((k) => MARKETS[k].host.endsWith(`vinted.${m[1]}`)) || "fr";
+    found.push({ id, market });
+  }
+  if (!found.length) throw new sb.ApiError("Colle un ou plusieurs liens d'annonces Vinted (https://www.vinted.fr/items/…).", 400, "links");
+  const items = [];
+  const failed = [];
+  for (const { id, market } of found) {
+    try {
+      const it = await vinted.itemDetails(id, market);
+      if (it?.vinted_id) items.push(it); else failed.push(id);
+    } catch (e) {
+      failed.push(id);
+      if (["paused", "blocked", "rate_limited"].includes(e.code)) break;
+    }
+    await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
+  }
+  if (items.length) await sb.rpc("aliedge_report_items", { _items: items });
+  return { added: items.length, sold: items.filter((i) => i.status === "sold").length, failed: failed.length };
+}
+
 // ───────────────────────── Barapics en API (même compte, mêmes crédits)
 
 async function barapics(body) {
@@ -729,6 +760,7 @@ const handlers = {
   "tracker:remove": async ({ id }) => sb.rpc("aliedge_tracker_remove", { _id: id }),
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "catalog:importPage": async () => importPage(),
+  "catalog:importVinted": async ({ links }) => importVintedLinks(links),
   "barapics": async ({ body }) => barapics(body),
   "alerts:get": async () => { const r = await barapics({ action: "alerts:get" }); await chrome.storage.local.set({ ae_alerts: r }); return r; },
   "alerts:set": async ({ patch }) => { await barapics({ action: "alerts:set", ...patch }); const r = await barapics({ action: "alerts:get" }); await chrome.storage.local.set({ ae_alerts: r }); return r; },

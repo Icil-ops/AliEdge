@@ -279,3 +279,15 @@ export async function itemStatus(vintedId, market = "fr") {
   if (res.status === 404) return "closed";
   return parseItemStatus(res.body);
 }
+
+/** Détails publics d'une annonce (titre, prix, photo, statut) à partir de son identifiant. */
+export async function itemDetails(vintedId, market = "fr") {
+  for (const path of [`/api/v2/items/${vintedId}/details`, `/api/v2/items/${vintedId}`]) {
+    let res;
+    try { res = await vFetch(`https://${host(market)}${path}`, "json", market); } catch (e) { if (e.code === "paused" || e.code === "blocked") throw e; continue; }
+    if (res.status === 404) return { vinted_id: Number(vintedId), market, status: "closed" };
+    const it = res.body?.item;
+    if (it?.id) return { ...normaliseItem(it, market), status: statusFromJson(it) };
+  }
+  return null;
+}

@@ -620,6 +620,14 @@ function viewCatalogue() {
         <summary><b>Tendances du marché Vinted</b><span class="small muted">30 derniers jours</span></summary>
         <div id="trendsbody" style="margin-top:10px"><div class="skel" style="height:60px"></div></div>
       </details>
+      <details class="card pad import-vinted">
+        <summary><b>Ajouter des annonces Vinted par leur lien</b><span class="small muted">données réelles</span></summary>
+        <form id="vintedimport" class="stack" style="margin-top:8px">
+          <textarea class="input" id="vintedlinks" rows="3" placeholder="https://www.vinted.fr/items/…  (un lien par ligne, 20 au plus)" aria-label="Liens d'annonces Vinted"></textarea>
+          <button class="btn" type="submit">Ajouter au catalogue</button>
+          <p class="small muted">AliEdge relève le titre, le prix, la photo et le statut (en ligne ou vendue) de chaque annonce. Elles alimentent les tendances et les prix constatés.</p>
+        </form>
+      </details>
       <div class="import-row">
         <button id="import-page" class="btn" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
         <span class="small muted">Sur une recherche ou une catégorie AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
@@ -695,6 +703,19 @@ function bindCatalogue() {
   document.getElementById("cplatform")?.addEventListener("change", (e) => { c.filters.platform = e.target.value; loadCatalog(); });
   document.querySelectorAll("[data-sort]").forEach((b) => b.addEventListener("click", () => { c.filters.sort = b.dataset.sort; loadCatalog(); }));
   document.getElementById("more")?.addEventListener("click", () => loadCatalog(true));
+  document.getElementById("vintedimport")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    btn.textContent = "Lecture des annonces…";
+    try {
+      const r = await api("catalog:importVinted", { links: document.getElementById("vintedlinks").value });
+      toast(`${r.added} annonce${r.added > 1 ? "s" : ""} ajoutée${r.added > 1 ? "s" : ""}${r.sold ? `, dont ${r.sold} vendue${r.sold > 1 ? "s" : ""}` : ""}${r.failed ? ` · ${r.failed} illisible${r.failed > 1 ? "s" : ""}` : ""}`);
+      document.getElementById("vintedlinks").value = "";
+    } catch (err) { toast(err.message); }
+    btn.disabled = false;
+    btn.textContent = "Ajouter au catalogue";
+  });
   document.getElementById("import-page")?.addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;

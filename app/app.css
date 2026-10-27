@@ -389,3 +389,6 @@ a.radar-item { text-decoration: none; color: inherit; }
 .weeks { display: flex; align-items: flex-end; gap: 4px; height: 56px; margin-top: 6px; }
 .weeks .wk { flex: 1; background: #0fa968; border-radius: 3px 3px 0 0; opacity: .85; }
 .phone-alerts { margin-top: 10px; } .phone-alerts summary span { margin-left: auto; margin-right: 6px; }
+
+.import-vinted summary { cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none; }
+.import-vinted summary::-webkit-details-marker { display: none; }

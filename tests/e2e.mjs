@@ -83,6 +83,8 @@ await ctx.route("**/*", async (route) => {
       radarCalls++;
       return route.fulfill({ json: { items: radarCalls === 1 ? catalogItems.slice(2) : catalogItems, pagination: { total_entries: 10 } } });
     }
+    const det = url.pathname.match(/^\/api\/v2\/items\/(\d+)(\/details)?$/);
+    if (det) { const it = catalogItems.find((x) => String(x.id) === det[1]) || catalogItems[0]; return route.fulfill({ json: { item: { ...it, is_closed: det[1] === "9000", item_closing_action: det[1] === "9000" ? "sold" : null } } }); }
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><h1>vendeuse</h1>" });
@@ -244,6 +246,10 @@ const before = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
 const imported = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importPage" }));
 check("catalogue : produits d'une page de résultats ajoutés", imported?.ok && imported.data.found === 5 && calls.filter((c) => c.endsWith("aliedge_seen_products")).length > before, JSON.stringify(imported));
 await listing.close();
+
+// 3a bis. Ajout d'annonces Vinted par leur lien
+const imp = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importVinted", links: "https://www.vinted.fr/items/9000-sac\nhttps://www.vinted.fr/items/9001-sac" }));
+check("catalogue : annonces Vinted ajoutées par lien", imp?.ok && imp.data.added === 2, JSON.stringify(imp));
 
 // 3b. Radar : un filtre, puis de nouvelles annonces détectées
 await page.goto(app("/radar"));
