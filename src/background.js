@@ -116,7 +116,8 @@ async function releaseNotes() {
 async function announceUpdate(previousVersion) {
   const version = chrome.runtime.getManifest().version;
   if (!previousVersion || previousVersion === version) return;
-  const { notes = "" } = await releaseNotes();
+  const rel = await releaseNotes();
+  const notes = rel.version === version && rel.notes ? rel.notes : "";
   await chrome.storage.local.set({ ae_whatsnew: { version, notes, at: Date.now() }, ae_update_ready: null });
   chrome.notifications.create("ae-updated", {
     type: "basic", iconUrl: "icons/icon128.png",

@@ -395,7 +395,12 @@ a.radar-item { text-decoration: none; color: inherit; }
 .import-vinted summary::-webkit-details-marker { display: none; }
 
 /* Mise à jour */
-.update-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 12px 0; padding: 10px 12px; border-radius: 12px; background: #f1ecff; color: #2a1b5c; font-size: 13px; animation: ob-in .4s cubic-bezier(.16, 1, .3, 1) both; }
+.update-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 10px 0 12px; padding: 10px 8px 10px 12px; border-radius: 12px; background: var(--soft); border: 1px solid color-mix(in srgb, var(--violet) 35%, transparent); color: var(--ink); font-size: 13px; line-height: 1.45; animation: ob-in .4s cubic-bezier(.16, 1, .3, 1) both; }
+.update-banner .notes { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.update-banner .notes.open { display: block; }
+.update-banner .close { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; }
+.update-banner .close:hover { background: var(--line); color: var(--ink); }
+.update-banner .close:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
 .update-banner.ready { background: #6d3bff; color: #fff; }
 .update-banner.ready .btn.primary { background: #fff; color: #4b22d6; }
 

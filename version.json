@@ -1,6 +1,6 @@
 {
-  "version": "3.2.1",
-  "notes": "Onglet Concurrents : colle le lien d'un profil ou clique sur « + Concurrent » à côté de n'importe quel vendeur sur Vinted, et vois tout ce qu'il vend, à quel prix et en combien de temps. Radar : colle directement un lien de recherche Vinted (marque, catégorie, taille, prix). Alertes sur téléphone, recherche par image, tendances du marché.",
+  "version": "3.2.2",
+  "notes": "Correctifs : bandeau des nouveautés lisible en mode sombre. Les réglages de protection du compte Vinted peuvent maintenant être ajustés sans mise à jour.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-27",
   "minVersion": "3.0.0"
