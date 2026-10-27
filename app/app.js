@@ -114,7 +114,7 @@ async function viewRadar() {
   return `
     <section class="stack">
       <div class="row between"><h2>Radar des nouvelles annonces</h2><span class="radar-live"><i></i>en direct</span></div>
-      <p class="small muted">Jusqu'à 5 filtres. AliEdge regarde les nouvelles annonces Vinted à tour de rôle, toutes les 30 secondes environ, et te prévient. L'achat se fait toujours toi-même, sur Vinted.</p>
+      <p class="small muted">${state.me?.skool ? "Jusqu'à 10 filtres (membre du Skool)." : "Jusqu'à 5 filtres (10 pour les membres du Skool)."} AliEdge regarde les nouvelles annonces Vinted à tour de rôle, toutes les 30 secondes environ, et te prévient. L'achat se fait toujours toi-même, sur Vinted.</p>
       ${guardLine}
       <form id="radarform" class="card pad stack">
         <input type="hidden" name="id" value="${esc(f.id || "")}">
@@ -616,6 +616,7 @@ function viewCatalogue() {
         </select>
       </div>
       <div class="seg" role="group" aria-label="Trier">${sorts.map(([k, l]) => `<button type="button" data-sort="${k}" aria-pressed="${f.sort === k}">${l}</button>`).join("")}</div>
+      <section class="picks" id="picks" aria-label="Sélection VintedDrop"></section>
       <details class="card pad trends" id="trends">
         <summary><b>Tendances du marché Vinted</b><span class="small muted">30 derniers jours</span></summary>
         <div id="trendsbody" style="margin-top:10px"><div class="skel" style="height:60px"></div></div>
@@ -664,6 +665,31 @@ function viewCatalogue() {
   return head + `<div style="margin-top:12px">${body}</div>`;
 }
 
+async function loadPicks() {
+  const box = document.getElementById("picks");
+  if (!box) return;
+  const [feed, ch] = await Promise.all([api("picks").catch(() => null), api("challenge").catch(() => null)]);
+  const picks = feed?.picks || [];
+  const bar = ch && feed?.member ? `<div class="challenge"><div class="row between"><span class="small"><b>Défi Skool :</b> ${ch.installed} / ${ch.goal} membres utilisent AliEdge</span><span class="small muted">${Math.min(100, Math.round((ch.installed / Math.max(1, ch.goal)) * 100))} %</span></div><div class="cbar"><i style="width:${Math.min(100, (ch.installed / Math.max(1, ch.goal)) * 100)}%"></i></div></div>` : "";
+  if (!picks.length) { box.innerHTML = bar; return; }
+  box.innerHTML = `
+    <div class="row between"><h2>Sélection VintedDrop</h2>${feed.member ? '<span class="pill-on">Membre du Skool</span>' : ""}</div>
+    ${bar}
+    <div class="picks-row">${picks.slice(0, 8).map((p, i) => p.locked ? `
+      <a class="pick locked" href="${SKOOL_URL}" target="_blank" rel="noopener" style="animation-delay:${i * 40}ms">
+        <span class="kind">${p.kind === "video" ? "Vidéo d'analyse" : "Produit gagnant"}</span>
+        <b>${esc(p.title)}</b>
+        <span class="small">🔒 Réservé aux membres du Skool VintedDrop</span>
+      </a>` : `
+      <a class="pick" href="${safeUrl(p.url)}" target="_blank" rel="noopener" style="animation-delay:${i * 40}ms">
+        ${p.image_url ? `<img src="${safeUrl(p.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}
+        <span class="kind">${p.kind === "video" ? "🎬 Vidéo d'analyse" : "🛍️ Produit gagnant"}</span>
+        <b>${esc(p.title)}</b>
+        ${p.note ? `<span class="small muted">${esc(p.note)}</span>` : ""}
+      </a>`).join("")}</div>
+    ${!feed.member ? `<a class="btn block" href="${SKOOL_URL}" target="_blank" rel="noopener">Rejoindre le Skool VintedDrop pour tout débloquer</a>` : ""}`;
+}
+
 const DOW = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."];
 async function loadTrends() {
   const box = document.getElementById("trendsbody");
@@ -694,6 +720,7 @@ async function loadTrends() {
 
 let searchTimer = null;
 function bindCatalogue() {
+  loadPicks();
   document.getElementById("trends")?.addEventListener("toggle", (e) => { if (e.target.open) loadTrends(); }, { once: true });
   const c = state.catalog;
   document.getElementById("csearch")?.addEventListener("input", (e) => {

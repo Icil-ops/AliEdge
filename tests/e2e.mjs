@@ -23,7 +23,7 @@ const startedAt = Date.now();
 let radarCalls = 0;
 const barapicsCalls = [];
 const rpc = {
-  aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
+  aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, skool: true, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
   aliedge_contribute: "c3f50103-f4a4-414b-b502-74634864fe06",
   aliedge_product_items: [
@@ -41,6 +41,8 @@ const rpc = {
     { vinted_id: 9001, title: "Petit sac à main cuir femme", price: 18, photo_url: "https://images1.vinted.net/t/1.jpeg", url: "https://www.vinted.fr/items/9001-sac", status: "active", first_seen_at: new Date(Date.now() - 864e5).toISOString(), sold_at: null, favourites: 5 },
   ],
   aliedge_seen_products: 1,
+  aliedge_picks_feed: { member: true, picks: [{ id: "p1", kind: "video", title: "Analyse : le compte qui vend 40 sacs par semaine", note: "Regarde sa stratégie de prix.", url: "https://www.skool.com/vinteddrop/v1", image_url: null, created_at: new Date().toISOString(), locked: false }, { id: "p2", kind: "product", title: "Sac seau tressé", note: null, url: "https://fr.aliexpress.com/item/1005006.html", image_url: "https://ae01.alicdn.com/kf/apres-sac-bandouliere.jpg", created_at: new Date().toISOString(), locked: false }] },
+  aliedge_skool_challenge: { installed: 37, goal: 50 },
   aliedge_market_trends: { days: 30, sold: 42, median_days_to_sell: 3.5, categories: [{ name: "Sacs", sold: 18, median_price: 21 }, { name: "Bijoux", sold: 9, median_price: 9 }], brands: [{ name: "Sans marque", sold: 25, median_price: 15 }], hours: [{ dow: 7, hour: 19, sold: 6 }, { dow: 3, hour: 12, sold: 2 }] },
   aliedge_product_history: { prices: [{ at: "2026-10-01", price: 6.9 }, { at: "2026-10-20", price: 6.4 }], weeks: [{ week: "2026-10-05", sold: 2, median_price: 20 }, { week: "2026-10-12", sold: 5, median_price: 21 }] },
   aliedge_products_to_refresh: [],
@@ -240,6 +242,8 @@ await page.goto(app("/catalogue"));
 await page.waitForFunction(() => document.querySelector("main")?.innerText.includes("Sac bandoulière cuir femme"), null, { timeout: 10000 }).catch(() => {});
 await page.screenshot({ path: `${shots}/6-catalogue.png`, fullPage: true });
 check("catalogue affiché", (await page.locator("main").innerText()).includes("Sac bandoulière cuir femme"));
+await page.waitForSelector(".pick", { timeout: 6000 }).catch(() => {});
+check("sélection VintedDrop et défi Skool", (await page.locator(".pick").count()) === 2 && /37 \/ 50/.test(await page.locator(".challenge").innerText().catch(() => "")));
 await page.click("#trends summary").catch(() => {});
 await page.waitForSelector(".trend-list li", { timeout: 6000 }).catch(() => {});
 check("tendances du marché : catégories et créneaux", (await page.locator(".trend-list li").count()) >= 3 && (await page.locator(".heat .hc").count()) === 56);

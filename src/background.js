@@ -383,7 +383,29 @@ async function refreshWatches() {
 
 // ───────────────────────── Détection des ventes (membres volontaires)
 
+/** Sélection VintedDrop : notifie les nouvelles publications d'Ivan (produits, vidéos d'analyse). */
+async function checkPicks() {
+  if (!(await sb.getSession())) return;
+  const feed = await sb.rpc("aliedge_picks_feed").catch(() => null);
+  const picks = feed?.picks || [];
+  if (!picks.length) return;
+  const { ae_picks_seen: seen = null } = await chrome.storage.local.get("ae_picks_seen");
+  const ids = picks.map((p) => p.id);
+  await chrome.storage.local.set({ ae_picks_seen: ids.slice(0, 50) });
+  if (!seen) return; // premier passage : on mémorise sans notifier
+  const fresh = picks.filter((p) => !seen.includes(p.id));
+  if (!fresh.length) return;
+  const p = fresh[0];
+  chrome.notifications.create("ae-pick", {
+    type: "basic", iconUrl: "icons/icon128.png",
+    title: p.kind === "video" ? "Nouvelle vidéo d'analyse VintedDrop" : "Nouveau produit sélectionné par Ivan",
+    message: `${p.title}${fresh.length > 1 ? ` (et ${fresh.length - 1} autre${fresh.length > 2 ? "s" : ""})` : ""}`.slice(0, 200),
+    priority: 1,
+  });
+}
+
 async function communityCheck() {
+  checkPicks().catch(() => {});
   const settings = await getSettings();
   if (!(await sb.getSession())) return;
   // 1) Par vendeur : un dressing lu = toutes ses annonces suivies revérifiées d'un coup.
@@ -439,7 +461,9 @@ async function refreshProducts() {
 // ───────────────────────── Radar : nouvelles annonces Vinted selon des filtres (sans achat automatique)
 
 const RADAR_KEY = "ae_radar";          // { filters: [...], feed: [...], seen: { [filterId]: [ids] } }
-const RADAR_MAX_FILTERS = 5;
+const RADAR_MAX_FILTERS = 10; // plafond absolu (membres du Skool)
+/** Filtres Radar autorisés : 10 pour les membres du Skool VintedDrop, 5 sinon. */
+async function radarLimit() { const m = await me().catch(() => null); return m?.skool ? 10 : 5; }
 async function radarState() {
   const r = await chrome.storage.local.get(RADAR_KEY);
   return { filters: [], feed: [], seen: {}, ...(r[RADAR_KEY] || {}) };
@@ -510,6 +534,7 @@ const eur0 = (n) => `${Number(n).toFixed(2).replace(".", ",")} €`;
 
 chrome.notifications.onClicked.addListener(async (id) => {
   if (id === "ae-update-ready") { chrome.notifications.clear(id); chrome.runtime.reload(); return; }
+  if (id === "ae-pick") { chrome.notifications.clear(id); chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/catalogue") }); return; }
   if (id === "ae-updated") {
     chrome.notifications.clear(id);
     chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/analyse") });
@@ -540,7 +565,8 @@ async function radarSave({ filter }) {
   const i = st.filters.findIndex((x) => x.id === f.id);
   if (i >= 0) st.filters[i] = f;
   else {
-    if (st.filters.length >= RADAR_MAX_FILTERS) throw new sb.ApiError(`${RADAR_MAX_FILTERS} filtres au maximum : supprime-en un avant d'en ajouter.`, 400, "limit");
+    const max = await radarLimit();
+    if (st.filters.length >= max) throw new sb.ApiError(max < 10 ? `5 filtres au maximum : supprime-en un, ou passe à 10 filtres en rejoignant le Skool VintedDrop.` : `10 filtres au maximum : supprime-en un avant d'en ajouter.`, 400, "limit");
     st.filters.push(f);
     st.seen[f.id] = [];
   }
@@ -825,6 +851,9 @@ const handlers = {
   "alerts:set": async ({ patch }) => { await barapics({ action: "alerts:set", ...patch }); const r = await barapics({ action: "alerts:get" }); await chrome.storage.local.set({ ae_alerts: r }); return r; },
   "alerts:telegramLink": async () => barapics({ action: "alerts:telegramLink" }),
   "alerts:test": async () => barapics({ action: "alerts:send", test: true, alerts: [] }),
+  "picks": async () => sb.rpc("aliedge_picks_feed"),
+  "challenge": async () => sb.rpc("aliedge_skool_challenge"),
+  "radar:limit": async () => ({ max: await radarLimit() }),
   "trends": async ({ days = 30 }) => sb.rpc("aliedge_market_trends", { _days: days }),
   "product:history": async ({ productId }) => sb.rpc("aliedge_product_history", { _product_id: productId }),
   "pending:take": async () => {

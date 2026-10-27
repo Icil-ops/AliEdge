@@ -397,3 +397,16 @@ a.radar-item { text-decoration: none; color: inherit; }
 .update-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 12px 0; padding: 10px 12px; border-radius: 12px; background: #f1ecff; color: #2a1b5c; font-size: 13px; animation: ob-in .4s cubic-bezier(.16, 1, .3, 1) both; }
 .update-banner.ready { background: #6d3bff; color: #fff; }
 .update-banner.ready .btn.primary { background: #fff; color: #4b22d6; }
+
+/* Sélection VintedDrop et défi Skool */
+.picks:empty { display: none; }
+.picks { display: grid; gap: 8px; }
+.picks-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x mandatory; }
+.pick { scroll-snap-align: start; display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 14px; background: var(--card, #fff); border: 1px solid var(--line, #e4e0ef); text-decoration: none; color: inherit; animation: ob-in .45s cubic-bezier(.16, 1, .3, 1) both; transition: transform .15s, border-color .15s; }
+.pick:hover { transform: translateY(-2px); border-color: #6d3bff; }
+.pick img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 10px; }
+.pick .kind { font-size: 11px; font-weight: 700; color: #6d3bff; }
+.pick.locked { background: repeating-linear-gradient(135deg, #f6f3ff 0 10px, #fff 10px 20px); }
+.challenge { padding: 10px 12px; border-radius: 12px; background: #f1ecff; }
+.cbar { height: 6px; border-radius: 99px; background: rgba(109, 59, 255, .15); margin-top: 6px; overflow: hidden; }
+.cbar i { display: block; height: 100%; background: linear-gradient(90deg, #6d3bff, #0fa968); border-radius: 99px; transition: width .8s cubic-bezier(.16, 1, .3, 1); }
