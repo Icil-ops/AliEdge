@@ -441,6 +441,7 @@ async function radarTick() {
     }
     st.feed = st.feed.slice(0, 200);
     await saveRadar(st);
+    if (fresh) sendPhoneAlerts(st.feed.slice(0, fresh)).catch(() => {});
     if (fresh) {
       const prev = Number((await chrome.action.getBadgeText({})) || 0);
       chrome.action.setBadgeBackgroundColor({ color: "#0fa968" });
@@ -448,6 +449,15 @@ async function radarTick() {
       broadcast({ type: "radar:new" });
     }
   } finally { radarRunning = false; }
+}
+/** Alertes sur téléphone (Telegram, Discord, salon du Skool) : seulement si le membre en a configuré. */
+async function sendPhoneAlerts(items) {
+  const { ae_alerts: cfg } = await chrome.storage.local.get("ae_alerts");
+  if (!cfg || !(cfg.discord || cfg.telegram || cfg.shareSkool) || !items.length) return;
+  await barapics({
+    action: "alerts:send",
+    alerts: items.slice(0, 10).map((i) => ({ title: String(i.title || "Annonce Vinted").slice(0, 300), price: Number.isFinite(Number(i.price)) ? Number(i.price) : null, url: i.url, photo: i.photo_url || null, filter: i.filterName || null, brand: i.brand || null, size: i.size || null })),
+  });
 }
 const eur0 = (n) => `${Number(n).toFixed(2).replace(".", ",")} €`;
 
@@ -720,6 +730,12 @@ const handlers = {
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "catalog:importPage": async () => importPage(),
   "barapics": async ({ body }) => barapics(body),
+  "alerts:get": async () => { const r = await barapics({ action: "alerts:get" }); await chrome.storage.local.set({ ae_alerts: r }); return r; },
+  "alerts:set": async ({ patch }) => { await barapics({ action: "alerts:set", ...patch }); const r = await barapics({ action: "alerts:get" }); await chrome.storage.local.set({ ae_alerts: r }); return r; },
+  "alerts:telegramLink": async () => barapics({ action: "alerts:telegramLink" }),
+  "alerts:test": async () => barapics({ action: "alerts:send", test: true, alerts: [] }),
+  "trends": async ({ days = 30 }) => sb.rpc("aliedge_market_trends", { _days: days }),
+  "product:history": async ({ productId }) => sb.rpc("aliedge_product_history", { _product_id: productId }),
   "pending:take": async () => {
     const r = await chrome.storage.session.get("ae_pending");
     await chrome.storage.session.remove("ae_pending");

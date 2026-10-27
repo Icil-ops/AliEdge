@@ -144,6 +144,10 @@ async function viewRadar() {
           </div>
         </div>`).join("")}</div>` : ""}
     </section>
+    <details class="card pad phone-alerts" id="phonealerts" ${filters.length ? "" : "open"}>
+      <summary><b>Recevoir les alertes sur mon téléphone</b><span class="small muted" id="alertstatus">Telegram, Discord</span></summary>
+      <div class="stack" id="alertsbody" style="margin-top:10px"><div class="skel" style="height:56px"></div></div>
+    </details>
     <section class="stack" style="margin-top:22px">
       <div class="row between"><h2>Flux</h2>${feed.length ? '<button class="btn ghost small" type="button" id="radarclear">Vider</button>' : ""}</div>
       <div id="radarfeed">${radarFeedHtml(feed)}</div>
@@ -158,7 +162,50 @@ async function refreshRadarFeed() {
   box.querySelector(".radar-item")?.classList.add("flash");
 }
 
+function alertsHtml(a) {
+  const on = (x) => (x ? '<span class="pill-on">Activé</span>' : "");
+  return `
+    <div class="alert-row">
+      <div><b>Telegram</b> ${on(a.telegram)}<p class="small muted">Une notification sur ton téléphone avec la photo, le prix et le lien, même quand tu n'es pas devant l'ordinateur.</p></div>
+      ${a.telegramAvailable ? (a.telegram ? '<button class="btn ghost small" type="button" data-alert="tg-off">Arrêter</button>' : '<button class="btn primary small" type="button" data-alert="tg-on">Recevoir sur Telegram</button>') : '<span class="small muted">Bientôt disponible</span>'}
+    </div>
+    <div class="alert-row">
+      <div><b>Discord</b> ${on(a.discord)}<p class="small muted">Colle le lien d'un webhook de ton serveur (Paramètres du salon → Intégrations → Webhooks).</p></div>
+    </div>
+    <form class="row" id="discordform" style="gap:8px">
+      <input class="input" id="discordurl" type="url" placeholder="${a.discord ? "Webhook enregistré · colle un nouveau lien pour le changer" : "https://discord.com/api/webhooks/…"}" aria-label="Webhook Discord" style="flex:1">
+      <button class="btn small" type="submit">Enregistrer</button>
+      ${a.discord ? '<button class="btn ghost small" type="button" data-alert="dc-off">Retirer</button>' : ""}
+    </form>
+    ${a.skoolAvailable ? `<label class="switch small"><span>Partager mes trouvailles dans le salon Radar du Skool VintedDrop</span><input type="checkbox" id="shareskool" ${a.shareSkool ? "checked" : ""}></label>` : ""}
+    ${a.telegram || a.discord ? '<button class="btn ghost small" type="button" data-alert="test">Envoyer une alerte de test</button>' : ""}
+    <p class="small muted">Les alertes partent pendant que Chrome est ouvert sur un ordinateur, même s'il n'est pas devant toi.</p>`;
+}
+
+async function loadAlerts() {
+  const body = document.getElementById("alertsbody");
+  if (!body) return;
+  let a;
+  try { a = await api("alerts:get"); } catch (e) { body.innerHTML = `<p class="small muted">${esc(e.message)}</p>`; return; }
+  body.innerHTML = alertsHtml(a);
+  const st = document.getElementById("alertstatus");
+  if (st) st.textContent = [a.telegram && "Telegram", a.discord && "Discord", a.shareSkool && "Skool"].filter(Boolean).join(" · ") || "désactivées";
+  const set = async (patch, msg) => { try { await api("alerts:set", { patch }); toast(msg); loadAlerts(); } catch (e) { toast(e.message); } };
+  body.querySelector('[data-alert="tg-on"]')?.addEventListener("click", async () => {
+    try { const { url } = await api("alerts:telegramLink"); window.open(url, "_blank", "noopener"); toast("Dans Telegram, appuie sur « Démarrer » pour connecter ton Radar"); setTimeout(loadAlerts, 15000); }
+    catch (e) { toast(e.message); }
+  });
+  body.querySelector('[data-alert="tg-off"]')?.addEventListener("click", () => set({ telegram: false }, "Alertes Telegram arrêtées"));
+  body.querySelector('[data-alert="dc-off"]')?.addEventListener("click", () => set({ discordWebhook: null }, "Webhook Discord retiré"));
+  body.querySelector("#discordform")?.addEventListener("submit", (e) => { e.preventDefault(); const v = document.getElementById("discordurl").value.trim(); if (v) set({ discordWebhook: v }, "Webhook Discord enregistré"); });
+  body.querySelector("#shareskool")?.addEventListener("change", (e) => set({ shareSkool: e.target.checked }, e.target.checked ? "Tes trouvailles seront partagées dans le salon du Skool" : "Partage arrêté"));
+  body.querySelector('[data-alert="test"]')?.addEventListener("click", async () => {
+    try { const r = await api("alerts:test"); toast(r.discord || r.telegram ? "Alerte de test envoyée" : "Aucun canal n'a répondu : vérifie tes réglages"); } catch (e) { toast(e.message); }
+  });
+}
+
 function bindRadar() {
+  loadAlerts();
   document.getElementById("radarform")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -454,7 +501,7 @@ function viewResult(entry) {
     </div>` : ""}
     <div class="grid3">
       <button class="btn" type="button" data-act="watch" data-key="${esc(watchKey)}">${ICON.eye}Suivre</button>
-      <button class="btn" type="button" data-act="copy">${ICON.copy}Annonce</button>
+      <button class="btn" type="button" data-act="copy" title="Titre, description, catégorie et prix conseillé, prêts à copier">${ICON.copy}Annonce</button>
       <button class="btn" type="button" data-act="photos" title="Créer des photos réalistes avec Barapics, sans quitter AliEdge">${ICON.camera}Photos</button>
     </div>
     <details class="card pad">
@@ -509,10 +556,7 @@ function bindAnalyse() {
     try { await api("watch:add", { entry: state.entry }); toast("Produit suivi : prix Vinted revérifié toutes les 6 h"); }
     catch (e) { toast(e.message); }
   });
-  document.querySelector('[data-act="copy"]')?.addEventListener("click", async () => {
-    const l = draftListing(state.entry.product || { title: state.entry.query }, state.entry.result.sell);
-    try { await navigator.clipboard.writeText(`${l.title}\n\n${l.description}`); toast("Annonce copiée"); } catch { toast("Copie impossible : sélectionne le texte ci-dessous"); }
-  });
+  document.querySelector('[data-act="copy"]')?.addEventListener("click", () => openListing(state.entry));
   document.querySelector('[data-act="photos"]')?.addEventListener("click", () => openPhotos(state.entry?.product));
   document.querySelectorAll(".ring circle.meter").forEach((c) => requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.target; }));
 }
@@ -572,6 +616,10 @@ function viewCatalogue() {
         </select>
       </div>
       <div class="seg" role="group" aria-label="Trier">${sorts.map(([k, l]) => `<button type="button" data-sort="${k}" aria-pressed="${f.sort === k}">${l}</button>`).join("")}</div>
+      <details class="card pad trends" id="trends">
+        <summary><b>Tendances du marché Vinted</b><span class="small muted">30 derniers jours</span></summary>
+        <div id="trendsbody" style="margin-top:10px"><div class="skel" style="height:60px"></div></div>
+      </details>
       <div class="import-row">
         <button id="import-page" class="btn" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
         <span class="small muted">Sur une recherche ou une catégorie AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
@@ -608,8 +656,37 @@ function viewCatalogue() {
   return head + `<div style="margin-top:12px">${body}</div>`;
 }
 
+const DOW = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."];
+async function loadTrends() {
+  const box = document.getElementById("trendsbody");
+  if (!box) return;
+  let t;
+  try { t = await api("trends", { days: 30 }); } catch (e) { box.innerHTML = `<p class="small muted">${esc(e.message)}</p>`; return; }
+  if (!t?.sold) { box.innerHTML = `<p class="small muted">Pas encore assez de ventes constatées. Les tendances apparaissent au fil des analyses et des suivis des membres.</p>`; return; }
+  const list = (rows) => rows.map((r, i) => `<li><span class="num rank">${i + 1}</span><span class="nm">${esc(r.name)}</span><span class="num">${r.sold} vente${r.sold > 1 ? "s" : ""}</span><span class="num muted">${eur(r.median_price)}</span></li>`).join("");
+  // Meilleurs créneaux : jour × tranche de 3 h, d'après l'heure de publication des annonces qui se sont vendues.
+  const cells = {};
+  for (const h of t.hours || []) { const k = `${h.dow}-${Math.floor(h.hour / 3)}`; cells[k] = (cells[k] || 0) + h.sold; }
+  const maxCell = Math.max(1, ...Object.values(cells));
+  const best = Object.entries(cells).sort((a, b) => b[1] - a[1])[0];
+  box.innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="k">Ventes constatées</div><div class="v num">${t.sold}</div></div>
+      <div class="stat"><div class="k">Délai de vente médian</div><div class="v num">${t.median_days_to_sell != null ? `${String(t.median_days_to_sell).replace(".", ",")} j` : "—"}</div></div>
+    </div>
+    ${t.categories?.length ? `<h3 class="small" style="margin-top:12px">Catégories qui vendent</h3><ol class="trend-list">${list(t.categories)}</ol>` : ""}
+    ${t.brands?.length ? `<h3 class="small" style="margin-top:12px">Marques qui vendent</h3><ol class="trend-list">${list(t.brands)}</ol>` : ""}
+    ${Object.keys(cells).length ? `<h3 class="small" style="margin-top:12px">Quand publier</h3>
+      <div class="heat" role="img" aria-label="Heures de publication des annonces vendues">
+        <span></span>${["0h", "3h", "6h", "9h", "12h", "15h", "18h", "21h"].map((h) => `<span class="hh">${h}</span>`).join("")}
+        ${DOW.map((dname, i) => `<span class="dd">${dname}</span>${Array.from({ length: 8 }, (_, b) => { const v = cells[`${i + 1}-${b}`] || 0; return `<span class="hc" style="opacity:${v ? 0.18 + 0.82 * (v / maxCell) : 0.06}" title="${dname} ${b * 3}h-${b * 3 + 3}h : ${v} vente(s)"></span>`; }).join("")}`).join("")}
+      </div>
+      ${best ? `<p class="small muted">Meilleur créneau observé : ${DOW[Number(best[0].split("-")[0]) - 1]} entre ${Number(best[0].split("-")[1]) * 3} h et ${Number(best[0].split("-")[1]) * 3 + 3} h.</p>` : ""}` : ""}`;
+}
+
 let searchTimer = null;
 function bindCatalogue() {
+  document.getElementById("trends")?.addEventListener("toggle", (e) => { if (e.target.open) loadTrends(); }, { once: true });
   const c = state.catalog;
   document.getElementById("csearch")?.addEventListener("input", (e) => {
     clearTimeout(searchTimer);
@@ -661,6 +738,7 @@ async function openProduct(row) {
         <button class="btn" type="button" data-save>${ICON.eye}Enregistrer</button>
       </div>
       <p class="small muted">Ouvre la fiche puis clique sur « Analyser sur Vinted » pour le calcul complet avec ton prix.</p>
+      <div id="dhistory"></div>
       <h3>Annonces Vinted</h3>
       <div class="items" id="ditems"><div class="skel" style="height:72px"></div><div class="skel" style="height:72px"></div></div>
     </div>`;
@@ -672,6 +750,17 @@ async function openProduct(row) {
   d.querySelector("[data-save]").addEventListener("click", async () => {
     try { await api("saved:add", { productId: row.product_id }); toast("Produit enregistré dans Suivis"); } catch (e) { toast(e.message); }
   });
+  api("product:history", { productId: row.product_id }).then((h) => {
+    const box = d.querySelector("#dhistory");
+    if (!box || !h) return;
+    const weeks = h.weeks || [];
+    const prices = (h.prices || []).map((p) => Number(p.price)).filter((n) => Number.isFinite(n));
+    if (!weeks.length && prices.length < 2) return;
+    const max = Math.max(1, ...weeks.map((w) => w.sold));
+    box.innerHTML = `<h3>Historique</h3>
+      ${weeks.length ? `<div class="small muted">Ventes Vinted par semaine (12 semaines)</div><div class="weeks" role="img" aria-label="Ventes par semaine">${weeks.map((w) => `<div class="wk" style="height:${Math.max(6, (w.sold / max) * 100)}%" title="Semaine du ${new Date(w.week).toLocaleDateString("fr-FR")} : ${w.sold} vente(s) à ${eur(w.median_price)}"></div>`).join("")}</div>` : ""}
+      ${prices.length >= 2 ? `<div class="small muted" style="margin-top:8px">Prix fournisseur relevé : de ${eur(Math.min(...prices))} à ${eur(Math.max(...prices))}, dernier ${eur(prices[prices.length - 1])}</div>` : ""}`;
+  }).catch(() => {});
   try {
     const items = await api("catalog:items", { productId: row.product_id });
     d.querySelector("#ditems").innerHTML = items.length ? items.map((i) => `
@@ -783,6 +872,50 @@ async function openPhotos(product) {
     go.textContent = "Photos enregistrées dans ta galerie Barapics";
     grid.insertAdjacentHTML("afterend", `<a class="btn block" href="https://barapics.com/galerie" target="_blank" rel="noopener">${ICON.ext}Ouvrir ma galerie Barapics</a>`);
   });
+}
+
+// ───────────────────────── Annonce Vinted complète (rédacteur Barapics : titre, description, catégorie, prix)
+
+async function openListing(entry) {
+  const product = entry?.product;
+  const images = (product?.images?.length ? product.images : product?.image ? [product.image] : []).filter((u) => /^https:\/\//.test(u)).slice(0, 6);
+  const fallback = draftListing(product || { title: entry.query }, entry.result.sell);
+  closeDrawer();
+  const bg = document.createElement("div");
+  bg.className = "drawer-bg";
+  const d = document.createElement("div");
+  d.className = "drawer listing";
+  d.setAttribute("role", "dialog");
+  d.setAttribute("aria-modal", "true");
+  d.setAttribute("aria-label", "Annonce Vinted");
+  d.innerHTML = `<div class="stack"><div class="row between"><h3>${ICON.copy} Annonce Vinted</h3><button class="btn ghost" type="button" data-close aria-label="Fermer">✕</button></div><div id="lbody"><div class="skel" style="height:90px"></div><p class="small muted">Rédaction à partir des photos et des prix Vinted constatés…</p></div></div>`;
+  document.body.append(bg, d);
+  const close = () => closeDrawer();
+  bg.addEventListener("click", close);
+  d.querySelector("[data-close]").addEventListener("click", close);
+  const field = (label, value, multi = false) => value ? `<div class="lfield"><div class="row between"><span class="small muted">${esc(label)}</span><button class="btn ghost small" type="button" data-copy="${esc(value)}">${ICON.copy}Copier</button></div>${multi ? `<p class="ltext">${esc(value)}</p>` : `<b>${esc(value)}</b>`}</div>` : "";
+  const bind = () => d.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast("Copié"); } catch { toast("Copie impossible"); }
+  }));
+  if (!images.length) {
+    d.querySelector("#lbody").innerHTML = field("Titre", fallback.title) + field("Description", fallback.description, true);
+    bind();
+    return;
+  }
+  try {
+    const l = await api("barapics", { body: { action: "listing", title: product.title || entry.query, description: "", images, ...(product.priceEur ? { supplierPrice: `${money(product.priceEur)} €` } : {}) } });
+    const tags = (l.hashtags || []).map((h) => `#${h}`).join(" ");
+    d.querySelector("#lbody").innerHTML = `
+      <div class="ticket"><div><div class="k">Prix conseillé</div><div class="big num pos">${eur(l.price)}</div>
+      ${l.margin != null ? `<div class="sub">Marge ${eur(l.margin, true)} sur un achat à ${eur(l.supplierPrice)}</div>` : ""}
+      ${l.priceReason ? `<div class="sub" style="margin-top:4px">${esc(l.priceReason)}</div>` : ""}</div></div>
+      ${field("Titre", l.title)}
+      ${field("Description", `${l.description}${tags ? `\n\n${tags}` : ""}`, true)}
+      <div class="grid2">${field("Catégorie", l.category)}${field("Marque", l.brand)}${field("État", l.condition)}${field("Taille", l.size)}${field("Couleur", (l.colors || []).join(", "))}${field("Colis", l.parcel)}</div>`;
+  } catch (e) {
+    d.querySelector("#lbody").innerHTML = `<div class="notice info">${esc(e.message)} Voici une version simple :</div>` + field("Titre", fallback.title) + field("Description", fallback.description, true);
+  }
+  bind();
 }
 
 function closeDrawer() {

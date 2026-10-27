@@ -40,6 +40,8 @@ const rpc = {
     { vinted_id: 9001, title: "Petit sac à main cuir femme", price: 18, photo_url: "https://images1.vinted.net/t/1.jpeg", url: "https://www.vinted.fr/items/9001-sac", status: "active", first_seen_at: new Date(Date.now() - 864e5).toISOString(), sold_at: null, favourites: 5 },
   ],
   aliedge_seen_products: 1,
+  aliedge_market_trends: { days: 30, sold: 42, median_days_to_sell: 3.5, categories: [{ name: "Sacs", sold: 18, median_price: 21 }, { name: "Bijoux", sold: 9, median_price: 9 }], brands: [{ name: "Sans marque", sold: 25, median_price: 15 }], hours: [{ dow: 7, hour: 19, sold: 6 }, { dow: 3, hour: 12, sold: 2 }] },
+  aliedge_product_history: { prices: [{ at: "2026-10-01", price: 6.9 }, { at: "2026-10-20", price: 6.4 }], weeks: [{ week: "2026-10-05", sold: 2, median_price: 20 }, { week: "2026-10-12", sold: 5, median_price: 21 }] },
   aliedge_products_to_refresh: [],
   aliedge_refresh: 0,
   aliedge_sellers_to_check: [],
@@ -98,6 +100,10 @@ await ctx.route("**/*", async (route) => {
     const body = JSON.parse(req.postData() || "{}");
     barapicsCalls.push(body.action);
     if (body.action === "credits") return route.fulfill({ headers: cors, json: { remaining: 12, unlimited: false, plan: "pro", planLabel: "Pro" } });
+    if (body.action === "alerts:get") return route.fulfill({ headers: cors, json: { discord: true, telegram: false, telegramAvailable: true, shareSkool: false, skoolAvailable: true } });
+    if (body.action === "alerts:set") return route.fulfill({ headers: cors, json: { ok: true } });
+    if (body.action === "alerts:send") return route.fulfill({ headers: cors, json: { ok: true, discord: true, telegram: false, skool: false } });
+    if (body.action === "listing") return route.fulfill({ headers: cors, json: { title: "Sac bandoulière cuir noir femme", description: "Joli sac neuf.", category: "Femmes > Sacs > Sacs à bandoulière", brand: "Sans marque", condition: "Neuf sans étiquette", size: "Taille unique", colors: ["Noir"], material: "Cuir synthétique", parcel: "Petit", price: 19, priceReason: "Prix médian des ventes constatées.", hashtags: ["sac", "cuir"], market: null, supplierPrice: 6.4, margin: 12.6 } });
     if (body.action === "keywords") return route.fulfill({ headers: cors, json: { queries: ["sac bandoulière noir", "petit sac cuir femme"] } });
     if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
     if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
@@ -196,11 +202,26 @@ await panel.screenshot({ path: `${shots}/5c-photos.png`, fullPage: true });
 check("photos Barapics : 4 photos créées depuis AliEdge", (await panel.locator(".pshot.done").count()) === 4, barapicsCalls.join(","));
 await panel.keyboard.press("Escape");
 
+// 2c. Annonce complète rédigée par Barapics depuis AliEdge
+await panel.click('[data-act="copy"]');
+await panel.waitForSelector(".drawer.listing .ticket", { timeout: 8000 }).catch(() => {});
+check("annonce complète : prix conseillé et champs à copier", (await panel.locator(".drawer.listing .lfield").count()) >= 4, await panel.locator(".drawer.listing .big").textContent().catch(() => ""));
+await panel.screenshot({ path: `${shots}/5d-annonce.png`, fullPage: true });
+await panel.keyboard.press("Escape");
+
 // 3. Catalogue
 await page.goto(app("/catalogue"));
 await page.waitForFunction(() => document.querySelector("main")?.innerText.includes("Sac bandoulière cuir femme"), null, { timeout: 10000 }).catch(() => {});
 await page.screenshot({ path: `${shots}/6-catalogue.png`, fullPage: true });
 check("catalogue affiché", (await page.locator("main").innerText()).includes("Sac bandoulière cuir femme"));
+await page.click("#trends summary").catch(() => {});
+await page.waitForSelector(".trend-list li", { timeout: 6000 }).catch(() => {});
+check("tendances du marché : catégories et créneaux", (await page.locator(".trend-list li").count()) >= 3 && (await page.locator(".heat .hc").count()) === 56);
+await page.locator("[data-pid]").first().click().catch(() => {});
+await page.waitForSelector("#dhistory .wk", { timeout: 6000 }).catch(() => {});
+check("historique du produit : ventes par semaine", (await page.locator("#dhistory .wk").count()) === 2);
+await page.screenshot({ path: `${shots}/6b-tendances.png`, fullPage: true });
+await page.keyboard.press("Escape");
 await page.setViewportSize({ width: 1280, height: 900 });
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${shots}/7-catalogue-large.png`, fullPage: true });
@@ -222,11 +243,14 @@ await page.fill('#radarform input[name="priceMax"]', "25").catch(() => {});
 await page.click('#radarform button[type="submit"]').catch(() => {});
 await page.waitForSelector(".radar-filter", { timeout: 8000 }).catch(() => {});
 check("radar : filtre enregistré", (await page.locator(".radar-filter").count()) === 1);
+await page.waitForSelector("#alertsbody .alert-row", { timeout: 6000 }).catch(() => {});
+check("radar : réglages des alertes téléphone", (await page.locator("#alertsbody .alert-row").count()) === 2 && barapicsCalls.includes("alerts:get"));
 await page.waitForTimeout(1500);
 await page.evaluate(() => chrome.runtime.sendMessage({ type: "radar:tick" }));
 await page.goto(app("/radar"));
 await page.waitForSelector(".radar-item", { timeout: 8000 }).catch(() => {});
 check("radar : nouvelles annonces dans le flux", (await page.locator(".radar-item").count()) === 2, `${await page.locator(".radar-item").count()} annonce(s)`);
+check("radar : alerte envoyée sur le téléphone", barapicsCalls.includes("alerts:send"));
 await page.screenshot({ path: `${shots}/7b-radar.png`, fullPage: true });
 
 // 4. Suivis : trackers de vendeurs
