@@ -694,7 +694,7 @@ const PHOTO_SCENES = [
 ];
 
 async function openPhotos(product) {
-  const images = (product?.images?.length ? product.images : product?.image ? [product.image] : []).filter((u) => /^https:\/\//.test(u)).slice(0, 3);
+  const images = (product?.images?.length ? product.images : product?.image ? [product.image] : []).filter((u) => /^https:\/\//.test(u)).slice(0, 6);
   closeDrawer();
   const bg = document.createElement("div");
   bg.className = "drawer-bg";
