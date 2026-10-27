@@ -2,7 +2,7 @@
 // Usage : node tests/e2e.mjs [dossier-captures]
 import { createRequire } from "node:module";
 const { chromium } = createRequire(import.meta.url)("playwright");
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
@@ -11,6 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shots = process.argv[2] || path.join(os.tmpdir(), "aliedge-shots");
 mkdirSync(shots, { recursive: true });
 const fx = (f) => readFileSync(path.join(root, "tests/fixtures", f), "utf8");
+const storeImages = process.env.STORE_IMAGES ? readdirSync(process.env.STORE_IMAGES).filter((f) => /\.jpe?g$/i.test(f)).map((f) => path.join(process.env.STORE_IMAGES, f)) : [];
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN8sPL/fwAH/wNMkQ+HXQAAAABJRU5ErkJggg==", "base64");
 
 const titles = ["Sac bandoulière cuir noir", "Petit sac à main cuir femme", "Sac bandoulière simili cuir", "Sac cuir femme neuf", "Sac à main bandoulière noir", "Sac bandoulière cuir camel", "Sac cuir bandoulière beige", "Pochette bandoulière cuir", "Sac main cuir PU noir", "Robe longue satin"];
@@ -50,7 +51,7 @@ const rpc = {
   aliedge_catalog: Array.from({ length: 8 }, (_, i) => ({
     product_id: `00000000-0000-0000-0000-00000000000${i}`, platform: ["aliexpress", "temu", "shein"][i % 3],
     url: "https://fr.aliexpress.com/item/1005006.html", title: ["Sac bandoulière cuir femme", "Robe longue satin", "Lunettes de soleil rétro", "Collier perles dorées", "Baskets plateforme blanches", "Chouchou satin lot de 6", "Sweat à capuche oversize", "Montre minimaliste"][i],
-    image_url: "https://ae01.alicdn.com/kf/S1.jpg", price: [6.4, 9.9, 2.5, 1.9, 14, 1.2, 11, 4.8][i], category: ["Sacs", "Vêtements", "Lunettes", "Bijoux", "Chaussures", "Accessoires", "Vêtements", "Montres"][i],
+    image_url: `https://ae01.alicdn.com/kf/${["apres-sac-bandouliere", "apres-robe", "apres-lunettes", "apres-collier", "apres-baskets", "apres-casquette", "apres-sweat", "apres-montre"][i]}.jpg`, price: [6.4, 9.9, 2.5, 1.9, 14, 1.2, 11, 4.8][i], category: ["Sacs", "Vêtements", "Lunettes", "Bijoux", "Chaussures", "Accessoires", "Vêtements", "Montres"][i],
     sold_7d: 9 - i, sold_30d: 30 - i * 3, sold_total: 42 - i * 4, active_count: 12 + i, median_sold_price: [21, 28, 12, 9, 35, 8, 30, 18][i], median_active_price: 22, last_sold_at: new Date(Date.now() - i * 36e5).toISOString(),
     est_margin: [14.6, 18.1, 9.5, 7.1, 21, 6.8, 19, 13.2][i], vinted_photos: ["https://images1.vinted.net/t/a.jpeg", "https://images1.vinted.net/t/b.jpeg"], analyses: 5 + i, locked: false, total_count: 8,
   })),
@@ -111,7 +112,16 @@ await ctx.route("**/*", async (route) => {
     return route.fulfill({ headers: cors, json: { id: `p-${body.sceneId}`, url: "https://barapics.com/mock.png", attempts: 1, qualityReport: null } });
   }
   if (h === "barapics.com" && url.pathname === "/mock.png") return route.fulfill({ contentType: "image/png", body: PNG });
-  if (/alicdn|vinted\.net|kwcdn|ltwebstatic/.test(h)) return route.fulfill({ contentType: "image/png", body: PNG });
+  if (/alicdn|vinted\.net|kwcdn|ltwebstatic/.test(h)) {
+    // Captures du store : de vraies photos (STORE_IMAGES = dossier de JPG) au lieu d'un pixel.
+    if (storeImages.length) {
+      const named = storeImages.find((f) => path.basename(f) === path.basename(url.pathname));
+      if (named) return route.fulfill({ contentType: "image/jpeg", body: readFileSync(named) });
+      const key = [...url.pathname].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7);
+      return route.fulfill({ contentType: "image/jpeg", body: readFileSync(storeImages[key % storeImages.length]) });
+    }
+    return route.fulfill({ contentType: "image/png", body: PNG });
+  }
   return route.fulfill({ status: 204, body: "" });
 });
 
@@ -283,6 +293,36 @@ check("bouton « Suivre ses ventes » sur un profil Vinted", calls.some((c) => c
 await mbr.screenshot({ path: `${shots}/10-profil.png` });
 await mbr.waitForTimeout(Math.max(0, 25_000 - (Date.now() - startedAt)));
 check("fiche fournisseur consultée enregistrée au catalogue", calls.some((c) => c.endsWith("aliedge_seen_products")));
+
+// Captures pour la fiche Chrome Web Store (1280 × 800), seulement si STORE_SHOTS=1.
+if (process.env.STORE_SHOTS) {
+  const shotsDir = path.join(shots, "store");
+  mkdirSync(shotsDir, { recursive: true });
+  await panel.setViewportSize({ width: 1280, height: 800 });
+  await panel.goto(app("/analyse", false));
+  await product.bringToFront();
+  await panel.evaluate(() => chrome.runtime.sendMessage({ type: "tab:changed" }).catch(() => {}));
+  await panel.waitForSelector(".product h3", { timeout: 10000 }).catch(() => {});
+  await panel.click("#go").catch(() => {});
+  await panel.waitForSelector(".ticket", { timeout: 30000 }).catch(() => {});
+  await panel.waitForTimeout(1500);
+  await panel.click("#review-later").catch(() => {});
+  await panel.screenshot({ path: `${shotsDir}/1-analyse.png` });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  for (const [hash, name, prep] of [
+    ["/radar", "2-radar", async () => { await page.click("#phonealerts summary").catch(() => {}); }],
+    ["/catalogue", "3-catalogue", async () => {}],
+    ["/catalogue", "4-tendances", async () => { await page.click("#trends summary").catch(() => {}); await page.waitForSelector(".trend-list li", { timeout: 6000 }).catch(() => {}); await page.evaluate(() => document.getElementById("trends")?.scrollIntoView()); }],
+    ["/suivis", "5-suivis", async () => { await page.locator("[data-tracker]").first().click().catch(() => {}); await page.waitForTimeout(1200); }],
+  ]) {
+    await page.goto(app(hash));
+    await page.waitForTimeout(1800);
+    await prep();
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `${shotsDir}/${name}.png` });
+  }
+  console.log(`captures store : ${shotsDir}`);
+}
 
 await ctx.close();
 const failed = results.filter((r) => !r.ok);
