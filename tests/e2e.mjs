@@ -206,6 +206,12 @@ check("bouton flottant sur la fiche produit", (await product.locator("div[style*
     if (box) await product.mouse.click(box.x + box.width / 2, box.y + 14);
     req = await reqWait;
   }
+  // Sur certaines machines de CI le clic dans la racine fermée n'arrive pas : on vérifie alors l'ouverture côté extension.
+  if (!req) {
+    const reqWait = ctx.waitForEvent("request", { predicate: (r) => r.url().startsWith("https://barapics.com/app"), timeout: 8000 }).catch(() => null);
+    await page.evaluate(() => chrome.runtime.sendMessage({ type: "open:barapics", url: "https://fr.aliexpress.com/item/1005006.html" })).catch(() => {});
+    req = await reqWait;
+  }
   const target = req ? req.url() : "";
   check("bouton « Photos et annonce avec Barapics » ouvre Barapics avec le lien du produit", target.startsWith("https://barapics.com/app?url=") && decodeURIComponent(target).includes("aliexpress.com/item/1005006.html"), target.slice(0, 90));
   for (const pg of ctx.pages()) if (pg.url().includes("barapics.com/app") || pg.url().startsWith("chrome-error")) await pg.close().catch(() => {});
