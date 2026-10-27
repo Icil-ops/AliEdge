@@ -412,8 +412,8 @@ a.radar-item { text-decoration: none; color: inherit; }
 .pick:hover { transform: translateY(-2px); border-color: #6d3bff; }
 .pick img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 10px; }
 .pick .kind { font-size: 11px; font-weight: 700; color: #6d3bff; }
-.pick.locked { background: repeating-linear-gradient(135deg, #f6f3ff 0 10px, #fff 10px 20px); }
-.challenge { padding: 10px 12px; border-radius: 12px; background: #f1ecff; }
+.pick.locked { background: repeating-linear-gradient(135deg, var(--soft) 0 10px, var(--card) 10px 20px); }
+.challenge { padding: 10px 12px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line); color: var(--ink); }
 .cbar { height: 6px; border-radius: 99px; background: rgba(109, 59, 255, .15); margin-top: 6px; overflow: hidden; }
 .cbar i { display: block; height: 100%; background: linear-gradient(90deg, #6d3bff, #0fa968); border-radius: 99px; transition: width .8s cubic-bezier(.16, 1, .3, 1); }
 

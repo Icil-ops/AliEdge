@@ -196,6 +196,16 @@ const product = await ctx.newPage();
 await product.goto("https://fr.aliexpress.com/item/1005006.html");
 await product.waitForTimeout(1500);
 check("bouton flottant sur la fiche produit", (await product.locator("div[style*='2147483646']").count()) > 0);
+{
+  const box = await product.locator("div[style*='2147483646']").first().boundingBox().catch(() => null);
+  const reqWait = ctx.waitForEvent("request", { predicate: (r) => r.url().startsWith("https://barapics.com/app"), timeout: 6000 }).catch(() => null);
+  // Le bouton Barapics est le premier (au-dessus) de la pile.
+  if (box) await product.mouse.click(box.x + box.width / 2, box.y + 12);
+  const req = await reqWait;
+  const target = req ? req.url() : "";
+  check("bouton « Photos et annonce avec Barapics » ouvre Barapics avec le lien du produit", target.startsWith("https://barapics.com/app?url=") && decodeURIComponent(target).includes("aliexpress.com/item/1005006.html"), target.slice(0, 90));
+  for (const pg of ctx.pages()) if (pg.url().includes("barapics.com/app") || pg.url().startsWith("chrome-error")) await pg.close().catch(() => {});
+}
 await product.screenshot({ path: `${shots}/3-fiche-ali.png` });
 const extractSrc = readFileSync(path.join(root, "src/lib/extract.js"), "utf8").match(/export function extractProduct\(\) \{[\s\S]*?\n\}/)[0].replace("export ", "");
 const extracted = await product.evaluate((src) => (0, eval)(`(${src.replace("function extractProduct", "function")})`)(), extractSrc);

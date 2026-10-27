@@ -22,7 +22,7 @@
   function mount() {
     if (host || !enabled) return;
     host = document.createElement("div");
-    host.style.cssText = "position:fixed;right:18px;bottom:18px;z-index:2147483646;";
+    host.style.cssText = "position:fixed;right:18px;bottom:18px;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-end;gap:8px;";
     const root = host.attachShadow({ mode: "closed" });
     root.innerHTML = `
       <style>
@@ -36,17 +36,34 @@
         .val{font-variant-numeric:tabular-nums}
         .pos{color:#5ee0a0}.neg{color:#ff8f8f}
         .x{all:unset;cursor:pointer;margin-left:4px;opacity:.5;font-size:16px;padding:0 2px}
+        .wrap{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+        .bp{background:#ff3d57;box-shadow:0 10px 30px -8px rgba(255,61,87,.6)}
+        .bp .mark{background:rgba(255,255,255,.2)}
         .x:hover{opacity:1}
         @media (prefers-reduced-motion:reduce){button{transition:none}}
       </style>
-      <button type="button" aria-label="Analyser ce produit avec AliEdge">
+      <div class="wrap">
+      <button type="button" class="bp" data-act="barapics" aria-label="Créer les photos et l'annonce de ce produit avec Barapics">
+        <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+        <span>Photos et annonce avec Barapics</span>
+      </button>
+      <button type="button" data-act="analyse" aria-label="Analyser ce produit avec AliEdge">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6 4 4 6-8"/><path d="M14 7h6v6"/></svg></span>
         <span class="label">Analyser sur Vinted</span>
         <span class="x" role="button" aria-label="Masquer" title="Masquer">×</span>
-      </button>`;
+      </button>
+      </div>`;
     label = root.querySelector(".label");
     root.querySelector(".x").addEventListener("click", (e) => { e.stopPropagation(); unmount(); });
-    root.querySelector("button").addEventListener("click", () => send({ type: "open:panel" }));
+    root.querySelector('[data-act="analyse"]').addEventListener("click", () => send({ type: "open:panel" }));
+    // Barapics ouvre la fiche directement (lien sans paramètres de suivi ; Temu garde son goods_id).
+    root.querySelector('[data-act="barapics"]').addEventListener("click", () => {
+      const u = new URL(location.href);
+      const keep = new URLSearchParams();
+      if (u.searchParams.get("goods_id")) keep.set("goods_id", u.searchParams.get("goods_id"));
+      const clean = `${u.origin}${u.pathname}${keep.toString() ? `?${keep}` : ""}`;
+      send({ type: "open:barapics", url: clean });
+    });
     document.documentElement.appendChild(host);
   }
 

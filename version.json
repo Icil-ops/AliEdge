@@ -1,6 +1,6 @@
 {
-  "version": "3.2.2",
-  "notes": "Correctifs : bandeau des nouveautés lisible en mode sombre. Les réglages de protection du compte Vinted peuvent maintenant être ajustés sans mise à jour.",
+  "version": "3.2.3",
+  "notes": "Sur chaque fiche AliExpress, Temu et Shein : un bouton « Photos et annonce avec Barapics » ouvre directement Barapics avec le produit. Bandeaux lisibles en mode sombre.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-27",
   "minVersion": "3.0.0"

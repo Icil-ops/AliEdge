@@ -919,6 +919,15 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
   "competitor:ids": async () => getCompetitorIds(),
+  // Bouton Barapics des fiches produit : ouvre Barapics avec le lien du produit, à côté de l'onglet en cours.
+  "open:barapics": async ({ url }, sender) => {
+    let u;
+    try { u = new URL(String(url)); } catch { throw new sb.ApiError("Lien du produit illisible.", 400, "invalid"); }
+    if (!/(^|\.)(aliexpress\.(com|fr|us)|temu\.com|shein\.(com|fr))$/.test(u.hostname)) throw new sb.ApiError("Seules les fiches AliExpress, Temu et Shein sont acceptées.", 400, "invalid");
+    const target = `https://barapics.com/app?url=${encodeURIComponent(u.toString())}&utm_source=aliedge&utm_medium=extension&utm_campaign=product_button`;
+    await chrome.tabs.create({ url: target, ...(sender.tab ? { index: sender.tab.index + 1, openerTabId: sender.tab.id } : {}) });
+    return {};
+  },
   "remote:message": async () => (remote.message ? String(remote.message).slice(0, 300) : null),
   "tracker:remove": async ({ id }) => { competitorIds = null; return sb.rpc("aliedge_tracker_remove", { _id: id }); },
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
@@ -959,7 +968,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids", "open:barapics"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {
