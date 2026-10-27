@@ -1,6 +1,6 @@
 {
-  "version": "3.2.3",
-  "notes": "Sur chaque fiche AliExpress, Temu et Shein : un bouton « Photos et annonce avec Barapics » ouvre directement Barapics avec le produit. Bandeaux lisibles en mode sombre.",
+  "version": "3.2.4",
+  "notes": "Sur Shein, AliExpress et Temu, AliEdge suit maintenant la couleur que tu choisis (photos et analyse). Bouton « Photos et annonce avec Barapics » sur chaque fiche produit.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-27",
   "minVersion": "3.0.0"

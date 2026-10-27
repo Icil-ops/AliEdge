@@ -71,6 +71,23 @@ export function extractProduct() {
   }
 
   const host = location.hostname;
+  // Variante choisie (couleur…) : sa photo passe en premier, et sur Shein la galerie affichée
+  // remplace les données de la page (qui restent celles de la première couleur ouverte).
+  const domFirst = [];
+  try {
+    if (/aliexpress/.test(host)) {
+      document.querySelectorAll('[class*="sku-item--selected"] img, [class*="sku-item--image"][class*="selected"] img, [class*="sku-property-image"][class*="selected"] img').forEach((i) => domFirst.push(i.getAttribute("src")));
+    } else if (/shein/.test(host)) {
+      document.querySelectorAll('.product-intro__main-item img, [class*="main-picture"] img, .crop-image-container img, .product-intro__thumbs-item img, [class*="thumbs-item"] img, [class*="thumbs"] .crop-image-container img').forEach((i) => domFirst.push(i.getAttribute("data-src") || i.getAttribute("src")));
+    } else if (/temu/.test(host)) {
+      document.querySelectorAll('[class*="sku"][aria-checked="true"] img, [class*="sku"][class*="selected"] img').forEach((i) => domFirst.push(i.getAttribute("src")));
+    }
+  } catch { /* galerie introuvable */ }
+  if (domFirst.length) {
+    const rest = out.images.splice(0);
+    domFirst.forEach(pushImg);
+    if (!/shein/.test(host)) rest.forEach(pushImg);
+  }
   try {
     if (/aliexpress/.test(host)) {
       out.title = txt(document.querySelector('h1[data-pl="product-title"]')) || txt(document.querySelector('[class*="title--wrap"] h1')) || out.title;
@@ -98,13 +115,16 @@ export function extractProduct() {
       }
     } else if (/shein/.test(host)) {
       const intro = window.gbRawData && window.gbRawData.productIntroData;
-      const detail = intro && intro.detail;
+      let detail = intro && intro.detail;
+      // Shein change de couleur sans recharger : ces données décrivent alors une autre couleur.
+      const urlId = location.pathname.match(/-p-(\d+)/)?.[1];
+      if (detail && urlId && detail.goods_id && String(detail.goods_id) !== urlId) detail = null;
       if (detail) {
         out.title = out.title || detail.goods_name;
-        pushImg(detail.original_img || detail.goods_img);
+        if (!domFirst.length) pushImg(detail.original_img || detail.goods_img);
         const sp = detail.salePrice || detail.retailPrice;
         if (sp && out.price == null) { out.price = Number(sp.amount); out.currency = sp.currency || null; }
-        (intro.goods_imgs?.detail_image || []).forEach((g) => pushImg(g.origin_image || g.medium_image));
+        if (!domFirst.length) (intro.goods_imgs?.detail_image || []).forEach((g) => pushImg(g.origin_image || g.medium_image));
       }
       out.title = out.title || txt(document.querySelector("h1.product-intro__head-name, h1"));
       const priceEl = document.querySelector(".product-intro__head-mainprice .from, .product-intro__head-mainprice .original, [class*='productPrice'] [class*='price'], .product-intro__head-price");
@@ -113,7 +133,7 @@ export function extractProduct() {
   } catch { /* structure de page inattendue : les solutions de secours prennent le relais */ }
 
   out.title = out.title || meta("og:title") || document.title;
-  pushImg(meta("og:image"));
+  if (!(domFirst.length && /shein/.test(host))) pushImg(meta("og:image"));
   if (!out.images.length) {
     const big = [...document.images].filter((i) => i.naturalWidth >= 300 && i.naturalHeight >= 300).slice(0, 4);
     big.forEach((i) => pushImg(i.currentSrc || i.src));

@@ -162,6 +162,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onActivated.addListener(() => broadcast({ type: "tab:changed" }));
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (info.status === "complete" && tab.active) broadcast({ type: "tab:changed" });
+  // Shein, Temu et AliExpress changent de variante sans recharger la page : on relit la fiche.
+  if (info.url && tab.active && info.status !== "complete") setTimeout(() => broadcast({ type: "tab:changed" }), 1500);
   if (info.status === "complete" && tab.url && detectPlatform(tab.url)) setTimeout(() => recordSeen(tabId), 3000);
 });
 
@@ -919,6 +921,7 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
   "competitor:ids": async () => getCompetitorIds(),
+  "product:changed": async (_msg, sender) => { if (sender.tab?.active) broadcast({ type: "tab:changed" }); return {}; },
   // Bouton Barapics des fiches produit : ouvre Barapics avec le lien du produit, à côté de l'onglet en cours.
   "open:barapics": async ({ url }, sender) => {
     let u;
@@ -968,7 +971,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids", "open:barapics"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids", "open:barapics", "product:changed"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

@@ -92,11 +92,19 @@
 
   // Temu et Shein changent de page sans recharger.
   let last = location.href;
+  let changeTimer = null;
+  const changed = (delay) => { clearTimeout(changeTimer); changeTimer = setTimeout(() => send({ type: "product:changed" }), delay); };
   setInterval(() => {
     if (location.href !== last) {
       last = location.href;
       unmount();
       sync();
+      changed(1500);
     }
   }, 800);
+  // Choix d'une couleur ou d'une variante sans changement d'adresse : le panneau relit la fiche.
+  document.addEventListener("click", (e) => {
+    const el = e.target instanceof Element ? e.target.closest('[class*="sku"], [class*="color"], [class*="Color"], [class*="swatch"], [class*="attr"], [class*="goods-color"]') : null;
+    if (el && isProductPage()) changed(1200);
+  }, true);
 })();
