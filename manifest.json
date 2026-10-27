@@ -111,5 +111,11 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://barapics.com/*",
+      "https://www.barapics.com/*"
+    ]
+  }
 }

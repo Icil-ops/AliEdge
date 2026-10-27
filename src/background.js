@@ -620,6 +620,62 @@ async function barapics(body) {
   return data;
 }
 
+
+// ───────────────────────── Barapics : lecture d'une fiche produit dans le navigateur du membre
+// Quand le site du fournisseur bloque la lecture côté serveur (Shein, Temu…), Barapics demande à AliEdge
+// d'ouvrir la fiche en arrière-plan dans le navigateur du membre et d'en lire le titre, le prix et les photos.
+
+function waitTabComplete(tabId, timeout = 25_000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => { if (!done) { done = true; chrome.tabs.onUpdated.removeListener(listener); clearTimeout(t); resolve(ok); } };
+    const listener = (id, info) => { if (id === tabId && info.status === "complete") finish(true); };
+    const t = setTimeout(() => finish(false), timeout);
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => { if (tab.status === "complete") finish(true); }).catch(() => finish(false));
+  });
+}
+
+async function readProductForBarapics(url) {
+  if (typeof url !== "string" || !/^https:\/\//.test(url) || !detectPlatform(url)) throw new Error("Lien de fiche produit AliExpress, Temu ou Shein attendu.");
+  const id = sourceIdFromUrl(url);
+  const tabs = await chrome.tabs.query({});
+  let tab = tabs.find((t) => t.url && detectPlatform(t.url) && sourceIdFromUrl(t.url) === id && !t.discarded);
+  let opened = false;
+  if (!tab) {
+    tab = await chrome.tabs.create({ url, active: false });
+    opened = true;
+    await waitTabComplete(tab.id);
+  }
+  try {
+    let p = null;
+    for (let i = 0; i < 10; i++) {
+      p = await currentProduct(tab.id).catch(() => null);
+      if (p?.title && p.images?.length) break;
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+    if (!p?.title || !p.images?.length) throw new Error("La fiche n'a pas pu être lue (vérification anti-robot ?). Ouvre-la dans un onglet, puis réessaie.");
+    const price = p.price != null ? `${Number(p.price).toFixed(2).replace(".", ",")} ${p.currency === "EUR" ? "€" : p.currency}` : "";
+    return { title: p.title, price, images: (p.images || []).filter((u) => /^https:\/\//.test(u)).slice(0, 12), url: p.url };
+  } finally {
+    if (opened) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  let origin = "";
+  try { origin = new URL(sender.url || sender.origin || "").hostname; } catch { /* inconnu */ }
+  if (!/^(www\.)?barapics\.com$/.test(origin)) return false;
+  if (msg?.type === "barapics:ping") { sendResponse({ ok: true, version: chrome.runtime.getManifest().version }); return false; }
+  if (msg?.type === "barapics:readProduct") {
+    readProductForBarapics(msg.url)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((e) => sendResponse({ ok: false, error: e?.message || "Lecture impossible." }));
+    return true;
+  }
+  return false;
+});
+
 // ───────────────────────── Messages
 
 const handlers = {
