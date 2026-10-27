@@ -35,8 +35,55 @@ async function syncAlarms(settings) {
   // La détection des ventes fait partie du fonctionnement d'AliEdge : toujours active (voir la page confidentialité).
   chrome.alarms.create("community", { periodInMinutes: 30, delayInMinutes: 3 });
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
+  chrome.alarms.create("remote", { periodInMinutes: 360, delayInMinutes: 1 });
   await syncRadarAlarm();
 }
+
+// ───────────────────────── Réglages à distance, santé et erreurs (Phase 0)
+// L'admin Barapics peut ralentir ou couper une fonction chez tous les membres sans nouvelle version.
+let remote = {};
+chrome.storage.local.get("ae_remote").then((r) => { remote = r.ae_remote || {}; vinted.applyRemoteBudget(remote); }).catch(() => {});
+function radarPeriodMinutes() {
+  const s = Number(remote.radar_seconds);
+  return (Number.isFinite(s) && s > 0 ? Math.min(300, Math.max(20, s)) : 30) / 60;
+}
+async function refreshRemote() {
+  if (!(await sb.getSession())) return;
+  const cfg = await sb.rpc("aliedge_remote_config").catch(() => null);
+  if (!cfg || typeof cfg !== "object") return;
+  remote = cfg;
+  vinted.applyRemoteBudget(remote);
+  await chrome.storage.local.set({ ae_remote: remote });
+  await syncRadarAlarm();
+}
+async function reportHealth() {
+  if (!(await sb.getSession())) return;
+  const g = await vinted.guardStatus();
+  const st = await radarState().catch(() => ({ filters: [] }));
+  await sb.rpc("aliedge_report_health", {
+    _version: chrome.runtime.getManifest().version, _requests: g.lastDay, _pauses: g.pausesToday || 0,
+    _reason: g.lastPauseReason || null, _filters: st.filters.filter((f) => f.active).length,
+  }).catch(() => {});
+}
+// Erreurs inattendues regroupées puis envoyées toutes les 30 min (20 envois par jour au plus côté serveur).
+const errBuffer = new Map();
+function noteError(area, err) {
+  const message = String(err?.message || err || "?").replace(/https?:\/\/\S+/g, "<url>").replace(/\d{5,}/g, "<n>").slice(0, 300);
+  const key = `${area}|${message}`;
+  errBuffer.set(key, (errBuffer.get(key) || 0) + 1);
+  if (errBuffer.size > 50) errBuffer.delete(errBuffer.keys().next().value);
+}
+async function flushErrors() {
+  if (!errBuffer.size || !(await sb.getSession())) return;
+  const items = [...errBuffer.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  errBuffer.clear();
+  for (const [key, count] of items) {
+    const [area, ...rest] = key.split("|");
+    await sb.rpc("aliedge_report_error", { _version: chrome.runtime.getManifest().version, _area: area, _message: rest.join("|"), _count: count }).catch(() => {});
+  }
+}
+self.addEventListener("error", (e) => noteError("worker", e?.error || e?.message));
+self.addEventListener("unhandledrejection", (e) => noteError("promise", e?.reason));
 
 // ───────────────────────── Installation
 
@@ -412,7 +459,7 @@ async function communityCheck() {
   let sellers = [];
   try { sellers = await sb.rpc("aliedge_sellers_to_check", { _limit: 4 }); } catch { /* fonction absente : on passe aux annonces */ }
   const { ae_fullscan: full = {} } = await chrome.storage.local.get("ae_fullscan");
-  for (const { seller_id, market, pending } of sellers || []) {
+  for (const { seller_id, market, pending } of (sellers || []).filter((x) => remote.trackers_enabled !== "off" || x.pending !== -1)) {
     try {
       // Concurrent suivi : dressing complet (toutes les pages) toutes les 3 h, première page entre-temps.
       const key = `${market}:${seller_id}`;
@@ -476,13 +523,13 @@ async function radarState() {
 async function saveRadar(st) { await chrome.storage.local.set({ [RADAR_KEY]: st }); }
 async function syncRadarAlarm(st) {
   const active = (st || (await radarState())).filters.some((f) => f.active);
-  if (active) chrome.alarms.create("radar", { periodInMinutes: 0.5, delayInMinutes: 0.1 });
+  if (active && remote.radar_enabled !== "off") chrome.alarms.create("radar", { periodInMinutes: radarPeriodMinutes(), delayInMinutes: 0.1 });
   else chrome.alarms.clear("radar");
 }
 
 let radarRunning = false;
 async function radarTick() {
-  if (radarRunning) return;
+  if (radarRunning || remote.radar_enabled === "off") return;
   radarRunning = true;
   try {
     const st = await radarState();
@@ -624,7 +671,8 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
 }
 
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "community") { vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
+  if (a.name === "remote") { refreshRemote().then(() => reportHealth()).catch(() => {}); }
+  if (a.name === "community") { flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "watch") refreshWatches();
 });
@@ -870,6 +918,7 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
   "competitor:ids": async () => getCompetitorIds(),
+  "remote:message": async () => (remote.message ? String(remote.message).slice(0, 300) : null),
   "tracker:remove": async ({ id }) => { competitorIds = null; return sb.rpc("aliedge_tracker_remove", { _id: id }); },
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "catalog:importPage": async () => importPage(),
@@ -912,6 +961,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
-    .catch((e) => sendResponse({ ok: false, error: e?.message || "Erreur inattendue.", code: e?.code || "" }));
+    .catch((e) => {
+      if (!e?.code || !["auth", "limit", "invalid", "paused", "budget", "rate_limited", "blocked", "empty_query"].includes(e.code)) noteError(msg.type, e);
+      sendResponse({ ok: false, error: e?.message || "Erreur inattendue.", code: e?.code || "" });
+    });
   return true;
 });

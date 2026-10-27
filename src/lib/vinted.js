@@ -21,6 +21,15 @@ export async function inBackground(fn) {
 // et s'arrêtent net (de 15 min à 12 h) dès que Vinted montre le moindre signe de gêne.
 // Les recherches lancées à la main ne sont jamais bloquées par le budget, seulement par une pause en cours.
 export const BUDGET = { perMinute: 4, perHour: 90, perDay: 700, gapMin: 4000, gapMax: 9000 };
+const BUDGET_LIMITS = { perHour: [10, 120], perDay: [50, 900] };
+/** Réglages à distance (admin Barapics) : toujours bornés ici, l'extension ne dépasse jamais ses limites de sécurité. */
+export function applyRemoteBudget(cfg = {}) {
+  for (const [k, key] of [["perHour", "budget_per_hour"], ["perDay", "budget_per_day"]]) {
+    const v = Number(cfg[key]);
+    const [lo, hi] = BUDGET_LIMITS[k];
+    BUDGET[k] = Number.isFinite(v) && v > 0 ? Math.min(hi, Math.max(lo, Math.round(v))) : { perHour: 90, perDay: 700 }[k];
+  }
+}
 const COOLDOWNS = [15, 60, 180, 720]; // minutes
 const GUARD_KEY = "ae_guard";
 let lastBg = 0;
@@ -31,7 +40,9 @@ async function guardState() {
 async function saveGuard(g) { await chrome.storage.local.set({ [GUARD_KEY]: g }).catch(() => {}); }
 export async function guardStatus() {
   const g = await guardState(); const now = Date.now();
-  return { pausedUntil: g.pauseUntil > now ? g.pauseUntil : 0, lastHour: g.hits.filter((t) => t > now - 3600e3).length, lastDay: g.hits.length, budget: BUDGET };
+  const today = new Date().toISOString().slice(0, 10);
+  const p = g.pauses?.day === today ? g.pauses : { n: 0, reason: null };
+  return { pausedUntil: g.pauseUntil > now ? g.pauseUntil : 0, lastHour: g.hits.filter((t) => t > now - 3600e3).length, lastDay: g.hits.length, budget: BUDGET, pausesToday: p.n, lastPauseReason: p.reason };
 }
 async function beforeRequest() {
   const g = await guardState(); const now = Date.now();
@@ -53,6 +64,8 @@ async function afterResponse(status, suspicious = false) {
     const min = COOLDOWNS[Math.min(g.strikes, COOLDOWNS.length - 1)];
     g.pauseUntil = Date.now() + min * 60e3 * (0.9 + Math.random() * 0.2);
     g.strikes += 1; g.okStreak = 0;
+    const today = new Date().toISOString().slice(0, 10);
+    g.pauses = { day: today, n: (g.pauses?.day === today ? g.pauses.n : 0) + 1, reason: suspicious ? "page suspecte" : `HTTP ${status}` };
   } else if (status >= 200 && status < 300 || status === 404) {
     g.okStreak += 1;
     if (g.okStreak >= 50 && g.strikes > 0) { g.strikes -= 1; g.okStreak = 0; }

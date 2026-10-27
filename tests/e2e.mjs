@@ -36,6 +36,9 @@ const rpc = {
   aliedge_tracker_add: "00000000-0000-0000-0000-0000000000aa",
   aliedge_tracker_remove: true,
   aliedge_trackers: [{ id: "00000000-0000-0000-0000-0000000000aa", seller_id: 555, market: "fr", label: "vendeuse", created_at: new Date(Date.now() - 2 * 864e5).toISOString(), expires_at: new Date(Date.now() + 12 * 864e5).toISOString(), last_checked_at: new Date(Date.now() - 18e5).toISOString(), active_count: 3, sold_count: 2, sold_amount: 41, last_sold_at: new Date().toISOString(), sold_7d: 2, sold_30d: 2, amount_30d: 41, median_price_30d: 20 }],
+  aliedge_remote_config: { message: "Maintenance Vinted ce soir : le Radar ralentit un peu.", radar_seconds: "45", budget_per_hour: "500" },
+  aliedge_report_health: null,
+  aliedge_report_error: null,
   aliedge_competitor_recap: { since: new Date(Date.now() - 2 * 864e5).toISOString(), active: 3, active_value: 57, sold_total: 3, sold_seen: 2, sold_before: 1, revenue_seen: 41, median_price_sold: 20, median_price_active: 18, median_days: 2.5, sold_under_7d: 2, new_listings_7d: 4, per_week: [{ week: "2026-10-12", sold: 1, revenue: 20 }, { week: "2026-10-19", sold: 2, revenue: 41 }], brands: [{ name: "Sans marque", sold: 2, median_price: 20, median_days: 2.5 }], price_bands: [{ band: "10 à 20 €", sold: 1, active: 2 }, { band: "20 à 35 €", sold: 1, active: 1 }], fastest: [{ title: "Sac bandoulière cuir noir", price: 21, days: 1.2, url: "https://www.vinted.fr/items/9000-sac", photo_url: "https://images1.vinted.net/t/0.jpeg" }] },
   aliedge_tracker_items: [
     { vinted_id: 9000, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", status: "sold", first_seen_at: new Date(Date.now() - 2 * 864e5).toISOString(), sold_at: new Date(Date.now() - 36e5).toISOString(), favourites: 4, days_to_sell: 1.2, sold_before: false },
@@ -306,6 +309,18 @@ await page.waitForSelector(".tracker-body .kpis", { timeout: 6000 }).catch(() =>
 check("récap du concurrent (délai de vente, ce qui se vend)", (await page.locator(".tracker-body .kpi").count()) === 6 && (await page.locator(".tracker-body").innerText().catch(() => "")).includes("2,5 j"));
 check("ventes du concurrent listées", (await page.locator(".tracker-body .badge-sold").count()) >= 1);
 await page.screenshot({ path: `${shots}/8-concurrents.png`, fullPage: true });
+
+// 4b. Réglages à distance, santé et erreurs
+await page.evaluate(() => chrome.alarms.create("remote", { when: Date.now() + 100 }));
+await page.waitForTimeout(2500);
+check("réglages à distance lus et santé envoyée", calls.some((c) => c.endsWith("aliedge_remote_config")) && calls.some((c) => c.endsWith("aliedge_report_health")));
+const remoteState = await page.evaluate(async () => (await chrome.storage.local.get("ae_remote")).ae_remote);
+check("réglages à distance enregistrés", remoteState?.radar_seconds === "45");
+await page.goto(app("/radar"));
+await page.waitForSelector(".update-banner", { timeout: 6000 }).catch(() => {});
+check("message de l'admin affiché dans l'extension", (await page.locator(".update-banner").first().innerText().catch(() => "")).includes("Maintenance Vinted"));
+const radarAlarm = await page.evaluate(() => chrome.alarms.get("radar"));
+check("rythme du Radar réglé à distance (45 s)", Math.abs((radarAlarm?.periodInMinutes ?? 0) - 0.75) < 0.01, JSON.stringify(radarAlarm?.periodInMinutes));
 
 // 5. Page d'une annonce Vinted vendue
 const v = await ctx.newPage();

@@ -1382,17 +1382,17 @@ async function render() {
   else if (name === "bienvenue") html = viewBienvenue(params);
   else html = viewCompte(params);
   if (seq !== renderSeq) return;
-  const upd = await api("update:state").catch(() => null);
+  const [upd, notice] = await Promise.all([api("update:state").catch(() => null), api("remote:message").catch(() => null)]);
   if (seq !== renderSeq) return;
-  const banner = upd?.ready
+  const banner = (notice ? `<div class="update-banner" role="status"><span>${esc(notice)}</span></div>` : "") + (upd?.ready
     ? `<div class="update-banner ready"><span><b>Nouvelle version ${esc(upd.ready.version)} prête.</b> Installe-la en un clic, AliEdge redémarre en quelques secondes.</span><button class="btn primary small" type="button" data-update="apply">Mettre à jour</button></div>`
     : upd?.whatsnew
       ? `<div class="update-banner"><span><b>Nouveau dans la ${esc(upd.whatsnew.version)} :</b> ${esc(upd.whatsnew.notes)}</span><button class="btn ghost small" type="button" data-update="seen" aria-label="Fermer">✕</button></div>`
-      : "";
+      : "");
   const keepFocus = document.activeElement?.id;
   $view.innerHTML = `${banner}<div class="view">${html}</div>`;
   $view.querySelector('[data-update="apply"]')?.addEventListener("click", (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = "Installation…"; api("update:apply").catch(() => {}); });
-  $view.querySelector('[data-update="seen"]')?.addEventListener("click", async () => { await api("update:seen").catch(() => {}); $view.querySelector(".update-banner")?.remove(); });
+  $view.querySelector('[data-update="seen"]')?.addEventListener("click", async (e) => { const box = e.currentTarget.closest(".update-banner"); await api("update:seen").catch(() => {}); box?.remove(); });
   if (keepFocus && ["csearch", "query"].includes(keepFocus)) {
     const el = document.getElementById(keepFocus);
     if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); }
