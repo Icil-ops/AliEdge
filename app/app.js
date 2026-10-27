@@ -735,7 +735,7 @@ async function openPhotos(product) {
     b.setAttribute("aria-pressed", String(picked.has(id)));
     refreshGo();
   }));
-  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Démarrer l'essai gratuit (3 jours, 1 article par jour)</a></div>`;
+  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Démarrer l'essai gratuit (3 jours, 4 photos)</a></div>`;
   try {
     const c = await api("barapics", { body: { action: "credits" } });
     remaining = c.unlimited ? null : c.remaining;
