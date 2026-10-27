@@ -199,6 +199,7 @@ check("bouton flottant sur la fiche produit", (await product.locator("div[style*
 {
   // Le bouton Barapics est le premier (au-dessus) de la pile ; on réessaie si la pile n'est pas encore en place.
   let req = null;
+  let diag = "";
   for (let attempt = 0; attempt < 3 && !req; attempt++) {
     await product.waitForTimeout(800);
     const box = await product.locator("div[style*='2147483646']").first().boundingBox().catch(() => null);
@@ -209,11 +210,17 @@ check("bouton flottant sur la fiche produit", (await product.locator("div[style*
   // Sur certaines machines de CI le clic dans la racine fermée n'arrive pas : on vérifie alors l'ouverture côté extension.
   if (!req) {
     const reqWait = ctx.waitForEvent("request", { predicate: (r) => r.url().startsWith("https://barapics.com/app"), timeout: 8000 }).catch(() => null);
-    await page.evaluate(() => chrome.runtime.sendMessage({ type: "open:barapics", url: "https://fr.aliexpress.com/item/1005006.html" })).catch(() => {});
+    diag = await page.evaluate(() => chrome.runtime.sendMessage({ type: "open:barapics", url: "https://fr.aliexpress.com/item/1005006.html" })).then((r) => JSON.stringify(r)).catch((e) => `err ${e.message}`);
     req = await reqWait;
+    if (!req) {
+      await product.waitForTimeout(1500);
+      const opened = ctx.pages().map((pg) => pg.url()).find((u) => u.includes("barapics.com/app"));
+      if (opened) req = { url: () => opened };
+      diag += ` pages=${ctx.pages().map((pg) => pg.url().slice(0, 60)).join(" | ")}`;
+    }
   }
   const target = req ? req.url() : "";
-  check("bouton « Photos et annonce avec Barapics » ouvre Barapics avec le lien du produit", target.startsWith("https://barapics.com/app?url=") && decodeURIComponent(target).includes("aliexpress.com/item/1005006.html"), target.slice(0, 90));
+  check("bouton « Photos et annonce avec Barapics » ouvre Barapics avec le lien du produit", target.startsWith("https://barapics.com/app?url=") && decodeURIComponent(target).includes("aliexpress.com/item/1005006.html"), `${target.slice(0, 90)} ${diag}`.slice(0, 400));
   for (const pg of ctx.pages()) if (pg.url().includes("barapics.com/app") || pg.url().startsWith("chrome-error")) await pg.close().catch(() => {});
 }
 await product.screenshot({ path: `${shots}/3-fiche-ali.png` });
