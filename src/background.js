@@ -1123,6 +1123,7 @@ const handlers = {
     _sort: filters.sort || "sold", _min_sold: filters.minSold || 0, _limit: filters.limit || 30, _offset: filters.offset || 0,
   }),
   "catalog:items": async ({ productId }) => sb.rpc("aliedge_product_items", { _product_id: productId }),
+  "sales:feed": async ({ search = null, offset = 0 } = {}) => sb.rpc("aliedge_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0) }),
   "saved:list": async () => sb.select("aliedge_saved", "select=product_id,note,created_at&order=created_at.desc"),
   "saved:add": async ({ productId }) => sb.insert("aliedge_saved", { product_id: productId }, true),
   "saved:remove": async ({ productId }) => sb.remove("aliedge_saved", `product_id=eq.${encodeURIComponent(productId)}`),

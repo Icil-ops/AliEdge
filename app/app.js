@@ -669,7 +669,7 @@ function viewCatalogue() {
   } else if (c.error) {
     body = `<div class="notice err">${esc(c.error)}</div>`;
   } else if (!c.rows.length) {
-    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Il ne montre que les produits déjà vendus sur Vinted. Chaque fiche consultée par les membres est suivie, et apparaît ici dès sa première vente constatée. Pour accélérer, ouvre une page de résultats AliExpress, Temu ou Shein et clique sur « Ajouter les produits de la page ouverte ».</p></div>`;
+    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Ici s'affichent les produits fournisseurs déjà vendus sur Vinted (les ventes sans fournisseur identifié sont listées plus bas). Chaque fiche consultée par les membres est suivie, et apparaît ici dès sa première vente constatée. Pour accélérer, ouvre une page de résultats AliExpress, Temu ou Shein et clique sur « Ajouter les produits de la page ouverte ».</p></div>`;
   } else {
     body = `<div class="cat-grid">${c.rows.map((r, i) => `
       <button type="button" class="pcard ${r.locked ? "locked" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms">
@@ -690,7 +690,41 @@ function viewCatalogue() {
       </button>`).join("")}</div>
       ${c.rows.length < c.total ? `<button id="more" class="btn block" type="button" ${c.loading ? "disabled" : ""}>Voir plus</button>` : ""}`;
   }
-  return head + `<div style="margin-top:12px">${body}</div>`;
+  return head + `<div style="margin-top:12px">${body}</div><section class="stack" id="salesfeed" style="margin-top:22px" aria-label="Ventes Vinted constatées"></section>`;
+}
+
+/** Toutes les ventes Vinted constatées, même quand le fournisseur n'est pas encore identifié. */
+async function loadSalesFeed(append = false) {
+  const box = document.getElementById("salesfeed");
+  if (!box || !state.me) return;
+  const sf = state.salesFeed || (state.salesFeed = { rows: [], total: 0, key: null, at: 0 });
+  const key = state.catalog.filters.search || "";
+  // Le catalogue se redessine souvent : on réutilise la liste chargée (2 min) tant que la recherche ne change pas.
+  if (append || sf.key !== key || Date.now() - sf.at > 120_000) {
+    let rows;
+    try { rows = await api("sales:feed", { search: key || null, offset: append ? sf.rows.length : 0 }); }
+    catch { box.innerHTML = ""; return; }
+    sf.rows = append ? [...sf.rows, ...rows] : rows;
+    sf.total = Number(rows[0]?.total_count ?? sf.rows.length);
+    sf.key = key; sf.at = Date.now();
+  }
+  if (!document.body.contains(box)) return;
+  if (!sf.rows.length) { box.innerHTML = ""; return; }
+  const line = (r) => `
+    <div class="sale-row">
+      <a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" style="grid-template-columns:56px 1fr auto">
+        ${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+        <div><div class="t">${esc(r.title || "Annonce Vinted")}</div><div class="m"><span class="badge-sold">Vendu</span> ${esc(ago(new Date(r.sold_at).getTime()))}${r.days_to_sell != null ? ` · parti en ${esc(String(r.days_to_sell).replace(".", ","))} j` : ""}${r.brand ? ` · ${esc(r.brand)}` : ""}</div></div>
+        <div class="p num">${eur(Number(r.price))}</div>
+      </a>${supplierHtml(r)}
+    </div>`;
+  box.innerHTML = `
+    <div class="row between wrap"><h2>Ventes Vinted constatées</h2><span class="small muted">${sf.total} vente${sf.total > 1 ? "s" : ""}</span></div>
+    <p class="small muted" style="margin:0">Chaque annonce vue vendue par la communauté, même quand le fournisseur n'est pas encore identifié. Trouve-le et relie-le : il rejoint le catalogue pour tout le monde.</p>
+    <div class="items">${sf.rows.map(line).join("")}</div>
+    ${sf.rows.length < sf.total ? `<button id="salesmore" class="btn block" type="button">Voir plus de ventes</button>` : ""}`;
+  bindSupplierForms(box);
+  document.getElementById("salesmore")?.addEventListener("click", () => loadSalesFeed(true));
 }
 
 async function loadPicks() {
@@ -749,6 +783,7 @@ async function loadTrends() {
 let searchTimer = null;
 function bindCatalogue() {
   loadPicks();
+  loadSalesFeed();
   document.getElementById("trends")?.addEventListener("toggle", (e) => { if (e.target.open) loadTrends(); }, { once: true });
   const c = state.catalog;
   document.getElementById("csearch")?.addEventListener("input", (e) => {

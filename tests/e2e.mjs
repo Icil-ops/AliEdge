@@ -50,6 +50,7 @@ const rpc = {
   aliedge_seen_products: 1,
   aliedge_competitor_sales_since: [{ vinted_id: 9000, seller_id: 555, label: "vendeuse", title: "Sac bandoulière cuir noir", brand: null, price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", sold_at: new Date(Date.now() - 36e5).toISOString(), days_to_sell: 1.2, product_url: null, product_price: null }],
   aliedge_niche_stats: { sold: 7, active_known: 12, median_price: 20, median_days: 3.5, top_sellers: [{ seller_id: 8801, sold: 4, median_price: 21 }, { seller_id: 555, sold: 2, median_price: 19 }], recent: [{ title: "Sac cuir femme", price: 19, url: "https://www.vinted.fr/items/7002", photo_url: "https://images1.vinted.net/t/s2.jpeg", sold_at: new Date(Date.now() - 864e5).toISOString() }] },
+  aliedge_sales_feed: [{ vinted_id: 7101, title: "Tapis multicolore", brand: "Vintage", size: null, price: 32, photo_url: "https://images1.vinted.net/t/s9.jpeg", url: "https://www.vinted.fr/items/7101", sold_at: new Date(Date.now() - 864e5).toISOString(), days_to_sell: 14, product_title: null, product_url: null, product_price: null, product_platform: null, total_count: 1 }],
   aliedge_link_item: "00000000-0000-0000-0000-0000000000bb",
   aliedge_picks_feed: { member: true, picks: [{ id: "p1", kind: "video", title: "Analyse : le compte qui vend 40 sacs par semaine", note: "Regarde sa stratégie de prix.", url: "https://www.skool.com/vinteddrop/v1", image_url: null, created_at: new Date().toISOString(), locked: false }, { id: "p2", kind: "product", title: "Sac seau tressé", note: null, url: "https://fr.aliexpress.com/item/1005006.html", image_url: "https://ae01.alicdn.com/kf/apres-sac-bandouliere.jpg", created_at: new Date().toISOString(), locked: false }] },
   aliedge_skool_challenge: { installed: 37, goal: 50 },
@@ -286,6 +287,8 @@ await panel.keyboard.press("Escape");
 await page.goto(app("/catalogue"));
 await page.waitForFunction(() => document.querySelector("main")?.innerText.includes("Sac bandoulière cuir femme"), null, { timeout: 10000 }).catch(() => {});
 await page.screenshot({ path: `${shots}/6-catalogue.png`, fullPage: true });
+await page.waitForSelector("#salesfeed .sale-row", { timeout: 6000 }).catch(() => {});
+check("catalogue : ventes Vinted sans fournisseur affichées, avec recherche du fournisseur", (await page.locator("#salesfeed .sale-row").count()) === 1 && (await page.locator("#salesfeed details.supplier").count()) === 1);
 check("catalogue affiché", (await page.locator("main").innerText()).includes("Sac bandoulière cuir femme"));
 await page.waitForSelector(".pick", { timeout: 6000 }).catch(() => {});
 check("sélection VintedDrop et défi Skool", (await page.locator(".pick").count()) === 2 && /37 \/ 50/.test(await page.locator(".challenge").innerText().catch(() => "")));

@@ -1,6 +1,6 @@
 {
-  "version": "3.2.6",
-  "notes": "Onglet Concurrents : alerte dès qu'un concurrent vend (notification et téléphone), fournisseur de chaque vente (ou recherche Google Lens, AliExpress, Temu, Shein et lien à coller), analyse d'une niche avec les vendeurs à suivre, et diagnostic de ton compte Vinted avec une note sur 100. Plus : recherche Vinted fiable et « + Concurrent » au survol des annonces.",
+  "version": "3.2.7",
+  "notes": "Catalogue : toutes les ventes Vinted constatées s'affichent, même sans fournisseur identifié (recherche Google Lens, AliExpress, Temu, Shein et lien à relier). Concurrents : alerte à chaque vente, fournisseur de chaque vente, analyse de niche et diagnostic de ton compte Vinted.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-28",
   "minVersion": "3.0.0"
