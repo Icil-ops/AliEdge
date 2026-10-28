@@ -48,10 +48,56 @@
       if (tracked.has(`${market}:${sellerId}`)) { send({ type: "open:panel", route: "concurrents" }); return; }
       btn.textContent = "Ajout…";
       const r = await send({ type: "tracker:add", sellerId, market, label: name || null });
-      if (r?.ok) { tracked.add(`${market}:${sellerId}`); document.querySelectorAll(".aliedge-competitor").forEach((h) => h.__paint?.()); }
+      if (r?.ok) { tracked.add(`${market}:${sellerId}`); document.querySelectorAll(".aliedge-competitor, .aliedge-card-add").forEach((h) => h.__paint?.()); }
       else { btn.className = "err"; btn.textContent = r?.error || "Ouvre AliEdge et connecte-toi"; setTimeout(paint, 4000); }
     }, true);
     // Le bouton est souvent posé dans une carte cliquable : on ne laisse pas le clic l'ouvrir.
+    host.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); });
+    return host;
+  }
+
+  /** Bouton au survol d'une carte d'annonce : le vendeur n'est pas affiché sur la carte, on le lit sur l'annonce. */
+  function makeCardButton(itemId, card) {
+    const host = document.createElement("span");
+    host.className = "aliedge-card-add";
+    host.style.cssText = "position:absolute;left:8px;top:8px;z-index:5;opacity:0;transition:opacity .15s;pointer-events:none;";
+    const root = host.attachShadow({ mode: "closed" });
+    root.innerHTML = `<style>${CSS}:host{margin:0}button{padding:6px 10px 6px 8px;font-size:12px;box-shadow:0 4px 14px -4px rgba(0,0,0,.45)}</style><button type="button">${PLUS}Concurrent</button>`;
+    const btn = root.querySelector("button");
+    const show = (on) => { host.style.opacity = on ? "1" : "0"; host.style.pointerEvents = on ? "auto" : "none"; };
+    card.addEventListener("mouseenter", () => show(true));
+    card.addEventListener("mouseleave", () => { if (!btn.dataset.busy) show(false); });
+    card.addEventListener("focusin", () => show(true));
+    let sellerId = 0, sellerName = "";
+    const paint = () => {
+      const on = sellerId && tracked.has(`${market}:${sellerId}`);
+      btn.className = on ? "ok" : "";
+      btn.innerHTML = on ? `${CHECK}${sellerName ? sellerName.slice(0, 18) : "Concurrent"} suivi` : `${PLUS}Concurrent`;
+      btn.setAttribute("aria-label", on ? "Ce vendeur est suivi par AliEdge" : "Ajouter le vendeur de cette annonce aux concurrents AliEdge");
+    };
+    host.__paint = paint;
+    paint();
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (sellerId && tracked.has(`${market}:${sellerId}`)) { send({ type: "open:panel", route: "concurrents" }); return; }
+      btn.dataset.busy = "1"; btn.textContent = "Ajout…";
+      try {
+        if (!sellerId) {
+          const res = await fetch(`${location.origin}/api/v2/items/${itemId}/details`, { credentials: "include", headers: { Accept: "application/json" } });
+          const it = res.ok ? (await res.json())?.item : null;
+          sellerId = Number(it?.user?.id ?? it?.user_id) || 0;
+          sellerName = String(it?.user?.login || "").slice(0, 80);
+        }
+        if (!sellerId) throw new Error("Vendeur introuvable sur cette annonce");
+        const r = await send({ type: "tracker:add", sellerId, market, label: sellerName || null });
+        if (!r?.ok) throw new Error(r?.error || "Ouvre AliEdge et connecte-toi");
+        tracked.add(`${market}:${sellerId}`);
+        document.querySelectorAll(".aliedge-competitor, .aliedge-card-add").forEach((h) => h.__paint?.());
+      } catch (err) {
+        btn.className = "err"; btn.textContent = String(err.message || err).slice(0, 40);
+        setTimeout(paint, 3500);
+      } finally { delete btn.dataset.busy; }
+    }, true);
     host.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); });
     return host;
   }
@@ -69,6 +115,18 @@
       const name = (a.textContent || "").replace(/\s+/g, " ").trim();
       if (!name || name.length > 40) continue;
       a.insertAdjacentElement("afterend", makeButton(sellerId, name));
+    }
+    // Cartes d'annonces (recherche, catalogue, fil) : bouton au survol, le vendeur est lu sur l'annonce au clic.
+    for (const a of document.querySelectorAll('a[href*="/items/"]:not([data-aliedge-card])')) {
+      a.dataset.aliedgeCard = "1";
+      const itemId = Number((a.getAttribute("href") || "").match(/\/items\/(\d+)/)?.[1]);
+      if (!itemId || !a.querySelector("img")) continue;
+      if (a.closest("header, nav, footer, [role=menu], [role=dialog]")) continue;
+      if (/^\/items\//.test(location.pathname) && a.closest("main") && Number(location.pathname.match(/\/items\/(\d+)/)?.[1]) === itemId) continue;
+      const card = a.closest('[data-testid*="grid-item"], [data-testid*="item-box"], [class*="feed-grid__item"], [class*="ItemBox"]') || a.parentElement;
+      if (!card || card.querySelector(":scope > .aliedge-card-add")) continue;
+      if (getComputedStyle(card).position === "static") card.style.position = "relative";
+      card.appendChild(makeCardButton(itemId, card));
     }
     // Page d'un vendeur : à côté de son pseudo.
     const own = Number(location.pathname.match(/^\/member\/(\d+)/)?.[1]);
@@ -91,6 +149,6 @@
   setInterval(() => {
     if (location.pathname === last) return;
     last = location.pathname;
-    refreshTracked().then(() => { document.querySelectorAll(".aliedge-competitor").forEach((h) => h.__paint?.()); schedule(); });
+    refreshTracked().then(() => { document.querySelectorAll(".aliedge-competitor, .aliedge-card-add").forEach((h) => h.__paint?.()); schedule(); });
   }, 1000);
 })();

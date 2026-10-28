@@ -16,7 +16,7 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 const titles = ["Sac bandoulière cuir noir", "Petit sac à main cuir femme", "Sac bandoulière simili cuir", "Sac cuir femme neuf", "Sac à main bandoulière noir", "Sac bandoulière cuir camel", "Sac cuir bandoulière beige", "Pochette bandoulière cuir", "Sac main cuir PU noir", "Robe longue satin"];
 const prices = [22, 18, 19.5, 25, 20, 21, 17, 15, 23, 30];
-const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { amount: String(prices[i]), currency_code: "EUR" }, brand_title: i % 3 ? "Sans marque" : "Zara", size_title: "Taille unique", status: "Neuf avec étiquette", favourite_count: 4 + i, photo: { url: `https://images1.vinted.net/t/${i}.jpeg` }, url: `https://www.vinted.fr/items/${9000 + i}-sac` }));
+const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { amount: String(prices[i]), currency_code: "EUR" }, brand_title: i % 3 ? "Sans marque" : "Zara", size_title: "Taille unique", status: "Neuf avec étiquette", favourite_count: 4 + i, photo: { url: `https://images1.vinted.net/t/${i}.jpeg` }, url: `https://www.vinted.fr/items/${9000 + i}-sac`, user: { id: 8800 + i, login: `vendeuse${i}` } }));
 
 const calls = [];
 const startedAt = Date.now();
@@ -97,6 +97,7 @@ await ctx.route("**/*", async (route) => {
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
+    if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
   if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/w/wholesale")) {
@@ -357,6 +358,24 @@ await v.waitForTimeout(1500);
 check("bouton « Trouver le fournisseur » sur Vinted", (await v.locator("#aliedge-source").count()) === 1);
 check("vente signalée au catalogue", calls.filter((c) => c.endsWith("aliedge_report_items")).length >= 1);
 await v.screenshot({ path: `${shots}/9-vinted.png` });
+
+// 5b. Résultats de recherche : « + Concurrent » au survol d'une carte d'annonce
+{
+  const cat = await ctx.newPage();
+  await cat.goto("https://www.vinted.fr/catalog?search_text=tapis");
+  await cat.waitForSelector(".aliedge-card-add", { timeout: 6000, state: "attached" }).catch(() => {});
+  check("bouton « + Concurrent » sur les cartes d'annonces", (await cat.locator(".aliedge-card-add").count()) === 2);
+  const card = cat.locator('[data-testid="grid-item"]').first();
+  await card.hover().catch(() => {});
+  await cat.waitForTimeout(300);
+  const before = calls.filter((c) => c.endsWith("aliedge_tracker_add")).length;
+  const box = await cat.locator(".aliedge-card-add").first().boundingBox().catch(() => null);
+  if (box) await cat.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await cat.waitForTimeout(2500);
+  check("survol d'une annonce : vendeur ajouté aux concurrents sans ouvrir l'annonce", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > before && cat.url().includes("/catalog"));
+  await cat.screenshot({ path: `${shots}/9b-catalogue-vinted.png` });
+  await cat.close();
+}
 
 // 6. Profil d'un vendeur : son dressing met à jour le catalogue
 const mbr = await ctx.newPage();
