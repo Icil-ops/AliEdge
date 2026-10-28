@@ -39,6 +39,8 @@ const rpc = {
   aliedge_remote_config: { message: "Maintenance Vinted ce soir : le Radar ralentit un peu.", radar_seconds: "45", budget_per_hour: "500" },
   aliedge_report_health: null,
   aliedge_report_error: null,
+  aliedge_seed_pending: [{ login: "vendeuse0", market: "fr" }],
+  aliedge_seed_resolve: "added",
   aliedge_competitor_recap: { since: new Date(Date.now() - 2 * 864e5).toISOString(), active: 3, active_value: 57, sold_total: 3, sold_seen: 2, sold_before: 1, revenue_seen: 41, median_price_sold: 20, median_price_active: 18, median_days: 2.5, sold_under_7d: 2, new_listings_7d: 4, per_week: [{ week: "2026-10-12", sold: 1, revenue: 20 }, { week: "2026-10-19", sold: 2, revenue: 41 }], brands: [{ name: "Sans marque", sold: 2, median_price: 20, median_days: 2.5 }], price_bands: [{ band: "10 à 20 €", sold: 1, active: 2 }, { band: "20 à 35 €", sold: 1, active: 1 }], fastest: [{ title: "Sac bandoulière cuir noir", price: 21, days: 1.2, url: "https://www.vinted.fr/items/9000-sac", photo_url: "https://images1.vinted.net/t/0.jpeg" }] },
   aliedge_tracker_items: [
     { vinted_id: 9000, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", status: "sold", first_seen_at: new Date(Date.now() - 2 * 864e5).toISOString(), sold_at: new Date(Date.now() - 36e5).toISOString(), favourites: 4, days_to_sell: 1.2, sold_before: false },
@@ -96,6 +98,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/api/v2/catalog/items") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ status: 401, json: { code: 100, message: "invalid_authentication_token" } });
     if (url.pathname.startsWith("/catalog") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><main>${catalogItems.slice(0, 6).map((it) => `<div data-testid="grid-item"><a href="/items/${it.id}-x" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €, 9,99 € incl."></a><img src="${it.photo.url}"></div>`).join("")}</main>` });
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
+    if (url.pathname === "/api/v2/users") return route.fulfill({ json: { users: [{ id: 8800, login: "vendeuse0" }, { id: 9911, login: "vendeuse01" }] } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
@@ -366,6 +369,18 @@ await v.waitForTimeout(1500);
 check("bouton « Trouver le fournisseur » sur Vinted", (await v.locator("#aliedge-source").count()) === 1);
 check("vente signalée au catalogue", calls.filter((c) => c.endsWith("aliedge_report_items")).length >= 1);
 await v.screenshot({ path: `${shots}/9-vinted.png` });
+
+// 5a0. Compte admin : les pseudos de concurrents de référence sont retrouvés et suivis
+rpc.aliedge_me.admin = true;
+await page.evaluate(() => chrome.storage.local.remove("ae_guard")); // repart d'un garde-fou vierge (4 lectures par minute en tâche de fond)
+{
+  const seedBefore = calls.filter((c) => c.endsWith("aliedge_seed_resolve")).length;
+  await page.evaluate(() => chrome.alarms.create("remote", { when: Date.now() + 50 }));
+  await page.waitForTimeout(14000);
+  const g = await page.evaluate(() => chrome.runtime.sendMessage({ type: "guard:status" })).catch(() => null);
+  check("admin : concurrents de référence retrouvés par leur pseudo et suivis", calls.filter((c) => c.endsWith("aliedge_seed_resolve")).length > seedBefore, `pending=${calls.filter((c) => c.endsWith("aliedge_seed_pending")).length} guard=${JSON.stringify(g?.data)}`);
+}
+rpc.aliedge_me.admin = false;
 
 // 5a. Recherche Vinted de secours : l'API refuse (session expirée), AliEdge lit la page de résultats
 {

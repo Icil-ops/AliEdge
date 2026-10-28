@@ -56,6 +56,24 @@ async function refreshRemote() {
   await chrome.storage.local.set({ ae_remote: remote });
   await syncRadarAlarm();
 }
+/** Compte admin : retrouve les pseudos de concurrents de référence et les suit (amorçage de la base commune). */
+async function resolveSeeds() {
+  const m = await me(true).catch(() => null);
+  if (!m?.admin) return;
+  const rows = await sb.rpc("aliedge_seed_pending", { _limit: 30 }).catch(() => []);
+  // Tant qu'il reste des pseudos, on repasse toutes les 10 min (le garde-fou limite le rythme).
+  if ((rows || []).length) chrome.alarms.create("seeds", { periodInMinutes: 10 });
+  else chrome.alarms.clear("seeds");
+  for (const { login, market } of rows || []) {
+    let seller = null;
+    try { seller = await vinted.findSeller(login, market); }
+    catch (e) { if (STOP_CODES.has(e.code)) return; }
+    await sb.rpc("aliedge_seed_resolve", { _login: login, _seller_id: seller?.id ?? null }).catch(() => {});
+    competitorIds = null;
+    await new Promise((r) => setTimeout(r, 4000 + Math.random() * 4000));
+  }
+}
+
 async function reportHealth() {
   if (!(await sb.getSession())) return;
   const g = await vinted.guardStatus();
@@ -681,10 +699,11 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
 }
 
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "remote") { refreshRemote().then(() => reportHealth()).catch(() => {}); }
+  if (a.name === "remote") { refreshRemote().then(() => reportHealth()).then(() => vinted.inBackground(resolveSeeds)).catch(() => {}); }
   if (a.name === "community") { flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
+  if (a.name === "seeds") vinted.inBackground(resolveSeeds).catch(() => {});
   if (a.name === "watch") refreshWatches();
 });
 

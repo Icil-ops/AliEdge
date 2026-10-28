@@ -405,6 +405,26 @@ export async function sellerItems(sellerId, market = "fr", { pages = 1 } = {}) {
   return out;
 }
 
+/** Retrouve un vendeur à partir de son pseudo (recherche de membres Vinted), sinon null. */
+export async function findSeller(login, market = "fr") {
+  const want = String(login || "").trim().toLowerCase();
+  if (!/^[a-z0-9._-]{2,40}$/.test(want)) return null;
+  try {
+    const res = await vFetch(`https://${host(market)}/api/v2/users?search_text=${encodeURIComponent(want)}&page=1&per_page=20`, "json", market);
+    const users = Array.isArray(res?.body?.users) ? res.body.users : [];
+    const hit = users.find((u) => String(u.login || "").toLowerCase() === want);
+    if (hit?.id) return { id: Number(hit.id), login: hit.login };
+  } catch (e) { if (["paused", "budget", "rate_limited"].includes(e.code)) throw e; }
+  // Secours : page de recherche de membres (liens /member/<id>-<pseudo>).
+  try {
+    const out = await bridgeFetch(`https://${host(market)}/member/general/search?search_text=${encodeURIComponent(want)}`, "html", market);
+    const re = new RegExp(`/member/(\\d+)-${want.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=["/?#])`, "i");
+    const m = String(out?.body || "").match(re);
+    if (m) return { id: Number(m[1]), login: want };
+  } catch (e) { if (["paused", "budget", "rate_limited"].includes(e.code)) throw e; }
+  return null;
+}
+
 export async function itemStatus(vintedId, market = "fr") {
   const res = await vFetch(`https://${host(market)}/items/${vintedId}`, "html", market);
   if (res.status === 404) return "closed";
