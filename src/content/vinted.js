@@ -84,13 +84,26 @@
     document.documentElement.appendChild(host);
   }
 
-  function run() {
+  // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.
+  // Une seule lecture des détails publics, comme la page elle-même (même origine, mêmes cookies).
+  async function details(id) {
+    try {
+      const res = await fetch(`${location.origin}/api/v2/items/${id}/details`, { credentials: "include", headers: { Accept: "application/json" } });
+      if (!res.ok) return null;
+      const body = await res.json();
+      return body && body.item && body.item.id ? body.item : null;
+    } catch { return null; }
+  }
+
+  async function run() {
     const item = readItem();
     if (!item) return;
     mount(item);
-    if (item.status) {
-      try { chrome.runtime.sendMessage({ type: "vinted:item", item }); } catch { /* extension rechargée */ }
-    }
+    const raw = await details(item.vinted_id);
+    try {
+      if (raw) chrome.runtime.sendMessage({ type: "vinted:item", item, raw });
+      else if (item.status || item.price != null) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, status: item.status || "active" } });
+    } catch { /* extension rechargée */ }
   }
 
   setTimeout(run, 1200);

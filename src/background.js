@@ -702,9 +702,17 @@ async function reportMember({ sellerId, market, items }) {
 
 // Annonces vues sur Vinted (statut lu sur la page de l'annonce).
 const reported = new Map();
-async function reportVintedItem(item) {
+async function reportVintedItem(item, raw = null) {
   const settings = await getSettings();
-  if (!settings.shareAnalyses || !item?.vinted_id || !item.status) return;
+  if (!settings.shareAnalyses || !item?.vinted_id) return;
+  if (raw && Number(raw.id) === Number(item.vinted_id)) {
+    // Détails complets lus sur la page : vendeur, marque, taille, favoris, date de mise en ligne.
+    const n = vinted.normaliseItem(raw, item.market);
+    item = { ...n, url: item.url || n.url, status: vinted.statusFromJson(raw), visited: true };
+  } else {
+    if (!item.status) return;
+    item = { ...item, visited: true };
+  }
   const last = reported.get(item.vinted_id);
   if (last && Date.now() - last < 6 * 3600_000) return;
   if (!(await sb.getSession())) return;
@@ -902,7 +910,7 @@ const handlers = {
   "saved:list": async () => sb.select("aliedge_saved", "select=product_id,note,created_at&order=created_at.desc"),
   "saved:add": async ({ productId }) => sb.insert("aliedge_saved", { product_id: productId }, true),
   "saved:remove": async ({ productId }) => sb.remove("aliedge_saved", `product_id=eq.${encodeURIComponent(productId)}`),
-  "vinted:item": async ({ item }) => { await reportVintedItem(item); return {}; },
+  "vinted:item": async ({ item, raw }) => { await reportVintedItem(item, raw); return {}; },
   "vinted:member": async (msg) => reportMember(msg),
   "tracker:add": async (msg) => addTracker(msg),
   "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
