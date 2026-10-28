@@ -389,6 +389,13 @@ const chip = await mbr.locator("a[href*='777'] + .aliedge-competitor").boundingB
 if (chip) await mbr.mouse.click(chip.x + chip.width / 2, chip.y + chip.height / 2);
 await mbr.waitForTimeout(2500);
 check("clic sur « + Concurrent » : vendeur ajouté sans quitter Vinted", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > addsBefore2 && mbr.url().includes("555"));
+{
+  const rmBefore = calls.filter((c) => c.endsWith("aliedge_tracker_remove")).length;
+  const own = await mbr.locator("h1 .aliedge-competitor").boundingBox().catch(() => null);
+  if (own) await mbr.mouse.click(own.x + own.width / 2, own.y + own.height / 2);
+  await mbr.waitForTimeout(2000);
+  check("second clic sur « Concurrent suivi » : le suivi s'arrête", calls.filter((c) => c.endsWith("aliedge_tracker_remove")).length > rmBefore);
+}
 await mbr.screenshot({ path: `${shots}/10-profil.png` });
 await mbr.waitForTimeout(Math.max(0, 25_000 - (Date.now() - startedAt)));
 check("fiche fournisseur consultée enregistrée au catalogue", calls.some((c) => c.endsWith("aliedge_seen_products")));

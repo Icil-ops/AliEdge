@@ -929,6 +929,14 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
   "competitor:ids": async () => getCompetitorIds(),
+  // Second clic sur « Concurrent suivi » (sur Vinted) : le suivi s'arrête.
+  "competitor:remove": async ({ sellerId, market }) => {
+    const rows = await sb.rpc("aliedge_trackers");
+    const t = (rows || []).find((x) => Number(x.seller_id) === Number(sellerId) && x.market === (MARKETS[market] ? market : "fr") && new Date(x.expires_at).getTime() > Date.now());
+    if (t) await sb.rpc("aliedge_tracker_remove", { _id: t.id });
+    competitorIds = null;
+    return { removed: !!t };
+  },
   "product:changed": async (_msg, sender) => { if (sender.tab?.active) broadcast({ type: "tab:changed" }); return {}; },
   // Bouton Barapics des fiches produit : ouvre Barapics avec le lien du produit, à côté de l'onglet en cours.
   "open:barapics": async ({ url }, sender) => {
@@ -979,7 +987,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids", "open:barapics", "product:changed"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

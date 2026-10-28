@@ -24,7 +24,21 @@
     button:hover{background:#5a2be6} button:focus-visible{outline:2px solid #8f6bff;outline-offset:2px}
     button.ok{background:#0fa968;box-shadow:none;cursor:default}
     button.err{background:#b4233a}
+    button.ok.off{background:#5b5670;cursor:pointer}
     svg{flex:none}`;
+  /** Retire un concurrent suivi (second clic sur « Concurrent suivi »). */
+  async function untrack(sellerId, btn) {
+    btn.textContent = "Retrait…";
+    const r = await send({ type: "competitor:remove", sellerId, market });
+    if (r?.ok) { tracked.delete(`${market}:${sellerId}`); document.querySelectorAll(".aliedge-competitor, .aliedge-card-add").forEach((h) => h.__paint?.()); return true; }
+    btn.className = "err"; btn.textContent = r?.error || "Retrait impossible";
+    return false;
+  }
+  // Survol d'un bouton « suivi » : il annonce qu'un clic retire le concurrent.
+  function hoverHint(btn, isOn) {
+    btn.addEventListener("mouseenter", () => { if (isOn()) { btn.classList.add("off"); btn.lastChild.textContent = "Ne plus suivre"; } });
+    btn.addEventListener("mouseleave", () => { if (btn.classList.contains("off")) { btn.classList.remove("off"); btn.dispatchEvent(new CustomEvent("repaint")); } });
+  }
   const PLUS = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
   const CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
 
@@ -38,14 +52,16 @@
       const on = tracked.has(`${market}:${sellerId}`);
       btn.className = on ? "ok" : "";
       btn.innerHTML = on ? `${CHECK}Concurrent suivi` : `${PLUS}Concurrent`;
-      btn.title = on ? "Suivi par AliEdge : ouvre l'onglet Concurrents pour le récap" : "Ajouter aux concurrents suivis par AliEdge";
-      btn.setAttribute("aria-label", on ? `${name || "Ce vendeur"} est suivi par AliEdge` : `Ajouter ${name || "ce vendeur"} aux concurrents AliEdge`);
+      btn.title = on ? "Cliquer pour ne plus suivre ce vendeur" : "Ajouter aux concurrents suivis par AliEdge";
+      btn.setAttribute("aria-label", on ? `${name || "Ce vendeur"} est suivi par AliEdge : cliquer pour ne plus le suivre` : `Ajouter ${name || "ce vendeur"} aux concurrents AliEdge`);
     };
     host.__paint = paint;
     paint();
+    hoverHint(btn, () => tracked.has(`${market}:${sellerId}`));
+    btn.addEventListener("repaint", paint);
     btn.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      if (tracked.has(`${market}:${sellerId}`)) { send({ type: "open:panel", route: "concurrents" }); return; }
+      if (tracked.has(`${market}:${sellerId}`)) { await untrack(sellerId, btn); return; }
       btn.textContent = "Ajout…";
       const r = await send({ type: "tracker:add", sellerId, market, label: name || null });
       if (r?.ok) { tracked.add(`${market}:${sellerId}`); document.querySelectorAll(".aliedge-competitor, .aliedge-card-add").forEach((h) => h.__paint?.()); }
@@ -77,9 +93,11 @@
     };
     host.__paint = paint;
     paint();
+    hoverHint(btn, () => !!sellerId && tracked.has(`${market}:${sellerId}`));
+    btn.addEventListener("repaint", paint);
     btn.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      if (sellerId && tracked.has(`${market}:${sellerId}`)) { send({ type: "open:panel", route: "concurrents" }); return; }
+      if (sellerId && tracked.has(`${market}:${sellerId}`)) { await untrack(sellerId, btn); return; }
       btn.dataset.busy = "1"; btn.textContent = "Ajout…";
       try {
         if (!sellerId) {
