@@ -272,6 +272,13 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
   meCache.at = 0;
 
   const first = await vinted.searchText(query, { market, condition });
+  if (!first.items.length && vinted.lastSearchIssue && Date.now() - vinted.lastSearchIssue.at < 30_000) {
+    noteError("search", `vide status=${vinted.lastSearchIssue.status} keys=${vinted.lastSearchIssue.keys}`);
+    flushErrors().catch(() => {});
+    if (vinted.lastSearchIssue.status === 401 || vinted.lastSearchIssue.status === 403) {
+      throw new sb.ApiError("Vinted n'accepte pas la recherche pour l'instant : ouvre vinted.fr dans un onglet (connecté à ton compte), puis relance l'analyse.", 503, "vinted_auth");
+    }
+  }
   const total = first.total;
   let found = first.items;
   // Recherche par image : les vendeurs Vinted titrent rarement comme le fournisseur.
@@ -677,6 +684,7 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "remote") { refreshRemote().then(() => reportHealth()).catch(() => {}); }
   if (a.name === "community") { flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
+  if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
   if (a.name === "watch") refreshWatches();
 });
 
@@ -760,7 +768,9 @@ function readProductCards() {
 
 async function importPage() {
   if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi pour ajouter des produits au catalogue.", 401, "auth");
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  // Onglet de la page fournisseur : l'onglet actif de la fenêtre (le panneau latéral n'est pas un onglet).
+  let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab || /^chrome-extension:/.test(tab.url || "")) [tab] = await chrome.tabs.query({ active: true, url: ["https://*.aliexpress.com/*", "https://*.aliexpress.fr/*", "https://*.aliexpress.us/*", "https://*.temu.com/*", "https://*.shein.com/*", "https://*.shein.fr/*"] });
   let host = "";
   try { host = new URL(tab?.url || "").hostname; } catch { /* onglet sans adresse */ }
   if (!tab?.id || !/(^|\.)(aliexpress\.[a-z.]+|temu\.com|shein\.[a-z.]+)$/.test(host)) throw new sb.ApiError("Ouvre une page de résultats AliExpress, Temu ou Shein (recherche, catégorie ou meilleures ventes), puis réessaie.", 400, "page");
@@ -771,7 +781,44 @@ async function importPage() {
   for (let i = 0; i < cards.length; i += 20) {
     added += Number(await sb.rpc("aliedge_seen_products", { _products: cards.slice(i, i + 20) }).catch(() => 0)) || 0;
   }
-  return { found: cards.length, added };
+  // Recherche Vinted de chaque produit ajouté, 2 par minute (garde-fou du compte) : il apparaît au catalogue dès ses annonces trouvées.
+  const { ae_import_queue: q = [] } = await chrome.storage.local.get("ae_import_queue");
+  const keys = new Set(q.map((x) => `${x.platform}:${x.source_id}`));
+  const next = [...q, ...cards.filter((c) => !keys.has(`${c.platform}:${c.source_id}`))].slice(0, 200);
+  await chrome.storage.local.set({ ae_import_queue: next, ae_import_total: next.length });
+  chrome.alarms.create("importq", { periodInMinutes: 1, delayInMinutes: 0.05 });
+  return { found: cards.length, added, queued: next.length };
+}
+
+let importRunning = false;
+async function importQueueTick() {
+  if (importRunning) return;
+  importRunning = true;
+  try {
+    const { ae_import_queue: q = [] } = await chrome.storage.local.get("ae_import_queue");
+    if (!q.length || !(await sb.getSession())) { chrome.alarms.clear("importq"); return; }
+    const market = (await getSettings()).market || "fr";
+    const batch = q.slice(0, 2);
+    let done = 0;
+    for (const c of batch) {
+      try {
+        const { items } = await vinted.searchText(buildQuery(c.title), { market });
+        const good = items.filter((i) => i.relevance >= 0.5).sort((a, b) => b.relevance - a.relevance).slice(0, 40);
+        await sb.rpc("aliedge_contribute", {
+          _product: { platform: c.platform, source_id: c.source_id, url: c.url, title: c.title, image_url: c.image_url, price: c.price, currency: "EUR", category: c.category },
+          _items: good.map((i) => ({ vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition, price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active" })),
+        });
+        done++;
+      } catch (e) {
+        if (STOP_CODES.has(e.code)) break; // pause ou budget : on reprend à la minute suivante
+        done++; // produit illisible : on passe au suivant
+      }
+    }
+    const left = q.slice(done);
+    await chrome.storage.local.set({ ae_import_queue: left });
+    if (!left.length) { chrome.alarms.clear("importq"); await chrome.storage.local.remove("ae_import_total"); }
+    broadcast({ type: "import:progress" });
+  } finally { importRunning = false; }
 }
 
 // ───────────────────────── Catalogue : ajout d'annonces Vinted par leur lien (données réelles)
@@ -951,6 +998,7 @@ const handlers = {
   "tracker:remove": async ({ id }) => { competitorIds = null; return sb.rpc("aliedge_tracker_remove", { _id: id }); },
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),
   "catalog:importPage": async () => importPage(),
+  "catalog:importStatus": async () => { const r = await chrome.storage.local.get(["ae_import_queue", "ae_import_total"]); return { left: (r.ae_import_queue || []).length, total: r.ae_import_total || 0 }; },
   "catalog:importVinted": async ({ links }) => importVintedLinks(links),
   "barapics": async ({ body }) => barapics(body),
   "alerts:get": async () => { const r = await barapics({ action: "alerts:get" }); await chrome.storage.local.set({ ae_alerts: r }); return r; },

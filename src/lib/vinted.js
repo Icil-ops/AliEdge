@@ -60,7 +60,8 @@ async function beforeRequest() {
 }
 async function afterResponse(status, suspicious = false) {
   const g = await guardState();
-  if (status === 401 || status === 403 || status === 429 || suspicious) {
+  // 401 = session Vinted expirée (pas un signal de blocage) : on ne met pas le compte en pause pour ça.
+  if (status === 403 || status === 429 || suspicious) {
     const min = COOLDOWNS[Math.min(g.strikes, COOLDOWNS.length - 1)];
     g.pauseUntil = Date.now() + min * 60e3 * (0.9 + Math.random() * 0.2);
     g.strikes += 1; g.okStreak = 0;
@@ -148,25 +149,39 @@ function scheduleBridgeClose() {
   }, BRIDGE_IDLE_MS);
 }
 
+/** Requête lancée depuis un onglet Vinted (même origine, session de la page). Injectée telle quelle. */
+async function pageFetch(u, k) {
+  try {
+    const r = await fetch(u, { credentials: "include", headers: { Accept: k === "json" ? "application/json, text/plain, */*" : "text/html" } });
+    if (r.status === 404) return { status: 404, body: null };
+    if (!r.ok) return { status: r.status, error: true };
+    return { status: r.status, body: k === "json" ? await r.json() : await r.text() };
+  } catch (e) {
+    return { status: 0, error: String(e && e.message || e) };
+  }
+}
+
 async function bridgeFetch(url, kind, market) {
   const tabId = await getBridgeTab(market);
   const [res] = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
     args: [url, kind],
-    func: async (u, k) => {
-      try {
-        const r = await fetch(u, { credentials: "include", headers: { Accept: k === "json" ? "application/json, text/plain, */*" : "text/html" } });
-        if (r.status === 404) return { status: 404, body: null };
-        if (!r.ok) return { status: r.status, error: true };
-        return { status: r.status, body: k === "json" ? await r.json() : await r.text() };
-      } catch (e) {
-        return { status: 0, error: String(e && e.message || e) };
-      }
-    },
+    func: pageFetch,
   });
   scheduleBridgeClose();
-  const out = res?.result;
+  let out = res?.result;
+  if (out?.error && out.status === 401 && !bridgeFetch.reloaded) {
+    // Session Vinted expirée dans l'onglet : on le recharge (Vinted renouvelle sa session) puis on réessaie une fois.
+    bridgeFetch.reloaded = true;
+    try {
+      await chrome.tabs.reload(tabId);
+      await waitComplete(tabId);
+      await new Promise((r) => setTimeout(r, 1500));
+      const [again] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", args: [url, kind], func: pageFetch });
+      out = again?.result;
+    } finally { setTimeout(() => { bridgeFetch.reloaded = false; }, 60_000); }
+  }
   if (!out) throw new VintedError("Vinted n'a pas répondu.", "bridge_empty");
   await afterResponse(out.status || 0);
   if (out.error) {
@@ -233,12 +248,65 @@ export async function searchText(query, { market = "fr", condition = "all", perP
   url.searchParams.set("page", "1");
   url.searchParams.set("order", "relevance");
   (CONDITION_IDS[condition] || []).forEach((id) => url.searchParams.append("status_ids[]", String(id)));
-  const res = await vFetch(url.toString(), "json", market);
-  const raw = Array.isArray(res.body?.items) ? res.body.items : [];
-  const items = raw.map((it) => normaliseItem(it, market)).filter((i) => i.vinted_id && i.price != null);
-  const total = res.body?.pagination?.total_entries ?? items.length;
+  let res = null;
+  try { res = await vFetch(url.toString(), "json", market); }
+  catch (e) { if (["paused", "budget", "rate_limited"].includes(e.code)) throw e; }
+  const raw = Array.isArray(res?.body?.items) ? res.body.items : [];
+  let items = raw.map((it) => normaliseItem(it, market)).filter((i) => i.vinted_id && i.price != null);
+  let total = res?.body?.pagination?.total_entries ?? items.length;
+  if (!items.length) {
+    // L'API ne répond pas (session Vinted expirée…) : on lit la page de recherche Vinted elle-même.
+    const page = await searchFromPage(q, market).catch(() => []);
+    if (page.length) { items = page; total = page.length; }
+    else lastSearchIssue = { at: Date.now(), status: res?.status ?? 0, keys: res?.body && typeof res.body === "object" ? Object.keys(res.body).slice(0, 6).join(",") : "" };
+  }
   for (const i of items) i.relevance = relevance(q, i.title);
   return { items, total };
+}
+
+/** Dernier problème de recherche (pour le diagnostic remonté à l'admin). */
+export let lastSearchIssue = null;
+
+/**
+ * Secours : page de résultats Vinted lue dans un onglet Vinted. Chaque carte d'annonce porte dans son attribut
+ * « title » le titre, la marque, l'état, la taille et le prix (« Sac cuir, marque: Zara, état: Très bon état, 15,00 € »).
+ */
+async function searchFromPage(q, market) {
+  const tabId = await getBridgeTab(market);
+  const pageUrl = `https://${host(market)}/catalog?search_text=${encodeURIComponent(q)}&order=relevance`;
+  const [res] = await chrome.scripting.executeScript({
+    target: { tabId }, world: "MAIN", args: [pageUrl],
+    func: async (u) => {
+      try {
+        const r = await fetch(u, { credentials: "include", headers: { Accept: "text/html" } });
+        if (!r.ok) return [];
+        const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+        const out = [];
+        const seen = new Set();
+        for (const a of doc.querySelectorAll('a[href*="/items/"]')) {
+          const id = Number((a.getAttribute("href") || "").match(/\/items\/(\d+)/)?.[1]);
+          if (!id || seen.has(id)) continue;
+          const t = a.getAttribute("title") || a.getAttribute("aria-label") || "";
+          if (!t) continue;
+          seen.add(id);
+          const parts = t.split(/,\s+/);
+          const field = (re) => (parts.find((x) => re.test(x)) || "").replace(re, "").trim() || null;
+          const prices = (t.match(/\d{1,5}(?:[.,]\d{2})?\s?€/g) || []).map((x) => parseFloat(x.replace(/[^\d,.]/g, "").replace(",", ".")));
+          const card = a.closest('[data-testid*="grid-item"], [class*="feed-grid__item"]') || a.parentElement;
+          const img = card?.querySelector("img");
+          out.push({
+            id, title: parts[0] || t, brand_title: field(/^(marque|brand|marke|marca|merk)\s*:\s*/i), status: field(/^(état|condition|zustand|estado|stato|staat)\s*:\s*/i),
+            size_title: field(/^(taille|size|größe|talla|taglia|maat)\s*:\s*/i), price: prices[0] ?? null,
+            photo: img ? { url: img.getAttribute("src") || img.getAttribute("data-src") } : null, url: new URL(a.getAttribute("href"), u).href.split("?")[0],
+          });
+          if (out.length >= 96) break;
+        }
+        return out;
+      } catch { return []; }
+    },
+  });
+  scheduleBridgeClose();
+  return (res?.result || []).map((it) => normaliseItem(it, market)).filter((i) => i.vinted_id && i.price != null);
 }
 
 /** Nouvelles annonces pour le Radar : les plus récentes d'abord, avec fourchette de prix. */

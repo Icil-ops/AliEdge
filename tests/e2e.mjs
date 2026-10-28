@@ -93,6 +93,8 @@ await ctx.route("**/*", async (route) => {
     }
     const det = url.pathname.match(/^\/api\/v2\/items\/(\d+)(\/details)?$/);
     if (det) { const it = catalogItems.find((x) => String(x.id) === det[1]) || catalogItems[0]; return route.fulfill({ json: { item: { ...it, is_closed: det[1] === "9000", item_closing_action: det[1] === "9000" ? "sold" : null } } }); }
+    if (url.pathname.startsWith("/api/v2/catalog/items") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ status: 401, json: { code: 100, message: "invalid_authentication_token" } });
+    if (url.pathname.startsWith("/catalog") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><main>${catalogItems.slice(0, 6).map((it) => `<div data-testid="grid-item"><a href="/items/${it.id}-x" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €, 9,99 € incl."></a><img src="${it.photo.url}"></div>`).join("")}</main>` });
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
@@ -297,6 +299,12 @@ await listing.bringToFront();
 const before = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
 const imported = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importPage" }));
 check("catalogue : produits d'une page de résultats ajoutés", imported?.ok && imported.data.found === 5 && calls.filter((c) => c.endsWith("aliedge_seen_products")).length > before, JSON.stringify(imported));
+{
+  const contribBefore = calls.filter((c) => c.endsWith("aliedge_contribute")).length;
+  await page.evaluate(() => chrome.alarms.create("importq", { when: Date.now() + 50 }));
+  await page.waitForTimeout(12000);
+  check("produits ajoutés : recherche Vinted lancée pour chacun (2 par minute)", calls.filter((c) => c.endsWith("aliedge_contribute")).length >= contribBefore + 1);
+}
 await listing.close();
 
 // 3a bis. Ajout d'annonces Vinted par leur lien
@@ -358,6 +366,13 @@ await v.waitForTimeout(1500);
 check("bouton « Trouver le fournisseur » sur Vinted", (await v.locator("#aliedge-source").count()) === 1);
 check("vente signalée au catalogue", calls.filter((c) => c.endsWith("aliedge_report_items")).length >= 1);
 await v.screenshot({ path: `${shots}/9-vinted.png` });
+
+// 5a. Recherche Vinted de secours : l'API refuse (session expirée), AliEdge lit la page de résultats
+{
+  const r = await page.evaluate(() => chrome.runtime.sendMessage({ type: "analyze", product: null, query: "sac secours", market: "fr", condition: "all", shipping: 0 })).catch((e) => ({ ok: false, error: e.message }));
+  const n = r?.data?.comparable?.length ?? r?.data?.result?.count ?? (Array.isArray(r?.data?.items) ? r.data.items.length : 0);
+  check("recherche Vinted de secours par la page quand l'API refuse", r?.ok && JSON.stringify(r.data).includes("vinted.fr/items/900"), r?.ok ? `${n}` : r?.error);
+}
 
 // 5b. Résultats de recherche : « + Concurrent » au survol d'une carte d'annonce
 {

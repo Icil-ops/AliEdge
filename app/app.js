@@ -658,6 +658,7 @@ function viewCatalogue() {
       </details>
       <div class="import-row">
         <button id="import-page" class="btn" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
+        <p id="import-status" class="small muted" aria-live="polite"></p>
         <span class="small muted">Sur une recherche ou une catégorie AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
       </div>
       ${!state.me.pro ? `<div class="notice info row between wrap"><span>Version gratuite : les 3 premiers produits sont visibles.</span><a class="btn primary" href="${BUY_URL}" target="_blank" rel="noopener">Tout débloquer</a></div>` : ""}
@@ -668,7 +669,7 @@ function viewCatalogue() {
   } else if (c.error) {
     body = `<div class="notice err">${esc(c.error)}</div>`;
   } else if (!c.rows.length) {
-    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Chaque fiche produit consultée par les membres y entre, puis AliEdge vérifie ses ventes sur Vinted. Pour l'accélérer, ouvre une page de résultats AliExpress, Temu ou Shein et clique sur « Ajouter les produits de la page ouverte ».</p></div>`;
+    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Il ne montre que les produits déjà vendus sur Vinted. Chaque fiche consultée par les membres est suivie, et apparaît ici dès sa première vente constatée. Pour accélérer, ouvre une page de résultats AliExpress, Temu ou Shein et clique sur « Ajouter les produits de la page ouverte ».</p></div>`;
   } else {
     body = `<div class="cat-grid">${c.rows.map((r, i) => `
       <button type="button" class="pcard ${r.locked ? "locked" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms">
@@ -770,14 +771,17 @@ function bindCatalogue() {
     btn.disabled = false;
     btn.textContent = "Ajouter au catalogue";
   });
+  importStatus();
   document.getElementById("import-page")?.addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
     btn.textContent = "Lecture de la page…";
     try {
       const r = await api("catalog:importPage");
-      toast(`${r.added} produit${r.added > 1 ? "s" : ""} ajouté${r.added > 1 ? "s" : ""} au catalogue. Leurs ventes Vinted arrivent au fil des vérifications.`);
-      loadCatalog();
+      toast(`${r.found} produit${r.found > 1 ? "s" : ""} trouvé${r.found > 1 ? "s" : ""} sur la page. AliEdge cherche maintenant leurs annonces sur Vinted (2 par minute) : ils apparaissent dans le catalogue au fur et à mesure.`);
+      btn.disabled = false;
+      btn.innerHTML = `${ICON.tag}Ajouter les produits de la page ouverte`;
+      importStatus();
     } catch (err) {
       toast(err.message);
       btn.disabled = false;
@@ -785,6 +789,16 @@ function bindCatalogue() {
     }
   });
   document.querySelectorAll("[data-pid]").forEach((b) => b.addEventListener("click", () => openProduct(c.rows.find((r) => r.product_id === b.dataset.pid))));
+}
+
+/** Progression de la recherche Vinted des produits importés (affichée sous le bouton). */
+async function importStatus() {
+  const box = document.getElementById("import-status");
+  if (!box) return;
+  const st = await api("catalog:importStatus").catch(() => null);
+  if (!st || !st.left) { box.textContent = ""; return; }
+  const done = Math.max(0, st.total - st.left);
+  box.innerHTML = `Recherche Vinted des produits ajoutés : <b>${done} / ${st.total}</b> · environ ${Math.ceil(st.left / 2)} min restantes`;
 }
 
 async function openProduct(row) {
@@ -1421,6 +1435,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "tab:changed" && !isTab) loadProduct();
   if (msg?.type === "pending") takePending();
   if (msg?.type === "radar:new" && route().name === "radar") refreshRadarFeed();
+  if (msg?.type === "import:progress" && route().name === "catalogue") importStatus();
   if (msg?.type === "update:ready") render();
 });
 
