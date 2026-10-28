@@ -44,9 +44,13 @@ const rpc = {
   aliedge_competitor_recap: { since: new Date(Date.now() - 2 * 864e5).toISOString(), active: 3, active_value: 57, sold_total: 3, sold_seen: 2, sold_before: 1, revenue_seen: 41, median_price_sold: 20, median_price_active: 18, median_days: 2.5, sold_under_7d: 2, new_listings_7d: 4, per_week: [{ week: "2026-10-12", sold: 1, revenue: 20 }, { week: "2026-10-19", sold: 2, revenue: 41 }], brands: [{ name: "Sans marque", sold: 2, median_price: 20, median_days: 2.5 }], price_bands: [{ band: "10 à 20 €", sold: 1, active: 2 }, { band: "20 à 35 €", sold: 1, active: 1 }], fastest: [{ title: "Sac bandoulière cuir noir", price: 21, days: 1.2, url: "https://www.vinted.fr/items/9000-sac", photo_url: "https://images1.vinted.net/t/0.jpeg" }] },
   aliedge_tracker_items: [
     { vinted_id: 9000, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", status: "sold", first_seen_at: new Date(Date.now() - 2 * 864e5).toISOString(), sold_at: new Date(Date.now() - 36e5).toISOString(), favourites: 4, days_to_sell: 1.2, sold_before: false },
+    { vinted_id: 9002, title: "Sac seau tressé", price: 24, photo_url: "https://images1.vinted.net/t/2.jpeg", url: "https://www.vinted.fr/items/9002-sac", status: "sold", first_seen_at: new Date(Date.now() - 3 * 864e5).toISOString(), sold_at: new Date(Date.now() - 72e5).toISOString(), favourites: 2, days_to_sell: 2.9, sold_before: false, product_id: "00000000-0000-0000-0000-0000000000cc", product_title: "Sac seau", product_url: "https://fr.aliexpress.com/item/1005007.html", product_price: 5.2, product_platform: "aliexpress" },
     { vinted_id: 9001, title: "Petit sac à main cuir femme", price: 18, photo_url: "https://images1.vinted.net/t/1.jpeg", url: "https://www.vinted.fr/items/9001-sac", status: "active", first_seen_at: new Date(Date.now() - 864e5).toISOString(), sold_at: null, favourites: 5 },
   ],
   aliedge_seen_products: 1,
+  aliedge_competitor_sales_since: [{ vinted_id: 9000, seller_id: 555, label: "vendeuse", title: "Sac bandoulière cuir noir", brand: null, price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", sold_at: new Date(Date.now() - 36e5).toISOString(), days_to_sell: 1.2, product_url: null, product_price: null }],
+  aliedge_niche_stats: { sold: 7, active_known: 12, median_price: 20, median_days: 3.5, top_sellers: [{ seller_id: 8801, sold: 4, median_price: 21 }, { seller_id: 555, sold: 2, median_price: 19 }], recent: [{ title: "Sac cuir femme", price: 19, url: "https://www.vinted.fr/items/7002", photo_url: "https://images1.vinted.net/t/s2.jpeg", sold_at: new Date(Date.now() - 864e5).toISOString() }] },
+  aliedge_link_item: "00000000-0000-0000-0000-0000000000bb",
   aliedge_picks_feed: { member: true, picks: [{ id: "p1", kind: "video", title: "Analyse : le compte qui vend 40 sacs par semaine", note: "Regarde sa stratégie de prix.", url: "https://www.skool.com/vinteddrop/v1", image_url: null, created_at: new Date().toISOString(), locked: false }, { id: "p2", kind: "product", title: "Sac seau tressé", note: null, url: "https://fr.aliexpress.com/item/1005006.html", image_url: "https://ae01.alicdn.com/kf/apres-sac-bandouliere.jpg", created_at: new Date().toISOString(), locked: false }] },
   aliedge_skool_challenge: { installed: 37, goal: 50 },
   aliedge_market_trends: { days: 30, sold: 42, median_days_to_sell: 3.5, categories: [{ name: "Sacs", sold: 18, median_price: 21 }, { name: "Bijoux", sold: 9, median_price: 9 }], brands: [{ name: "Sans marque", sold: 25, median_price: 15 }], hours: [{ dow: 7, hour: 19, sold: 6 }, { dow: 3, hour: 12, sold: 2 }] },
@@ -99,6 +103,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/catalog") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><main>${catalogItems.slice(0, 6).map((it) => `<div data-testid="grid-item"><a href="/items/${it.id}-x" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €, 9,99 € incl."></a><img src="${it.photo.url}"></div>`).join("")}</main>` });
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
     if (url.pathname === "/api/v2/users") return route.fulfill({ json: { users: [{ id: 8800, login: "vendeuse0" }, { id: 9911, login: "vendeuse01" }] } });
+    if (/^\/api\/v2\/users\/\d+$/.test(url.pathname)) return route.fulfill({ json: { user: { id: Number(url.pathname.split("/").pop()), login: "moncompte", feedback_reputation: 0.96, feedback_count: 23, followers_count: 12, item_count: 4, photo: { url: "https://images1.vinted.net/t/u.jpeg" }, about: "Articles neufs, envoi rapide depuis l'entrepôt." } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
@@ -121,6 +126,7 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "alerts:set") return route.fulfill({ headers: cors, json: { ok: true } });
     if (body.action === "alerts:send") return route.fulfill({ headers: cors, json: { ok: true, discord: true, telegram: false, skool: false } });
     if (body.action === "listing") return route.fulfill({ headers: cors, json: { title: "Sac bandoulière cuir noir femme", description: "Joli sac neuf.", category: "Femmes > Sacs > Sacs à bandoulière", brand: "Sans marque", condition: "Neuf sans étiquette", size: "Taille unique", colors: ["Noir"], material: "Cuir synthétique", parcel: "Petit", price: 19, priceReason: "Prix médian des ventes constatées.", hashtags: ["sac", "cuir"], market: null, supplierPrice: 6.4, margin: 12.6 } });
+    if (body.action === "diagnostic") return route.fulfill({ headers: cors, json: { summary: "Ton compte a une bonne base mais publie trop peu.", strengths: ["Bonne note"], fixes: [{ title: "Publie 1 annonce par jour", why: "0 annonce cette semaine", how: "Prépare 7 articles le dimanche." }, { title: "Ajoute la marque", why: "Peu d'annonces avec marque", how: "Renseigne le champ marque." }, { title: "Refais les vieilles annonces", why: "Âge médian élevé", how: "Supprime et republie avec de nouvelles photos." }] } });
     if (body.action === "keywords") return route.fulfill({ headers: cors, json: { queries: ["sac bandoulière noir", "petit sac cuir femme"] } });
     if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
     if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
@@ -347,6 +353,50 @@ await page.locator("[data-tracker]").first().click().catch(() => {});
 await page.waitForSelector(".tracker-body .kpis", { timeout: 6000 }).catch(() => {});
 check("récap du concurrent (délai de vente, ce qui se vend)", (await page.locator(".tracker-body .kpi").count()) === 6 && (await page.locator(".tracker-body").innerText().catch(() => "")).includes("2,5 j"));
 check("ventes du concurrent listées", (await page.locator(".tracker-body .badge-sold").count()) >= 1);
+check("vente du concurrent : fournisseur connu affiché, sinon recherche du fournisseur", (await page.locator(".tracker-body .supplier.ok").count()) === 1 && (await page.locator(".tracker-body details.supplier").count()) === 1);
+{
+  await page.locator(".tracker-body details.supplier summary").first().click().catch(() => {});
+  const links = await page.locator(".tracker-body details.supplier a").evaluateAll((as) => as.map((a) => a.href)).catch(() => []);
+  check("trouver le fournisseur : Google Lens par photo + AliExpress, Temu, Shein", links.some((u) => u.startsWith("https://lens.google.com/uploadbyurl?url=")) && links.some((u) => u.includes("aliexpress.com/w/wholesale-")) && links.length === 4, links.join(" ").slice(0, 200));
+  const before = calls.filter((c) => c.endsWith("aliedge_link_item")).length;
+  await page.fill(".tracker-body form[data-link] input", "https://fr.aliexpress.com/item/1005009.html?spm=x").catch(() => {});
+  await page.click(".tracker-body form[data-link] button").catch(() => {});
+  await page.waitForTimeout(1200);
+  check("produit fournisseur relié à la vente", calls.filter((c) => c.endsWith("aliedge_link_item")).length > before && (await page.locator(".tracker-body .supplier.ok").count()) === 2);
+}
+{
+  // Alerte « un concurrent vient de vendre » : 1er passage mémorise, le suivant prévient.
+  await page.evaluate(() => chrome.storage.local.remove("ae_sales"));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "competitor:checkSales" }));
+  const primed = await page.evaluate(async () => (await chrome.storage.local.get("ae_sales")).ae_sales);
+  rpc.aliedge_competitor_sales_since = [{ ...rpc.aliedge_competitor_sales_since[0], vinted_id: 9010, title: "Sac cabas paille" }, ...rpc.aliedge_competitor_sales_since];
+  const alertsBefore = barapicsCalls.filter((c) => c === "alerts:send").length;
+  const r = await page.evaluate(() => chrome.runtime.sendMessage({ type: "competitor:checkSales" }));
+  check("vente d'un concurrent : alerte seulement pour la nouvelle vente", primed?.primed && primed.feed.length === 1 && r?.ok && r.data.feed.length === 2 && r.data.feed[0].vinted_id === 9010, JSON.stringify(r).slice(0, 160));
+  check("vente d'un concurrent : alerte envoyée sur le téléphone", barapicsCalls.filter((c) => c === "alerts:send").length > alertsBefore);
+  await page.reload();
+  await page.waitForSelector("#salesnotify", { timeout: 6000 }).catch(() => {});
+  check("dernières ventes des concurrents affichées", (await page.locator("section").filter({ hasText: "Dernières ventes de tes concurrents" }).locator(".item").count()) === 2);
+}
+{
+  await page.fill("#nicheq", "sac cuir").catch(() => {});
+  await page.click('#nicheform button[type="submit"]').catch(() => {});
+  await page.waitForSelector("#nicheout .kpis", { timeout: 10000 }).catch(() => {});
+  const txt = await page.locator("#nicheout").innerText().catch(() => "");
+  check("niche : annonces en ligne + ventes constatées + vendeurs à suivre", /214/.test(txt) && /3,5 j/.test(txt) && (await page.locator("#nicheout [data-follow]").count()) >= 2 && calls.some((c) => c.endsWith("aliedge_niche_stats")), txt.slice(0, 160));
+  const before = calls.filter((c) => c.endsWith("aliedge_tracker_add")).length;
+  await page.locator("#nicheout [data-follow]").first().click().catch(() => {});
+  await page.waitForTimeout(1200);
+  check("niche : meilleur vendeur suivi en un clic", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > before);
+}
+{
+  await page.fill("#diagurl", "https://www.vinted.fr/member/31337-moncompte").catch(() => {});
+  await page.click('#diagform button[type="submit"]').catch(() => {});
+  await page.waitForSelector("#diagout .diag-score", { timeout: 15000 }).catch(() => {});
+  const txt = await page.locator("#diagout").innerText().catch(() => "");
+  const total = Number((await page.locator("#diagout .diag-score b").textContent().catch(() => "")) || NaN);
+  check("diagnostic du compte : note sur 100, 5 rubriques, corrections", total >= 0 && total <= 100 && (await page.locator("#diagout .diag-parts > div").count()) === 5 && (await page.locator("#diagout ol.diag-list li").count()) === 3 && barapicsCalls.includes("diagnostic"), `${total} ${txt.slice(0, 120)}`);
+}
 await page.screenshot({ path: `${shots}/8-concurrents.png`, fullPage: true });
 
 // 4b. Réglages à distance, santé et erreurs

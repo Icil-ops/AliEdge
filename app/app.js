@@ -1,7 +1,7 @@
 // AliEdge — panneau latéral et plein écran.
 import { MARKETS, BUY_URL, BARAPICS_URL, SKOOL_URL, PRIVACY_URL } from "../src/config.js";
 import { VERDICT_LABEL, histogram } from "../src/lib/pricing.js";
-import { draftListing } from "../src/lib/text.js";
+import { draftListing, buildQuery } from "../src/lib/text.js";
 
 const $view = document.getElementById("view");
 const $plan = document.getElementById("plan");
@@ -1051,8 +1051,119 @@ function viewTrackers(trackers) {
 
 async function viewConcurrents() {
   if (!state.me) return `<section class="card pad stack"><h2>Concurrents</h2><p class="muted">Connecte-toi pour suivre les ventes de tes concurrents.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
-  const trackers = await api("tracker:list").catch(() => []);
-  return viewTrackers(trackers);
+  const [trackers, sales, diag] = await Promise.all([api("tracker:list").catch(() => []), api("competitor:sales").catch(() => null), api("diagnostic:last").catch(() => null)]);
+  return `${viewTrackers(trackers)}
+    <section class="stack" style="margin-top:22px">${salesFeedHtml(sales)}</section>
+    <section class="stack" style="margin-top:22px">
+      <h2>Analyser une niche</h2>
+      <p class="small muted">Tape un produit ou une niche : AliEdge regarde les annonces en ligne sur Vinted et les ventes constatées par la communauté, puis te montre les vendeurs à suivre.</p>
+      <form id="nicheform" class="row" style="gap:8px">
+        <input class="input" id="nicheq" type="search" placeholder="ex. sac bandoulière cuir" aria-label="Niche à analyser" value="${esc(state.nicheQuery || "")}" style="flex:1" minlength="3" required>
+        <button class="btn primary" type="submit">Analyser</button>
+      </form>
+      <div id="nicheout">${nicheHtml(state.niche)}</div>
+    </section>
+    <section class="stack" style="margin-top:22px">
+      <h2>Diagnostic de ton compte</h2>
+      <p class="small muted">Colle le lien de ton profil Vinted : AliEdge lit tes annonces et ton profil, te donne une note sur 100 et les corrections qui comptent le plus, en te comparant à tes concurrents suivis.</p>
+      <form id="diagform" class="row" style="gap:8px">
+        <input class="input" id="diagurl" type="url" inputmode="url" placeholder="https://www.vinted.fr/member/123456-ton-pseudo" aria-label="Lien de ton profil Vinted" value="${esc(diag?.url || "")}" style="flex:1" required>
+        <button class="btn primary" type="submit">${diag ? "Refaire" : "Lancer"}</button>
+      </form>
+      <div id="diagout">${diagnosticHtml(diag)}</div>
+    </section>`;
+}
+
+/** Produit fournisseur d'une annonce vendue : celui de la base commune, sinon les recherches pour le trouver. */
+function supplierLinks(i) {
+  const q = buildQuery(i.title || "", 6) || i.title || "";
+  const e = encodeURIComponent(q);
+  return [
+    i.photo_url ? ["Google Lens (photo)", `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(i.photo_url)}`] : null,
+    ["AliExpress", `https://fr.aliexpress.com/w/wholesale-${e}.html`],
+    ["Temu", `https://www.temu.com/search_result.html?search_key=${e}`],
+    ["Shein", `https://fr.shein.com/pdsearch/${e}/`],
+  ].filter(Boolean);
+}
+function supplierHtml(i) {
+  if (i.product_url) {
+    const cost = Number(i.product_price), sale = Number(i.price);
+    const margin = Number.isFinite(cost) && cost > 0 && Number.isFinite(sale) ? sale - cost : null;
+    return `<div class="supplier ok small"><span>Fournisseur ${esc(PLATFORM_NAME[i.product_platform] || "")}${Number.isFinite(cost) && cost > 0 ? ` · ${eur(cost)}` : ""}${margin != null ? ` · écart <b class="num" style="color:${margin > 0 ? "var(--gain)" : "var(--loss)"}">${eur(margin, true)}</b> avant frais` : ""}</span><a href="${safeUrl(i.product_url)}" target="_blank" rel="noopener">Voir le produit</a></div>`;
+  }
+  return `<details class="supplier small"><summary>Trouver le fournisseur</summary>
+    <div class="row wrap" style="gap:6px;margin:6px 0">${supplierLinks(i).map(([n, u]) => `<a class="btn ghost small" href="${safeUrl(u)}" target="_blank" rel="noopener">${esc(n)}</a>`).join("")}</div>
+    <form class="row" data-link="${esc(i.vinted_id)}" style="gap:6px"><input class="input" type="url" placeholder="Colle ici le lien du produit trouvé" aria-label="Lien du produit fournisseur" style="flex:1" required><button class="btn primary small" type="submit">Relier</button></form>
+    <p class="small muted" style="margin:4px 0 0">Le produit relié rejoint le catalogue commun : tout le monde voit ensuite le fournisseur de cette vente.</p>
+  </details>`;
+}
+const PLATFORM_NAME = { aliexpress: "AliExpress", temu: "Temu", shein: "Shein" };
+
+function salesFeedHtml(s) {
+  const feed = (s?.feed || []).slice(0, 8);
+  return `
+    <div class="card pad stack" style="gap:8px">
+      <div class="row between wrap"><h3 style="margin:0">Dernières ventes de tes concurrents</h3>
+        <label class="small row" style="gap:6px"><input type="checkbox" id="salesnotify" ${s?.notify !== false ? "checked" : ""}> Me prévenir à chaque vente</label></div>
+      ${feed.length ? `<div class="items">${feed.map((r) => `
+        <a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">
+          ${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+          <div><div class="t">${esc(r.title || "Annonce")}</div><div class="m">${esc(r.label || "Concurrent")} · vendu ${esc(ago(new Date(r.sold_at).getTime()))}${r.days_to_sell != null ? ` · parti en ${esc(String(r.days_to_sell).replace(".", ","))} j` : ""}${r.product_url ? " · fournisseur connu" : ""}</div></div>
+          <div class="p num">${eur(Number(r.price))}</div>
+        </a>`).join("")}</div>` : `<p class="small muted" style="margin:0">AliEdge relève les dressings de tes concurrents plusieurs fois par jour. Chaque vente constatée s'affiche ici et déclenche une notification (et une alerte sur ton téléphone si tu l'as réglée dans le Radar).</p>`}
+    </div>`;
+}
+
+function diagnosticHtml(d) {
+  if (!d) return "";
+  const m = d.metrics || {};
+  const sc = d.score || { total: 0, parts: [] };
+  const tone = sc.total >= 75 ? "var(--gain)" : sc.total >= 50 ? "var(--amber, #d68a00)" : "var(--loss)";
+  const num = (v, suf = "") => (v == null ? "–" : `${String(Math.round(v * 10) / 10).replace(".", ",")}${suf}`);
+  return `
+    <div class="stack" style="gap:10px">
+      <div class="diag-score"><b class="num" style="color:${tone}">${sc.total}</b><span>/ 100</span><span class="small muted">${esc(m.login || "Ton compte")} · ${esc(ago(d.at))}</span></div>
+      <div class="diag-parts">${sc.parts.map((p) => `<div><span class="small">${esc(p.label)}</span><span class="bar"><i style="width:${Math.round((p.value / p.max) * 100)}%"></i></span><b class="num small">${num(p.value)} / ${p.max}</b></div>`).join("")}</div>
+      <div class="kpis">
+        <div class="kpi"><b class="num">${m.active ?? 0}</b><span class="small muted">annonces en ligne</span></div>
+        <div class="kpi"><b class="num">${m.new_7d ?? 0}</b><span class="small muted">mises en ligne 7 j</span></div>
+        <div class="kpi"><b class="num">${m.rating != null ? `${num(m.rating)} ★` : "–"}</b><span class="small muted">${m.reviews ?? 0} avis</span></div>
+        <div class="kpi"><b class="num">${num(m.median_favourites)}</b><span class="small muted">favoris par annonce</span></div>
+        <div class="kpi"><b class="num">${m.median_price != null ? eur(m.median_price) : "–"}</b><span class="small muted">prix médian</span></div>
+        <div class="kpi"><b class="num">${num(m.median_age_days, " j")}</b><span class="small muted">âge médian des annonces</span></div>
+      </div>
+      ${d.bench ? `<p class="small muted" style="margin:0">Repère : tes ${d.bench.competitors} concurrents suivis vendent en médiane ${num(d.bench.median_sold_30d)} articles en 30 jours${d.bench.median_price_30d != null ? ` à ${eur(d.bench.median_price_30d)}` : ""}, avec ${num(d.bench.median_active)} annonces en ligne.</p>` : `<p class="small muted" style="margin:0">Suis quelques concurrents pour comparer ton compte au leur.</p>`}
+      ${d.summary ? `<p style="margin:0">${esc(d.summary)}</p>` : ""}
+      ${d.strengths?.length ? `<div><h3 class="small">Ce qui va bien</h3><ul class="diag-list">${d.strengths.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+      ${d.fixes?.length ? `<div><h3 class="small">À corriger en priorité</h3><ol class="diag-list">${d.fixes.map((f) => `<li><b>${esc(f.title)}</b><br><span class="small muted">${esc(f.why || "")}</span><br><span class="small">${esc(f.how || "")}</span></li>`).join("")}</ol></div>` : ""}
+      ${d.error ? `<div class="notice info">Conseils personnalisés indisponibles : ${esc(d.error)} La note et les chiffres restent valables.</div>` : ""}
+    </div>`;
+}
+
+function nicheHtml(n) {
+  if (!n) return "";
+  const L = n.live, D = n.db;
+  const seller = (x, extra) => `
+    <div class="item" style="grid-template-columns:1fr auto">
+      <div><div class="t">${esc(x.login || `Vendeur ${x.seller_id}`)}</div><div class="m">${extra}</div></div>
+      ${x.tracked ? `<span class="small muted">Suivi</span>` : `<button class="btn ghost small" type="button" data-follow="${esc(x.seller_id)}" data-login="${esc(x.login || "")}">+ Suivre</button>`}
+    </div>`;
+  return `
+    <div class="stack" style="gap:10px">
+      ${n.error ? `<div class="notice err">${esc(n.error)}</div>` : ""}
+      <div class="kpis">
+        <div class="kpi"><b class="num">${L.total ?? 0}</b><span class="small muted">annonces en ligne</span></div>
+        <div class="kpi"><b class="num">${L.median != null ? eur(L.median) : "–"}</b><span class="small muted">prix médian en ligne</span></div>
+        <div class="kpi"><b class="num">${L.p25 != null ? `${eur(L.p25)} – ${eur(L.p75)}` : "–"}</b><span class="small muted">fourchette courante</span></div>
+        <div class="kpi"><b class="num">${D?.sold ?? 0}</b><span class="small muted">ventes constatées 30 j</span></div>
+        <div class="kpi"><b class="num">${D?.median_price != null ? eur(Number(D.median_price)) : "–"}</b><span class="small muted">prix médian vendu</span></div>
+        <div class="kpi"><b class="num">${D?.median_days != null ? `${String(D.median_days).replace(".", ",")} j` : "–"}</b><span class="small muted">délai de vente médian</span></div>
+      </div>
+      <p class="small muted" style="margin:0">Les ventes viennent de la base commune AliEdge : ce sont celles constatées par la communauté, pas toutes les ventes de Vinted.</p>
+      ${D?.top_sellers?.length ? `<div><h3 class="small">Ceux qui vendent le plus (30 j)</h3><div class="items">${D.top_sellers.map((x) => seller(x, `${x.sold} vente${x.sold > 1 ? "s" : ""} constatée${x.sold > 1 ? "s" : ""}${x.median_price != null ? ` · ${eur(Number(x.median_price))} médian` : ""}`)).join("")}</div></div>` : ""}
+      ${L.sellers?.length ? `<div><h3 class="small">Ceux qui ont le plus d'annonces en ligne</h3><div class="items">${L.sellers.map((x) => seller(x, `${x.listings} annonce${x.listings > 1 ? "s" : ""} sur cette recherche${x.median != null ? ` · ${eur(x.median)} médian` : ""}`)).join("")}</div></div>` : ""}
+      ${D?.recent?.length ? `<div><h3 class="small">Dernières ventes constatées</h3><div class="items">${D.recent.map((r) => `<a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}<div><div class="t">${esc(r.title || "Annonce")}</div><div class="m">vendu ${esc(ago(new Date(r.sold_at).getTime()))}</div></div><div class="p num">${eur(Number(r.price))}</div></a>`).join("")}</div></div>` : ""}
+    </div>`;
 }
 
 function recapHtml(r, items) {
@@ -1069,6 +1180,7 @@ function recapHtml(r, items) {
       <div class="p num">${eur(Number(i.price))}</div>
     </a>`;
   const seen = items.filter((i) => i.status === "sold" && !i.sold_before);
+  const soldLine = (i) => `<div class="sale-row">${line(i)}${supplierHtml(i)}</div>`;
   const before = items.filter((i) => i.sold_before);
   const active = items.filter((i) => i.status === "active");
   return `
@@ -1086,7 +1198,7 @@ function recapHtml(r, items) {
       ${r.price_bands.length ? `<div><h3 class="small">Prix : vendus / en ligne</h3><div class="bands">${r.price_bands.map((b) => `<div><span>${esc(b.band)}</span><b class="num">${b.sold}</b><span class="muted num">${b.active}</span></div>`).join("")}</div></div>` : ""}
       ${r.fastest.length ? `<div><h3 class="small">Partis le plus vite</h3><div class="items">${r.fastest.map((i) => line({ ...i, status: "sold", days_to_sell: i.days, sold_at: Date.now() })).join("")}</div></div>` : ""}
       <h3 class="small">Ventes constatées (${seen.length})</h3>
-      ${seen.length ? `<div class="items">${seen.map(line).join("")}</div>` : `<p class="small muted">Les ventes apparaissent au fil des relevés (plusieurs fois par jour).</p>`}
+      ${seen.length ? `<div class="items">${seen.map(soldLine).join("")}</div>` : `<p class="small muted">Les ventes apparaissent au fil des relevés (plusieurs fois par jour).</p>`}
       <h3 class="small">En ligne (${active.length})</h3>
       ${active.length ? `<div class="items">${active.slice(0, 120).map(line).join("")}</div>${active.length > 120 ? `<p class="small muted">Et ${active.length - 120} autres.</p>` : ""}` : ""}
       ${before.length ? `<details><summary class="small">Déjà vendus avant le suivi (${before.length})</summary><div class="items" style="margin-top:6px">${before.slice(0, 120).map(line).join("")}</div></details>` : ""}
@@ -1118,7 +1230,54 @@ async function viewSuivis() {
     <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
 
+function bindNicheResults(root) {
+  root.querySelectorAll("[data-follow]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await api("tracker:add", { sellerId: b.dataset.follow, market: state.niche?.market || "fr", label: b.dataset.login || null });
+      b.replaceWith(Object.assign(document.createElement("span"), { className: "small muted", textContent: "Suivi" }));
+      toast("Concurrent ajouté : relevé de son dressing en cours");
+    } catch (x) { b.disabled = false; toast(x.message); }
+  }));
+}
+function bindSupplierForms(root) {
+  root.querySelectorAll("form[data-link]").forEach((f) => f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = f.querySelector("input"), btn = f.querySelector("button");
+    btn.disabled = true;
+    try {
+      const r = await api("item:link", { vintedId: f.dataset.link, url: input.value.trim() });
+      f.closest("details").outerHTML = `<div class="supplier ok small"><span>Fournisseur ${esc(PLATFORM_NAME[r.platform] || "")} relié</span><a href="${safeUrl(input.value.trim())}" target="_blank" rel="noopener">Voir le produit</a></div>`;
+      toast("Produit relié à la vente");
+    } catch (x) { btn.disabled = false; toast(x.message); }
+  }));
+}
+
 function bindTrackers() {
+  document.getElementById("salesnotify")?.addEventListener("change", (e) => { api("competitor:salesNotify", { on: e.currentTarget.checked }).catch(() => {}); });
+  const nout = document.getElementById("nicheout");
+  if (nout) bindNicheResults(nout);
+  document.getElementById("diagform")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = document.getElementById("diagout");
+    const btn = e.currentTarget.querySelector("button");
+    btn.disabled = true; btn.textContent = "Lecture de ton compte…";
+    out.innerHTML = `<div class="skel" style="height:160px"></div>`;
+    try { out.innerHTML = diagnosticHtml(await api("diagnostic:run", { url: document.getElementById("diagurl").value.trim() })); }
+    catch (x) { out.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+    finally { btn.disabled = false; btn.textContent = "Refaire"; }
+  });
+  document.getElementById("nicheform")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = document.getElementById("nicheq").value.trim();
+    const btn = e.currentTarget.querySelector("button");
+    state.nicheQuery = q;
+    btn.disabled = true; btn.textContent = "Analyse…";
+    nout.innerHTML = `<div class="skel" style="height:140px"></div>`;
+    try { state.niche = await api("niche:search", { query: q }); nout.innerHTML = nicheHtml(state.niche); bindNicheResults(nout); }
+    catch (x) { nout.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+    finally { btn.disabled = false; btn.textContent = "Analyser"; }
+  });
   document.getElementById("trackform")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = document.getElementById("trackerr");
@@ -1145,6 +1304,7 @@ function bindTrackers() {
       const [recap, items] = await Promise.all([api("tracker:recap", { id }), api("tracker:items", { id })]);
       body.innerHTML = recapHtml(recap || { per_week: [], brands: [], price_bands: [], fastest: [], sold_seen: 0, revenue_seen: 0, active: 0, active_value: 0, new_listings_7d: 0 }, items || []).replace("__ID__", esc(id));
       body.dataset.loaded = "1";
+      bindSupplierForms(body);
       body.querySelector("[data-untrack]")?.addEventListener("click", async (ev) => { await api("tracker:remove", { id: ev.currentTarget.dataset.untrack }); toast("Concurrent retiré"); render(); });
     } catch (x) { body.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
   }));
@@ -1435,6 +1595,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "tab:changed" && !isTab) loadProduct();
   if (msg?.type === "pending") takePending();
   if (msg?.type === "radar:new" && route().name === "radar") refreshRadarFeed();
+  if (msg?.type === "sales:new" && route().name === "concurrents" && !document.activeElement?.matches?.("input")) render();
   if (msg?.type === "import:progress" && route().name === "catalogue") importStatus();
   if (msg?.type === "update:ready") render();
 });

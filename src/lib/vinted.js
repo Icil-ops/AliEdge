@@ -230,6 +230,9 @@ export function normaliseItem(it, market) {
     url: it.url || `https://${host(market)}/items/${it.id}`,
     favourites: Number.isFinite(it.favourite_count) ? it.favourite_count : null,
     seller_id: Number(it.user?.id ?? it.user_id ?? it.seller_id) || null,
+    seller_login: it.user?.login || null,
+    photo_count: Array.isArray(it.photos) ? it.photos.length : null,
+    description_length: typeof it.description === "string" ? it.description.length : null,
     views: Number.isFinite(it.view_count) ? it.view_count : null,
     // Mise en ligne : horodatage de la première photo (secondes), à défaut la date de création.
     listed_at: listedAt(it, photo),
@@ -403,6 +406,26 @@ export async function sellerItems(sellerId, market = "fr", { pages = 1 } = {}) {
     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 2500));
   }
   return out;
+}
+
+/** Profil public d'un membre : pseudo, note, avis, abonnés, nombre d'annonces. */
+export async function userInfo(userId, market = "fr") {
+  const res = await vFetch(`https://${host(market)}/api/v2/users/${Number(userId)}`, "json", market);
+  const u = res?.body?.user;
+  if (!u?.id) return null;
+  return {
+    id: Number(u.id), login: u.login || null,
+    rating: Number.isFinite(Number(u.feedback_reputation)) ? Math.round(Number(u.feedback_reputation) * 50) / 10 : null,
+    reviews: Number(u.feedback_count ?? 0) || 0,
+    followers: Number(u.followers_count ?? 0) || 0,
+    items: Number(u.item_count ?? 0) || 0,
+    given: Number(u.given_item_count ?? 0) || null,
+    photo: !!(u.photo && (u.photo.url || u.photo.full_size_url)),
+    about: typeof u.about === "string" ? u.about.trim().length : 0,
+    business: !!u.business,
+    verified: !!(u.verification?.email?.valid || u.verified_email),
+    last_seen: u.last_loged_on_ts || u.last_logged_on_ts || null,
+  };
 }
 
 /** Retrouve un vendeur à partir de son pseudo (recherche de membres Vinted), sinon null. */

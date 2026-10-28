@@ -426,3 +426,18 @@ a.radar-item { text-decoration: none; color: inherit; }
 .bands { display: grid; gap: 4px; max-width: 360px; }
 .bands div { display: grid; grid-template-columns: 1fr 40px 40px; gap: 6px; font-size: 12.5px; }
 .bands b, .bands .muted { text-align: right; }
+
+.sale-row { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.sale-row > .item { border: 0; border-radius: 0; }
+.supplier { padding: 6px 10px 8px; border-top: 1px dashed var(--line); }
+.supplier.ok { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.supplier summary { cursor: pointer; color: var(--violet); font-weight: 600; }
+
+.diag-score { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.diag-score b { font-size: 42px; line-height: 1; }
+.diag-parts { display: grid; gap: 6px; }
+.diag-parts > div { display: grid; grid-template-columns: 140px 1fr 64px; gap: 8px; align-items: center; }
+.diag-parts .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.diag-parts .bar i { display: block; height: 100%; background: var(--violet); border-radius: inherit; }
+.diag-parts b { text-align: right; }
+.diag-list { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 6px; }

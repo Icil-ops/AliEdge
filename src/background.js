@@ -500,6 +500,7 @@ async function communityCheck() {
     }
     await new Promise((r) => setTimeout(r, 3000 + Math.random() * 4000));
   }
+  await checkCompetitorSales().catch(() => {});
   // 2) Annonces sans vendeur connu : une par une.
   let batch = [];
   try { batch = await sb.rpc("aliedge_items_to_check", { _limit: 6 }); } catch { return; }
@@ -610,6 +611,148 @@ async function sendPhoneAlerts(items) {
     alerts: items.slice(0, 10).map((i) => ({ title: String(i.title || "Annonce Vinted").slice(0, 300), price: Number.isFinite(Number(i.price)) ? Number(i.price) : null, url: i.url, photo: i.photo_url || null, filter: i.filterName || null, brand: i.brand || null, size: i.size || null })),
   });
 }
+// ───────────────────────── Ventes des concurrents suivis : alerte dès qu'une vente est constatée
+const SALES_KEY = "ae_sales";
+async function salesState() {
+  const { [SALES_KEY]: st } = await chrome.storage.local.get(SALES_KEY);
+  return { seen: [], feed: [], notify: true, primed: false, ...(st || {}) };
+}
+async function checkCompetitorSales() {
+  if (remote.trackers_enabled === "off" || !(await sb.getSession())) return;
+  let rows = [];
+  try { rows = await sb.rpc("aliedge_competitor_sales_since", { _since: new Date(Date.now() - 3 * 86400_000).toISOString() }); } catch { return; }
+  const st = await salesState();
+  const seen = new Set(st.seen);
+  const fresh = (rows || []).filter((r) => !seen.has(Number(r.vinted_id)));
+  for (const r of rows || []) seen.add(Number(r.vinted_id));
+  st.seen = [...seen].slice(-600);
+  if (fresh.length) st.feed = [...fresh.map((r) => ({ ...r, at: Date.now() })), ...st.feed].slice(0, 60);
+  // Premier passage : on mémorise les ventes déjà connues sans prévenir.
+  const notify = st.primed && st.notify !== false;
+  st.primed = true;
+  await chrome.storage.local.set({ [SALES_KEY]: st });
+  if (!notify || !fresh.length) return;
+  for (const r of fresh.slice(0, 5)) {
+    chrome.notifications.create(`sale-${r.vinted_id}`, {
+      type: "basic", iconUrl: "icons/icon128.png",
+      title: `${r.label || "Un concurrent"} vient de vendre · ${eur0(r.price ?? 0)}`.slice(0, 80),
+      message: `${String(r.title || "Annonce").slice(0, 90)}${r.days_to_sell != null ? ` (partie en ${String(r.days_to_sell).replace(".", ",")} j)` : ""}`,
+      priority: 2,
+    });
+  }
+  await sendPhoneAlerts(fresh.map((r) => ({ ...r, filterName: `Vente concurrent : ${r.label || "vendeur suivi"}` }))).catch(() => {});
+  broadcast({ type: "sales:new" });
+}
+
+// ───────────────────────── Niche : recherche Vinted en direct + ventes constatées dans la base commune
+const median = (a) => { const v = a.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); if (!v.length) return null; const m = Math.floor(v.length / 2); return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+const quantile = (a, q) => { const v = a.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); return v.length ? v[Math.min(v.length - 1, Math.floor(q * v.length))] : null; };
+async function nicheSearch({ query }) {
+  const q = String(query || "").trim().slice(0, 80);
+  if (q.length < 3) throw new sb.ApiError("Indique au moins un mot-clé (3 lettres).", 400, "invalid");
+  const market = (await getSettings()).market || "fr";
+  const [live, db] = await Promise.all([
+    vinted.searchText(q, { market }).catch((e) => ({ error: e.message || "Recherche Vinted impossible", items: [], total: 0 })),
+    sb.rpc("aliedge_niche_stats", { _query: q, _market: market }).catch(() => null),
+  ]);
+  const items = (live.items || []).filter((i) => i.relevance == null || i.relevance >= 0.4);
+  const prices = items.map((i) => Number(i.price));
+  const bySeller = new Map();
+  for (const i of items) {
+    if (!i.seller_id) continue;
+    const s = bySeller.get(i.seller_id) || { seller_id: i.seller_id, login: i.seller_login, listings: 0, prices: [], favourites: 0 };
+    s.listings++; s.prices.push(Number(i.price)); s.favourites += i.favourites || 0;
+    if (!s.login && i.seller_login) s.login = i.seller_login;
+    bySeller.set(i.seller_id, s);
+  }
+  const logins = new Map([...bySeller.values()].map((s) => [s.seller_id, s.login]));
+  const tracked = new Set(await getCompetitorIds().catch(() => []));
+  const has = (id) => tracked.has(`${market}:${id}`);
+  return {
+    query: q, market, error: live.error || null,
+    live: {
+      total: live.total || items.length, sample: items.length,
+      median: median(prices), p25: quantile(prices, 0.25), p75: quantile(prices, 0.75),
+      favourites: median(items.map((i) => i.favourites ?? NaN)),
+      sellers: [...bySeller.values()].sort((a, b) => b.listings - a.listings || b.favourites - a.favourites).slice(0, 8)
+        .map((s) => ({ seller_id: s.seller_id, login: s.login, listings: s.listings, median: median(s.prices), tracked: has(s.seller_id) })),
+      examples: items.slice(0, 6).map((i) => ({ title: i.title, price: i.price, url: i.url, photo_url: i.photo_url, favourites: i.favourites })),
+    },
+    db: db ? { ...db, top_sellers: (db.top_sellers || []).map((s) => ({ ...s, login: logins.get(s.seller_id) || null, tracked: has(s.seller_id) })) } : null,
+  };
+}
+
+// ───────────────────────── Diagnostic du compte Vinted du membre
+/** Note sur 100, par rubrique : mêmes règles pour tout le monde, l'IA ne fait qu'expliquer. */
+function diagnosticScore(m) {
+  const cap = (v, max) => Math.max(0, Math.min(max, v));
+  const r = (v) => Math.round(v * 10) / 10;
+  const parts = [
+    { key: "reputation", label: "Réputation", max: 20, value: cap((Math.log10(1 + (m.reviews || 0)) / Math.log10(51)) * 12, 12) + (m.rating == null ? 0 : m.rating >= 4.8 ? 8 : m.rating >= 4.5 ? 5 : 2) },
+    { key: "profile", label: "Profil", max: 10, value: (m.profile_photo ? 4 : 0) + ((m.about_length || 0) >= 40 ? 3 : (m.about_length || 0) > 0 ? 1 : 0) + cap(((m.followers || 0) / 20) * 3, 3) },
+    { key: "activity", label: "Régularité", max: 25, value: cap(((m.new_7d || 0) / 7) * 15, 15) + cap(((m.new_30d || 0) / 20) * 10, 10) },
+    { key: "listings", label: "Qualité des annonces", max: 25, value: (m.photos_3plus_pct == null ? 5 : (m.photos_3plus_pct / 100) * 10) + ((m.brand_pct ?? 0) / 100) * 5
+      + (m.median_title_length == null ? 0 : m.median_title_length >= 25 && m.median_title_length <= 70 ? 5 : m.median_title_length >= 15 ? 3 : 1)
+      + (m.stale_60d_pct == null ? 2.5 : ((100 - m.stale_60d_pct) / 100) * 5) },
+    { key: "appeal", label: "Attractivité", max: 20, value: cap(((m.median_favourites || 0) / 3) * 10, 10) + (m.no_favourite_pct == null ? 0 : ((100 - m.no_favourite_pct) / 100) * 5) + cap(((m.active || 0) / 30) * 5, 5) },
+  ].map((p) => ({ ...p, value: r(cap(p.value, p.max)) }));
+  return { total: Math.round(parts.reduce((a, p) => a + p.value, 0)), parts };
+}
+async function diagnosticRun({ url }) {
+  const m = String(url || "").match(/vinted\.([a-z.]+)\/member\/(\d+)/i);
+  if (!m) throw new sb.ApiError("Colle le lien de TON profil Vinted (…/member/123456-pseudo).", 400, "invalid");
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi à AliEdge pour lancer le diagnostic.", 401, "auth");
+  const tld = m[1].toLowerCase();
+  const market = MARKETS[tld === "co.uk" ? "uk" : tld] ? (tld === "co.uk" ? "uk" : tld) : "fr";
+  const id = Number(m[2]);
+  const [user, items] = [await vinted.userInfo(id, market).catch(() => null), await vinted.sellerItems(id, market, { pages: 6 }).catch(() => [])];
+  if (!user && !items.length) throw new sb.ApiError("Vinted n'a pas répondu : ouvre vinted.fr dans un onglet, connecte-toi, puis relance.", 400, "vinted_auth");
+  if (items.length) reportWardrobe(id, market, items).catch(() => {});
+  const active = items.filter((i) => i.status === "active");
+  const sold = items.filter((i) => i.status === "sold");
+  const now = Date.now();
+  const age = (i) => (i.listed_at ? (now - new Date(i.listed_at).getTime()) / 86400_000 : null);
+  const pct = (arr, f) => (arr.length ? Math.round((arr.filter(f).length / arr.length) * 100) : null);
+  const withPhotos = active.filter((i) => i.photo_count != null);
+  const metrics = {
+    login: user?.login || null, market,
+    rating: user?.rating ?? null, reviews: user?.reviews ?? 0, followers: user?.followers ?? 0, profile_photo: user?.photo ?? null, about_length: user?.about ?? 0, business: user?.business ?? false,
+    active: active.length, sold_visible: sold.length,
+    new_7d: active.filter((i) => (age(i) ?? 99) <= 7).length, new_30d: active.filter((i) => (age(i) ?? 99) <= 30).length,
+    median_age_days: median(active.map((i) => age(i) ?? NaN)),
+    stale_60d_pct: pct(active.filter((i) => age(i) != null), (i) => age(i) > 60),
+    median_price: median(active.map((i) => Number(i.price))), median_sold_price: median(sold.map((i) => Number(i.price))),
+    median_favourites: median(active.map((i) => i.favourites ?? NaN)),
+    no_favourite_pct: pct(active, (i) => !i.favourites),
+    brand_pct: pct(active, (i) => i.brand && !/^(sans marque|no brand|autre)$/i.test(i.brand)),
+    median_title_length: median(active.map((i) => (i.title || "").length)),
+    photos_3plus_pct: withPhotos.length ? pct(withPhotos, (i) => i.photo_count >= 3) : null,
+  };
+  // Repères : les concurrents suivis par le membre (ventes 30 j, prix médian).
+  const trackers = await sb.rpc("aliedge_trackers").catch(() => []);
+  const live = (trackers || []).filter((t) => new Date(t.expires_at).getTime() > now && Number(t.seller_id) !== id);
+  const bench = live.length ? {
+    competitors: live.length,
+    median_sold_30d: median(live.map((t) => Number(t.sold_30d ?? 0))),
+    median_price_30d: median(live.map((t) => Number(t.median_price_30d ?? NaN))),
+    median_active: median(live.map((t) => Number(t.active_count ?? 0))),
+  } : null;
+  const score = diagnosticScore(metrics);
+  const advice = await barapics({ action: "diagnostic", metrics, bench, score }).catch((e) => ({ error: e.message }));
+  const report = { at: now, url: String(url).slice(0, 300), metrics, bench, score, ...advice };
+  await chrome.storage.local.set({ ae_diagnostic: report });
+  return report;
+}
+
+/** Lien d'un produit fournisseur collé par le membre → relié à l'annonce Vinted dans la base commune. */
+async function linkItem({ vintedId, url }) {
+  const platform = detectPlatform(url);
+  const id = sourceIdFromUrl(url);
+  if (!platform || !id) throw new sb.ApiError("Colle le lien d'une fiche produit AliExpress, Temu ou Shein.", 400, "invalid");
+  await sb.rpc("aliedge_link_item", { _vinted_id: Number(vintedId), _product: { platform, source_id: id, url: canonicalUrl(url) } });
+  return { platform };
+}
+
 const eur0 = (n) => `${Number(n).toFixed(2).replace(".", ",")} €`;
 
 chrome.notifications.onClicked.addListener(async (id) => {
@@ -618,6 +761,13 @@ chrome.notifications.onClicked.addListener(async (id) => {
   if (id === "ae-updated") {
     chrome.notifications.clear(id);
     chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/analyse") });
+    return;
+  }
+  if (id.startsWith("sale-")) {
+    chrome.notifications.clear(id);
+    const st = await salesState();
+    const it = st.feed.find((x) => `sale-${x.vinted_id}` === id);
+    chrome.tabs.create({ url: it?.url || chrome.runtime.getURL("app/app.html?mode=tab#/concurrents") });
     return;
   }
   if (!id.startsWith("radar-")) return;
@@ -995,6 +1145,13 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
   "competitor:ids": async () => getCompetitorIds(),
+  "competitor:sales": async () => { const st = await salesState(); return { feed: st.feed, notify: st.notify !== false }; },
+  "competitor:salesNotify": async ({ on }) => { const st = await salesState(); st.notify = !!on; await chrome.storage.local.set({ [SALES_KEY]: st }); return { notify: st.notify }; },
+  "competitor:checkSales": async () => { await checkCompetitorSales(); const st = await salesState(); return { feed: st.feed }; },
+  "niche:search": async (msg) => nicheSearch(msg),
+  "item:link": async (msg) => linkItem(msg),
+  "diagnostic:run": async (msg) => diagnosticRun(msg),
+  "diagnostic:last": async () => (await chrome.storage.local.get("ae_diagnostic")).ae_diagnostic || null,
   // Second clic sur « Concurrent suivi » (sur Vinted) : le suivi s'arrête.
   "competitor:remove": async ({ sellerId, market }) => {
     const rows = await sb.rpc("aliedge_trackers");
