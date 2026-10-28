@@ -29,5 +29,6 @@ export const DEFAULT_SETTINGS = {
   condition: "all",          // all | new | very_good
   costPerSale: 0.5,          // emballage, étiquette… (€ par vente)
   shareAnalyses: true,       // chaque analyse enrichit le catalogue communautaire
+  shareLikes: true,          // les annonces mises en favori sur Vinted enrichissent la base commune (sans l'identité du membre)
   showPill: true,            // bouton flottant sur les fiches produit
 };

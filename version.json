@@ -1,6 +1,6 @@
 {
-  "version": "3.2.7",
-  "notes": "Catalogue : toutes les ventes Vinted constatées s'affichent, même sans fournisseur identifié (recherche Google Lens, AliExpress, Temu, Shein et lien à relier). Concurrents : alerte à chaque vente, fournisseur de chaque vente, analyse de niche et diagnostic de ton compte Vinted.",
+  "version": "3.2.8",
+  "notes": "Les annonces que tu vois sur Vinted (résultats, accueil, dressings, favoris) et celles que tu mets en favori enrichissent la base commune, sans aucune requête en plus vers Vinted. Catalogue : toutes les ventes constatées, même sans fournisseur. Concurrents : alertes de vente, niche et diagnostic de compte.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-28",
   "minVersion": "3.0.0"

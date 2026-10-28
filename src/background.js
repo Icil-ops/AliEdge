@@ -899,6 +899,22 @@ async function reportVintedItem(item, raw = null) {
 }
 
 
+// ───────────────────────── Annonces affichées par Vinted (aucune requête en plus) et favoris du membre
+const cardsSeen = new Map();
+async function reportCards({ items }) {
+  const settings = await getSettings();
+  if (!settings.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
+  const now = Date.now();
+  const fresh = items.filter((i) => Number(i?.vinted_id) > 0 && (i.liked || now - (cardsSeen.get(Number(i.vinted_id)) || 0) > 24 * 3600_000)).slice(0, 96);
+  if (!fresh.length) return { added: 0 };
+  for (const i of fresh) cardsSeen.set(Number(i.vinted_id), now);
+  while (cardsSeen.size > 5000) cardsSeen.delete(cardsSeen.keys().next().value);
+  // Favoris (« liked ») : marqués comme consultés pour que leurs ventes soient revérifiées chaque jour.
+  const payload = fresh.map(({ liked, ...i }) => ({ ...i, ...(liked && settings.shareLikes !== false ? { visited: true } : {}) }));
+  const n = await sb.rpc("aliedge_report_items", { _items: payload }).catch(() => 0);
+  return { added: n };
+}
+
 // ───────────────────────── Catalogue : ajout des produits d'une page de résultats (AliExpress, Temu, Shein)
 
 /** Lit les cartes produit visibles sur la page (aucune requête en plus : seulement ce que la page affiche). */
@@ -1129,6 +1145,7 @@ const handlers = {
   "saved:remove": async ({ productId }) => sb.remove("aliedge_saved", `product_id=eq.${encodeURIComponent(productId)}`),
   "vinted:item": async ({ item, raw }) => { await reportVintedItem(item, raw); return {}; },
   "vinted:member": async (msg) => reportMember(msg),
+  "vinted:cards": async (msg) => reportCards(msg),
   "tracker:add": async (msg) => addTracker(msg),
   "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
   "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
@@ -1212,7 +1229,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "vinted:cards", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

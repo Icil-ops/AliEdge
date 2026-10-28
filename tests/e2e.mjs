@@ -19,6 +19,7 @@ const prices = [22, 18, 19.5, 25, 20, 21, 17, 15, 23, 30];
 const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { amount: String(prices[i]), currency_code: "EUR" }, brand_title: i % 3 ? "Sans marque" : "Zara", size_title: "Taille unique", status: "Neuf avec étiquette", favourite_count: 4 + i, photo: { url: `https://images1.vinted.net/t/${i}.jpeg` }, url: `https://www.vinted.fr/items/${9000 + i}-sac`, user: { id: 8800 + i, login: `vendeuse${i}` } }));
 
 const calls = [];
+const reportBodies = [];
 const startedAt = Date.now();
 let radarCalls = 0;
 const barapicsCalls = [];
@@ -85,6 +86,7 @@ await ctx.route("**/*", async (route) => {
   if (url.protocol === "chrome-extension:") return route.continue();
   if (h.endsWith("supabase.co")) {
     calls.push(url.pathname);
+    if (url.pathname.endsWith("aliedge_report_items")) reportBodies.push(req.postData() || "");
     if (url.pathname.startsWith("/auth/v1/token") || url.pathname.startsWith("/auth/v1/signup")) return route.fulfill({ json: { access_token: "jwt", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "membre@example.com" } } });
     const name = url.pathname.split("/rpc/")[1];
     if (name && name in rpc) return route.fulfill({ json: rpc[name] });
@@ -108,7 +110,7 @@ await ctx.route("**/*", async (route) => {
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
-    if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
+    if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
   if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/w/wholesale")) {
@@ -456,6 +458,8 @@ rpc.aliedge_me.admin = false;
   if (box) await cat.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await cat.waitForTimeout(2500);
   check("survol d'une annonce : vendeur ajouté aux concurrents sans ouvrir l'annonce", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > before && cat.url().includes("/catalog"));
+  await cat.waitForTimeout(3500);
+  check("annonces affichées par Vinted ajoutées à la base sans requête en plus", reportBodies.some((b) => b.includes('"vinted_id":9001') && b.includes('"brand":"Zara"') && b.includes('"status":"active"')), reportBodies.slice(-1)[0]?.slice(0, 160));
   await cat.screenshot({ path: `${shots}/9b-catalogue-vinted.png` });
   await cat.close();
 }
