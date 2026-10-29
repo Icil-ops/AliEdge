@@ -475,40 +475,51 @@ export async function itemDetails(vintedId, market = "fr") {
 }
 
 /**
+ * Une commande de « Mes commandes → Ventes » (format relevé sur une vraie réponse Vinted, octobre 2026) :
+ * { transaction_id, conversation_id (texte), title, price: { amount }, status (texte), transaction_user_status
+ *   (completed | waiting | failed | needs_action…), date, photo_url }.
+ * Renvoie null si la vente n'a plus rien à expédier (expédiée, livrée, finalisée, remboursée ou annulée).
+ */
+export function pendingSaleFrom(o, market = "fr") {
+  const id = Number(o?.transaction_id ?? o?.id);
+  if (!id) return null;
+  const us = String(o.transaction_user_status || "").toLowerCase();
+  const text = String(o.status ?? o.status_title ?? "").toLowerCase();
+  if (["completed", "failed", "canceled", "cancelled", "refunded"].includes(us)) return null;
+  if (/expédi|envoy|shipped|en route|achemin|livr|deliver|finalis|termin|complet|annul|cancel|rembours|refund|retour/.test(text)) return null;
+  const photo = o.photo_url || o.photo?.url || o.photo?.thumbnails?.[0]?.url || null;
+  return {
+    transaction_id: id,
+    title: String(o.title || "Article vendu").slice(0, 200),
+    price: num(o.price),
+    photo: /^https:\/\//.test(photo || "") ? photo : null,
+    date: o.date || null,
+    status: String(o.status || "").trim().slice(0, 80),
+    buyer: o.user?.login || o.buyer?.login || o.opposite_user?.login || null,
+    url: o.conversation_id ? `https://${host(market)}/inbox/${encodeURIComponent(String(o.conversation_id))}` : null,
+    market,
+  };
+}
+
+/**
  * Ventes du membre pas encore expédiées (Vinted → Mes commandes → Ventes), pour les confier à la warehouse.
  * Lecture du compte connecté uniquement ; rien n'est publié.
  */
 export async function pendingSales(market = "fr") {
-  const out = [];
-  const seen = new Set();
-  for (const status of ["in_progress", "all"]) {
-    let res;
-    try { res = await vFetch(`https://${host(market)}/api/v2/my_orders?type=sold&status=${status}&page=1&per_page=40`, "json", market); }
-    catch (e) { if (["paused", "blocked", "rate_limited", "budget"].includes(e.code)) throw e; continue; }
-    if (res.status === 401 || res.status === 403) { const err = new Error("Connecte-toi à Vinted dans ce navigateur, puis réessaie."); err.code = "vinted_auth"; throw err; }
-    const b = res.body || {};
-    const list = b.my_orders || b.orders || b.transactions || b.items || [];
-    for (const o of Array.isArray(list) ? list : []) {
-      const id = Number(o.transaction_id ?? o.id);
-      if (!id || seen.has(id)) continue;
-      const statusText = String(o.status ?? o.transaction_status ?? o.status_title ?? "").toLowerCase();
-      // Déjà parti, livré, terminé ou annulé : rien à faire.
-      if (/envoy|expédi|shipped|en route|livr|deliver|termin|complet|finalis|annul|cancel|rembours|refund/.test(statusText)) continue;
-      seen.add(id);
-      const photo = o.photo?.url || o.photo?.thumbnails?.[0]?.url || o.item_photo?.url || (Array.isArray(o.photos) ? o.photos[0]?.url : null) || null;
-      out.push({
-        transaction_id: id,
-        title: String(o.title || o.item_title || o.items?.[0]?.title || "Article vendu").slice(0, 200),
-        price: num(o.price ?? o.item_price ?? o.total_item_price),
-        photo: /^https:\/\//.test(photo || "") ? photo : null,
-        date: o.date || o.created_at || o.updated_at || null,
-        status: String(o.status ?? o.status_title ?? "").slice(0, 80),
-        buyer: o.user?.login || o.buyer?.login || o.opposite_user?.login || null,
-        url: o.conversation_id ? `https://${host(market)}/inbox/${Number(o.conversation_id)}` : o.transaction_id ? `https://${host(market)}/transaction/${id}` : null,
-        market,
-      });
+  const out = new Map();
+  for (const [status, pages] of [["in_progress", 2], ["all", 3]]) {
+    for (let page = 1; page <= pages; page++) {
+      let res;
+      try { res = await vFetch(`https://${host(market)}/api/v2/my_orders?type=sold&status=${status}&page=${page}&per_page=20`, "json", market); }
+      catch (e) { if (["paused", "blocked", "rate_limited", "budget"].includes(e.code)) throw e; break; }
+      if (res.status === 401 || res.status === 403) { const err = new Error("Connecte-toi à Vinted dans ce navigateur, puis réessaie."); err.code = "vinted_auth"; throw err; }
+      const list = Array.isArray(res.body?.my_orders) ? res.body.my_orders : [];
+      for (const o of list) { const p = pendingSaleFrom(o, market); if (p && !out.has(p.transaction_id)) out.set(p.transaction_id, p); }
+      const total = Number(res.body?.pagination?.total_pages) || 1;
+      if (page >= total || list.length < 20) break;
+      await new Promise((r) => setTimeout(r, 900 + Math.random() * 900));
     }
-    if (out.length || status === "all") break;
+    if (out.size) break;
   }
-  return out.slice(0, 40);
+  return [...out.values()].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).slice(0, 40);
 }
