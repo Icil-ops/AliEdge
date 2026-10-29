@@ -128,7 +128,14 @@ async function getBridgeTab(market) {
     bridgeTab = null;
   }
   const existing = await chrome.tabs.query({ url: `https://${h}/*` });
-  const usable = existing.find((t) => !t.discarded && t.status === "complete") || existing[0];
+  // Tâche de fond : jamais dans l'onglet Vinted que le membre regarde ou qui est en train de charger,
+  // pour ne pas ralentir sa page ; on attend le prochain passage.
+  const front = async (t) => { if (!t.active) return false; try { return (await chrome.windows.get(t.windowId)).focused; } catch { return false; } };
+  const ready = existing.filter((t) => !t.discarded && t.status === "complete");
+  let usable = null;
+  for (const t of ready) if (!(await front(t))) { usable = t; break; }
+  if (!usable && !quiet) usable = ready[0] || existing[0];
+  if (!usable && quiet && existing.length) throw new VintedError("Onglet Vinted occupé : tâche de fond reportée.", "busy");
   if (usable) {
     bridgeTab = { id: usable.id, market, owned: false };
     return usable.id;
@@ -171,7 +178,8 @@ async function bridgeFetch(url, kind, market) {
   });
   scheduleBridgeClose();
   let out = res?.result;
-  if (out?.error && out.status === 401 && !bridgeFetch.reloaded) {
+  // Jamais de rechargement d'un onglet du membre : seulement d'un onglet ouvert par AliEdge.
+  if (out?.error && out.status === 401 && !bridgeFetch.reloaded && bridgeTab?.owned) {
     // Session Vinted expirée dans l'onglet : on le recharge (Vinted renouvelle sa session) puis on réessaie une fois.
     bridgeFetch.reloaded = true;
     try {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
   "short_name": "AliEdge",
-  "version": "3.2.9",
+  "version": "3.3.0",
   "description": "Gratuit. Sur AliExpress, Temu et Shein : prix de revente Vinted, marge et ventes réellement constatées. Par Ivan Bara.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -137,5 +137,8 @@
       "https://barapics.com/*",
       "https://www.barapics.com/*"
     ]
-  }
+  },
+  "optional_host_permissions": [
+    "https://www.leboncoin.fr/*"
+  ]
 }

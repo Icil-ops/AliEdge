@@ -5,7 +5,7 @@ import * as vinted from "./lib/vinted.js";
 import { analyse, toEur, parsePrice, round2 } from "./lib/pricing.js";
 import { buildQuery, guessCategory } from "./lib/text.js";
 import { extractProduct, detectPlatform, sourceIdFromUrl, canonicalUrl } from "./lib/extract.js";
-const STOP_CODES = new Set(["blocked", "rate_limited", "paused", "budget"]);
+const STOP_CODES = new Set(["blocked", "rate_limited", "paused", "budget", "busy"]);
 
 const HISTORY_KEY = "ae_history";
 const WATCH_KEY = "ae_watch";
@@ -111,6 +111,7 @@ async function setup() {
     chrome.contextMenus.create({ id: "ae-search", title: "Chercher « %s » sur Vinted avec AliEdge", contexts: ["selection"] });
   });
   await syncAlarms();
+  syncLbcScript().catch(() => {});
   checkForUpdate().catch(() => {});
 }
 
@@ -570,7 +571,7 @@ async function radarTick() {
     for (const f of active) {
       let items;
       try { items = await vinted.searchNewest({ query: f.query, market: f.market, condition: f.condition, priceMin: f.priceMin, priceMax: f.priceMax, params: f.params || null }); }
-      catch (e) { if (["blocked", "rate_limited", "paused", "budget"].includes(e.code)) break; continue; }
+      catch (e) { if (["blocked", "rate_limited", "paused", "budget", "busy"].includes(e.code)) break; continue; }
       const seen = new Set(st.seen[f.id] || []);
       const first = seen.size === 0;            // premier passage : on mémorise sans notifier
       const news = items.filter((i) => !seen.has(i.vinted_id));
@@ -915,6 +916,43 @@ async function reportCards({ items }) {
   return { added: n };
 }
 
+// ───────────────────────── Leboncoin (facultatif) : lecture des annonces affichées, sans aucune requête vers Leboncoin
+const LBC_ORIGINS = ["https://www.leboncoin.fr/*"];
+async function lbcEnabled() { try { return await chrome.permissions.contains({ origins: LBC_ORIGINS }); } catch { return false; } }
+/** Le script Leboncoin n'est installé que si le membre a accordé l'accès à leboncoin.fr (permission facultative). */
+async function syncLbcScript() {
+  const on = await lbcEnabled();
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["ae-lbc"] }).catch(() => []);
+  if (on && !existing.length) {
+    await chrome.scripting.registerContentScripts([{ id: "ae-lbc", matches: LBC_ORIGINS, js: ["src/content/harvest-lbc.js"], runAt: "document_idle", persistAcrossSessions: true }]);
+  } else if (!on && existing.length) {
+    await chrome.scripting.unregisterContentScripts({ ids: ["ae-lbc"] });
+  }
+  return on;
+}
+chrome.permissions.onAdded.addListener(() => { syncLbcScript().catch(() => {}); });
+chrome.permissions.onRemoved.addListener(() => { syncLbcScript().catch(() => {}); });
+
+const lbcSeen = new Map();
+async function reportLbc({ items }) {
+  const settings = await getSettings();
+  if (!settings.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
+  const now = Date.now();
+  const fresh = items.filter((i) => Number(i?.list_id) > 0 && (i.status !== "active" || now - (lbcSeen.get(Number(i.list_id)) || 0) > 24 * 3600_000)).slice(0, 96);
+  if (!fresh.length) return { added: 0 };
+  for (const i of fresh) lbcSeen.set(Number(i.list_id), now);
+  while (lbcSeen.size > 5000) lbcSeen.delete(lbcSeen.keys().next().value);
+  const n = await sb.rpc("aliedge_report_lbc_items", { _items: fresh }).catch(() => 0);
+  return { added: n };
+}
+async function lbcLinkItem({ listId, url }) {
+  const platform = detectPlatform(url);
+  const id = sourceIdFromUrl(url);
+  if (!platform || !id) throw new sb.ApiError("Colle le lien d'une fiche produit AliExpress, Temu ou Shein.", 400, "invalid");
+  await sb.rpc("aliedge_lbc_link_item", { _list_id: Number(listId), _product: { platform, source_id: id, url: canonicalUrl(url) } });
+  return { platform };
+}
+
 // ───────────────────────── Catalogue : ajout des produits d'une page de résultats (AliExpress, Temu, Shein)
 
 /** Lit les cartes produit visibles sur la page (aucune requête en plus : seulement ce que la page affiche). */
@@ -1146,6 +1184,10 @@ const handlers = {
   "vinted:item": async ({ item, raw }) => { await reportVintedItem(item, raw); return {}; },
   "vinted:member": async (msg) => reportMember(msg),
   "vinted:cards": async (msg) => reportCards(msg),
+  "lbc:cards": async (msg) => reportLbc(msg),
+  "lbc:status": async () => ({ enabled: await syncLbcScript() }),
+  "lbc:feed": async ({ search = null, offset = 0, dropship = true } = {}) => sb.rpc("aliedge_lbc_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0), _dropship: dropship !== false }),
+  "lbc:link": async (msg) => lbcLinkItem(msg),
   "tracker:add": async (msg) => addTracker(msg),
   "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
   "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
@@ -1229,7 +1271,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "vinted:cards", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

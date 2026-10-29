@@ -2,7 +2,7 @@
 // Usage : node tests/e2e.mjs [dossier-captures]
 import { createRequire } from "node:module";
 const { chromium } = createRequire(import.meta.url)("playwright");
-import { readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
@@ -20,8 +20,10 @@ const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { am
 
 const calls = [];
 const reportBodies = [];
+const lbcBodies = [];
 const startedAt = Date.now();
 let radarCalls = 0;
+const lbcRequests = [];
 const barapicsCalls = [];
 const rpc = {
   aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, skool: true, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
@@ -52,6 +54,8 @@ const rpc = {
   aliedge_competitor_sales_since: [{ vinted_id: 9000, seller_id: 555, label: "vendeuse", title: "Sac bandoulière cuir noir", brand: null, price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", sold_at: new Date(Date.now() - 36e5).toISOString(), days_to_sell: 1.2, product_url: null, product_price: null }],
   aliedge_niche_stats: { sold: 7, active_known: 12, median_price: 20, median_days: 3.5, top_sellers: [{ seller_id: 8801, sold: 4, median_price: 21 }, { seller_id: 555, sold: 2, median_price: 19 }], recent: [{ title: "Sac cuir femme", price: 19, url: "https://www.vinted.fr/items/7002", photo_url: "https://images1.vinted.net/t/s2.jpeg", sold_at: new Date(Date.now() - 864e5).toISOString() }] },
   aliedge_sales_feed: [{ vinted_id: 7101, title: "Tapis multicolore", brand: "Vintage", size: null, price: 32, photo_url: "https://images1.vinted.net/t/s9.jpeg", url: "https://www.vinted.fr/items/7101", sold_at: new Date(Date.now() - 864e5).toISOString(), days_to_sell: 14, product_title: null, product_url: null, product_price: null, product_platform: null, total_count: 1 }],
+  aliedge_report_lbc_items: 2,
+  aliedge_lbc_sales_feed: [{ list_id: 2900000009, title: "Lampe de chevet LED tactile", price: 18, category: "Décoration", department: "Rhône", photo_url: "https://img.leboncoin.fr/api/v1/lbcpb1/images/a.jpg", url: "https://www.leboncoin.fr/ad/decoration/2900000009", shipping: true, sold_at: new Date(Date.now() - 36e5).toISOString(), days_to_sell: 4, certainty: "probable", product_title: null, product_url: null, product_price: null, product_platform: null, total_count: 1 }],
   aliedge_link_item: "00000000-0000-0000-0000-0000000000bb",
   aliedge_picks_feed: { member: true, picks: [{ id: "p1", kind: "video", title: "Analyse : le compte qui vend 40 sacs par semaine", note: "Regarde sa stratégie de prix.", url: "https://www.skool.com/vinteddrop/v1", image_url: null, created_at: new Date().toISOString(), locked: false }, { id: "p2", kind: "product", title: "Sac seau tressé", note: null, url: "https://fr.aliexpress.com/item/1005006.html", image_url: "https://ae01.alicdn.com/kf/apres-sac-bandouliere.jpg", created_at: new Date().toISOString(), locked: false }] },
   aliedge_skool_challenge: { installed: 37, goal: 50 },
@@ -71,10 +75,18 @@ const rpc = {
   })),
 };
 
+// Copie de test de l'extension : l'accès facultatif à leboncoin.fr est déjà accordé (impossible de cliquer la fenêtre Chrome en headless).
+const ext = path.join(os.tmpdir(), `aliedge-ext-${Date.now()}`);
+cpSync(root, ext, { recursive: true, filter: (src) => !/[\\/](node_modules|\.git|shots)([\\/]|$)/.test(src.slice(root.length)) });
+{
+  const m = JSON.parse(readFileSync(path.join(ext, "manifest.json"), "utf8"));
+  m.host_permissions = [...m.host_permissions, ...(m.optional_host_permissions || [])];
+  writeFileSync(path.join(ext, "manifest.json"), JSON.stringify(m, null, 2));
+}
 const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `aliedge-profile-${Date.now()}`), {
   headless: true,
   channel: "chromium",
-  args: [`--disable-extensions-except=${root}`, `--load-extension=${root}`],
+  args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
   viewport: { width: 420, height: 900 },
 });
 
@@ -87,12 +99,21 @@ await ctx.route("**/*", async (route) => {
   if (h.endsWith("supabase.co")) {
     calls.push(url.pathname);
     if (url.pathname.endsWith("aliedge_report_items")) reportBodies.push(req.postData() || "");
+    if (url.pathname.endsWith("aliedge_report_lbc_items")) lbcBodies.push(req.postData() || "");
     if (url.pathname.startsWith("/auth/v1/token") || url.pathname.startsWith("/auth/v1/signup")) return route.fulfill({ json: { access_token: "jwt", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "membre@example.com" } } });
     const name = url.pathname.split("/rpc/")[1];
     if (name && name in rpc) return route.fulfill({ json: rpc[name] });
     if (url.pathname.includes("/rest/v1/aliedge_saved")) return route.fulfill({ json: [] });
     if (url.pathname.includes("/rest/v1/app_settings")) return route.fulfill({ json: [] });
     return route.fulfill({ status: 404, json: { message: "not mocked" } });
+  }
+  if (h === "www.leboncoin.fr") {
+    lbcRequests.push(url.pathname);
+    if (url.pathname.startsWith("/ad/decoration/2900000003")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Leboncoin</title><main><h1>Cette annonce n'est plus disponible</h1></main>" });
+    const next = { props: { pageProps: { searchData: { total: 2, ads: [
+      { list_id: 2900000001, subject: "Lampe de chevet LED tactile", price: [18], category_name: "Décoration", location: { department_name: "Rhône", city: "Lyon" }, images: { urls: ["https://img.leboncoin.fr/api/v1/lbcpb1/images/a.jpg"] }, url: "https://www.leboncoin.fr/ad/decoration/2900000001", first_publication_date: "2026-10-25 10:00:00", status: "active", attributes: [{ key: "shippable", value: "true" }], owner: { name: "Jean Dupont" } },
+      { list_id: 2900000002, subject: "Plaid XXL doux", price: [25], category_name: "Linge de maison", location: { department_name: "Nord" }, images: { urls: ["https://img.leboncoin.fr/api/v1/lbcpb1/images/b.jpg"] }, url: "https://www.leboncoin.fr/ad/linge_de_maison/2900000002", first_publication_date: "2026-10-20 09:00:00", status: "active" } ] } } } };
+    return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><main><p>Résultats</p></main><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(next)}</script>` });
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
     if (url.pathname.startsWith("/api/v2/catalog/items") && url.searchParams.get("order") === "newest_first") {
@@ -108,6 +129,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname === "/api/v2/users") return route.fulfill({ json: { users: [{ id: 8800, login: "vendeuse0" }, { id: 9911, login: "vendeuse01" }] } });
     if (/^\/api\/v2\/users\/\d+$/.test(url.pathname)) return route.fulfill({ json: { user: { id: Number(url.pathname.split("/").pop()), login: "moncompte", feedback_reputation: 0.96, feedback_count: 23, followers_count: 12, item_count: 4, photo: { url: "https://images1.vinted.net/t/u.jpeg" }, about: "Articles neufs, envoi rapide depuis l'entrepôt." } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
+    if (url.pathname.startsWith("/inbox")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Messages | Vinted</title><main><h2><a href=\"/member/9090-gd02840\">gd02840</a></h2><p>Ta vente est finalisée.</p><a href=\"/member/9090-gd02840/feedback\">Évaluer</a></main>" });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
     if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
@@ -462,6 +484,36 @@ rpc.aliedge_me.admin = false;
   check("annonces affichées par Vinted ajoutées à la base sans requête en plus", reportBodies.some((b) => b.includes('"vinted_id":9001') && b.includes('"brand":"Zara"') && b.includes('"status":"active"')), reportBodies.slice(-1)[0]?.slice(0, 160));
   await cat.screenshot({ path: `${shots}/9b-catalogue-vinted.png` });
   await cat.close();
+}
+
+// 5b bis. Messagerie : aucun bouton « + Concurrent » (ce sont tes acheteurs)
+{
+  const inbox = await ctx.newPage();
+  await inbox.goto("https://www.vinted.fr/inbox/123");
+  await inbox.waitForTimeout(2500);
+  check("messagerie Vinted : aucun bouton « + Concurrent »", (await inbox.locator(".aliedge-competitor").count()) === 0);
+  await inbox.close();
+}
+
+// 5c. Leboncoin : annonces affichées lues sans requête en plus, annonce disparue, ventes dans le catalogue
+{
+  const lbc = await ctx.newPage();
+  await lbc.goto("https://www.leboncoin.fr/recherche?text=lampe");
+  await lbc.waitForTimeout(5500);
+  const body = lbcBodies.join("\n");
+  check("Leboncoin : annonces affichées ajoutées à la base (sans le vendeur)", body.includes('"list_id":2900000001') && body.includes('"department":"Rhône"') && body.includes('"shipping":true') && !body.includes("Dupont") && !body.includes("Lyon"), body.slice(0, 160));
+  await lbc.goto("https://www.leboncoin.fr/ad/decoration/2900000003");
+  await lbc.waitForTimeout(5500);
+  check("Leboncoin : annonce disparue signalée", lbcBodies.some((b) => b.includes('"list_id":2900000003') && b.includes('"status":"gone"')));
+  check("Leboncoin : aucune requête d'AliEdge vers Leboncoin", lbcRequests.every((p) => p === "/recherche" || p.startsWith("/ad/decoration/2900000003")), lbcRequests.join(","));
+  await lbc.close();
+  await page.goto(app("/catalogue"));
+  await page.waitForSelector("#salesfeed [data-plat='lbc']", { timeout: 8000 }).catch(() => {});
+  await page.click("#salesfeed [data-plat='lbc']").catch(() => {});
+  await page.waitForSelector("#salesfeed .sale-row", { timeout: 6000 }).catch(() => {});
+  const t = await page.locator("#salesfeed").innerText().catch(() => "");
+  check("catalogue : ventes Leboncoin (estimation) avec recherche du fournisseur", /Ventes Leboncoin/.test(t) && /estimation/.test(t) && (await page.locator("#salesfeed form[data-lbclink]").count()) === 1, t.slice(0, 120));
+  await page.click("#salesfeed [data-plat='vinted']").catch(() => {});
 }
 
 // 6. Profil d'un vendeur : son dressing met à jour le catalogue

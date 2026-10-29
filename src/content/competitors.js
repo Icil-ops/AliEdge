@@ -124,6 +124,8 @@
 
   function decorate() {
     if (!loggedIn) return;
+    // Messagerie, commandes, paramètres : les profils sont tes acheteurs, pas des concurrents.
+    if (/^\/(inbox|my_orders|transactions|settings|wallet|notifications)/.test(location.pathname)) return;
     // Liens vers un profil qui affichent un pseudo (pas seulement l'avatar).
     for (const a of document.querySelectorAll('a[href*="/member/"]:not([data-aliedge])')) {
       a.dataset.aliedge = "1";
@@ -131,7 +133,9 @@
       if (!sellerId) continue;
       if (a.closest("header, nav, footer, [role=menu], [role=dialog]")) continue;
       const name = (a.textContent || "").replace(/\s+/g, " ").trim();
-      if (!name || name.length > 40) continue;
+      // Seulement un pseudo Vinted (lettres, chiffres, . _ -), jamais un bouton (« Évaluer », « Voir le profil »…).
+      if (!/^[A-Za-z0-9._-]{2,40}$/.test(name)) continue;
+      if (a.closest('button, [role="button"]') || /button/i.test(a.className || "")) continue;
       a.insertAdjacentElement("afterend", makeButton(sellerId, name));
     }
     // Cartes d'annonces (recherche, catalogue, fil) : bouton au survol, le vendeur est lu sur l'annonce au clic.
@@ -156,7 +160,8 @@
   }
 
   let queued = false;
-  const schedule = () => { if (queued) return; queued = true; setTimeout(() => { queued = false; decorate(); }, 600); };
+  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 2000 }) : setTimeout(fn, 0));
+  const schedule = () => { if (queued) return; queued = true; setTimeout(() => idle(() => { queued = false; decorate(); }), 800); };
 
   refreshTracked().then(() => {
     decorate();

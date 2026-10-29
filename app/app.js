@@ -697,41 +697,70 @@ function viewCatalogue() {
 async function loadSalesFeed(append = false) {
   const box = document.getElementById("salesfeed");
   if (!box || !state.me) return;
-  const sf = state.salesFeed || (state.salesFeed = { rows: [], total: 0, key: null, at: 0, dropship: (() => { try { return localStorage.getItem("ae_dropship") !== "0"; } catch { return true; } })() });
-  const key = `${sf.dropship ? 1 : 0}|${state.catalog.filters.search || ""}`;
-  // Le catalogue se redessine souvent : on réutilise la liste chargée (2 min) tant que la recherche ne change pas.
+  const pref = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+  const save = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignoré */ } };
+  const sf = state.salesFeed || (state.salesFeed = { rows: [], total: 0, key: null, at: 0, dropship: pref("ae_dropship", "1") !== "0", platform: pref("ae_sales_platform", "vinted") === "lbc" ? "lbc" : "vinted", lbcOn: null });
+  const lbc = sf.platform === "lbc";
+  if (lbc && sf.lbcOn !== true) sf.lbcOn = (await api("lbc:status").catch(() => ({ enabled: false }))).enabled;
+  const key = `${sf.platform}|${sf.dropship ? 1 : 0}|${state.catalog.filters.search || ""}`;
+  const name = lbc ? "Leboncoin" : "Vinted";
+  const head = (extra = "") => `
+    <div class="row between wrap"><h2>Ventes ${name} constatées</h2>${extra}</div>
+    <div class="row between wrap" style="gap:10px">
+      <div class="seg" role="group" aria-label="Plateforme de revente"><button type="button" data-plat="vinted" aria-pressed="${!lbc}">Vinted</button><button type="button" data-plat="lbc" aria-pressed="${lbc}">Leboncoin</button></div>
+      <label class="switch" style="padding:0;border:0" title="Écarte les grandes marques connues (Nike, Adidas, Zara…)"><span><b>Dropshipping uniquement</b></span><input type="checkbox" id="dropship" ${sf.dropship ? "checked" : ""}></label>
+    </div>`;
+  const bindHead = () => {
+    document.getElementById("dropship")?.addEventListener("change", (e) => { sf.dropship = e.currentTarget.checked; save("ae_dropship", sf.dropship ? "1" : "0"); loadSalesFeed(); });
+    box.querySelectorAll("[data-plat]").forEach((b) => b.addEventListener("click", () => { sf.platform = b.dataset.plat; save("ae_sales_platform", sf.platform); loadSalesFeed(); }));
+  };
+  if (lbc && !sf.lbcOn) {
+    box.innerHTML = `${head()}
+      <div class="card pad stack" style="gap:8px">
+        <b>Active Leboncoin dans AliEdge</b>
+        <p class="small muted" style="margin:0">AliEdge lira les annonces Leboncoin que tu affiches (recherches, annonces) pour repérer celles qui se vendent. Aucune requête en plus vers Leboncoin, rien n'est publié ni envoyé à ta place, et ton compte n'est jamais partagé. Chrome va te demander l'accès à leboncoin.fr.</p>
+        <button class="btn primary" type="button" id="lbcenable">Activer Leboncoin</button>
+      </div>`;
+    bindHead();
+    document.getElementById("lbcenable")?.addEventListener("click", async () => {
+      let ok = false;
+      try { ok = await chrome.permissions.request({ origins: ["https://www.leboncoin.fr/*"] }); } catch { ok = false; }
+      if (ok) { sf.lbcOn = (await api("lbc:status").catch(() => ({ enabled: true }))).enabled; toast("Leboncoin activé : ouvre une recherche sur leboncoin.fr"); sf.key = null; loadSalesFeed(); }
+      else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
+    });
+    return;
+  }
+  // Le catalogue se redessine souvent : on réutilise la liste chargée (2 min) tant que rien ne change.
   if (append || sf.key !== key || Date.now() - sf.at > 120_000) {
     let rows;
-    try { rows = await api("sales:feed", { search: state.catalog.filters.search || null, offset: append ? sf.rows.length : 0, dropship: sf.dropship }); }
+    try { rows = await api(lbc ? "lbc:feed" : "sales:feed", { search: state.catalog.filters.search || null, offset: append ? sf.rows.length : 0, dropship: sf.dropship }); }
     catch { box.innerHTML = ""; return; }
     sf.rows = append ? [...sf.rows, ...rows] : rows;
     sf.total = Number(rows[0]?.total_count ?? sf.rows.length);
     sf.key = key; sf.at = Date.now();
   }
   if (!document.body.contains(box)) return;
-  const toggle = `<label class="switch" style="padding:0;border:0" title="Écarte les grandes marques connues (Nike, Adidas, Zara…)"><span><b>Dropshipping Vinted uniquement</b></span><input type="checkbox" id="dropship" ${sf.dropship ? "checked" : ""}></label>`;
-  const bindToggle = () => document.getElementById("dropship")?.addEventListener("change", (e) => { sf.dropship = e.currentTarget.checked; try { localStorage.setItem("ae_dropship", sf.dropship ? "1" : "0"); } catch { /* ignoré */ } loadSalesFeed(); });
   if (!sf.rows.length) {
-    box.innerHTML = `<div class="row between wrap"><h2>Ventes Vinted constatées</h2>${toggle}</div><p class="small muted" style="margin:0">${sf.dropship ? "Aucune vente de produit sans grande marque pour l'instant. Désactive le filtre pour voir toutes les ventes." : "Aucune vente constatée pour l'instant."}</p>`;
-    bindToggle();
+    box.innerHTML = `${head()}<p class="small muted" style="margin:0">${lbc ? "Aucune vente Leboncoin repérée pour l'instant. Elles apparaissent quand des annonces vues par les membres disparaissent ou passent en « vendu »." : sf.dropship ? "Aucune vente de produit sans grande marque pour l'instant. Désactive le filtre pour voir toutes les ventes." : "Aucune vente constatée pour l'instant."}</p>`;
+    bindHead();
     return;
   }
+  const badge = (r) => lbc ? (r.certainty === "sold" ? `<span class="badge-sold">Vendu</span>` : `<span class="badge-sold" title="L'annonce a disparu moins de 30 jours après sa mise en ligne">Vendu (estimation)</span>`) : `<span class="badge-sold">Vendu</span>`;
+  const extra = (r) => lbc ? `${r.department ? ` · ${esc(r.department)}` : ""}${r.shipping ? " · livraison" : ""}` : r.brand ? ` · ${esc(r.brand)}` : "";
   const line = (r) => `
     <div class="sale-row">
       <a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" style="grid-template-columns:56px 1fr auto">
         ${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
-        <div><div class="t">${esc(r.title || "Annonce Vinted")}</div><div class="m"><span class="badge-sold">Vendu</span> ${esc(ago(new Date(r.sold_at).getTime()))}${r.days_to_sell != null ? ` · parti en ${esc(String(r.days_to_sell).replace(".", ","))} j` : ""}${r.brand ? ` · ${esc(r.brand)}` : ""}</div></div>
-        <div class="p num">${eur(Number(r.price))}</div>
+        <div><div class="t">${esc(r.title || `Annonce ${name}`)}</div><div class="m">${badge(r)} ${esc(ago(new Date(r.sold_at).getTime()))}${r.days_to_sell != null ? ` · parti en ${esc(String(r.days_to_sell).replace(".", ","))} j` : ""}${extra(r)}</div></div>
+        <div class="p num">${r.price != null ? eur(Number(r.price)) : ""}</div>
       </a>${supplierHtml(r)}
     </div>`;
-  box.innerHTML = `
-    <div class="row between wrap"><h2>Ventes Vinted constatées</h2><span class="small muted">${sf.total} vente${sf.total > 1 ? "s" : ""}</span></div>
-    ${toggle}
-    <p class="small muted" style="margin:0">Chaque annonce vue vendue par la communauté, même quand le fournisseur n'est pas encore identifié. Trouve-le et relie-le : il rejoint le catalogue pour tout le monde.</p>
+  box.innerHTML = `${head(`<span class="small muted">${sf.total} vente${sf.total > 1 ? "s" : ""}</span>`)}
+    <p class="small muted" style="margin:0">${lbc ? "Leboncoin ne publie pas ses ventes : « Vendu » quand Leboncoin l'affiche, « estimation » quand l'annonce a disparu moins de 30 jours après sa mise en ligne." : "Chaque annonce vue vendue par la communauté, même quand le fournisseur n'est pas encore identifié."} Trouve le fournisseur et relie-le : il rejoint le catalogue pour tout le monde.</p>
     <div class="items">${sf.rows.map(line).join("")}</div>
     ${sf.rows.length < sf.total ? `<button id="salesmore" class="btn block" type="button">Voir plus de ventes</button>` : ""}`;
   bindSupplierForms(box);
-  bindToggle();
+  bindHead();
   document.getElementById("salesmore")?.addEventListener("click", () => loadSalesFeed(true));
 }
 
@@ -1136,7 +1165,7 @@ function supplierHtml(i) {
   }
   return `<details class="supplier small"><summary>Trouver le fournisseur</summary>
     <div class="row wrap" style="gap:6px;margin:6px 0">${supplierLinks(i).map(([n, u]) => `<a class="btn ghost small" href="${safeUrl(u)}" target="_blank" rel="noopener">${esc(n)}</a>`).join("")}</div>
-    <form class="row" data-link="${esc(i.vinted_id)}" style="gap:6px"><input class="input" type="url" placeholder="Colle ici le lien du produit trouvé" aria-label="Lien du produit fournisseur" style="flex:1" required><button class="btn primary small" type="submit">Relier</button></form>
+    <form class="row" ${i.list_id ? `data-lbclink="${esc(i.list_id)}"` : `data-link="${esc(i.vinted_id)}"`} style="gap:6px"><input class="input" type="url" placeholder="Colle ici le lien du produit trouvé" aria-label="Lien du produit fournisseur" style="flex:1" required><button class="btn primary small" type="submit">Relier</button></form>
     <p class="small muted" style="margin:4px 0 0">Le produit relié rejoint le catalogue commun : tout le monde voit ensuite le fournisseur de cette vente.</p>
   </details>`;
 }
@@ -1284,12 +1313,12 @@ function bindNicheResults(root) {
   }));
 }
 function bindSupplierForms(root) {
-  root.querySelectorAll("form[data-link]").forEach((f) => f.addEventListener("submit", async (e) => {
+  root.querySelectorAll("form[data-link], form[data-lbclink]").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
     const input = f.querySelector("input"), btn = f.querySelector("button");
     btn.disabled = true;
     try {
-      const r = await api("item:link", { vintedId: f.dataset.link, url: input.value.trim() });
+      const r = f.dataset.lbclink ? await api("lbc:link", { listId: f.dataset.lbclink, url: input.value.trim() }) : await api("item:link", { vintedId: f.dataset.link, url: input.value.trim() });
       f.closest("details").outerHTML = `<div class="supplier ok small"><span>Fournisseur ${esc(PLATFORM_NAME[r.platform] || "")} relié</span><a href="${safeUrl(input.value.trim())}" target="_blank" rel="noopener">Voir le produit</a></div>`;
       toast("Produit relié à la vente");
     } catch (x) { btn.disabled = false; toast(x.message); }

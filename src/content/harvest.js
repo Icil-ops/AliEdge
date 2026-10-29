@@ -44,7 +44,10 @@
     const items = readCards();
     if (items.length) chrome.runtime.sendMessage({ type: "vinted:cards", items }).catch(() => {});
   }
-  const schedule = () => { if (!timer) timer = setTimeout(flush, 2500); };
+  // Lecture quand la page est au repos et visible : jamais pendant que la page charge ou s'anime.
+  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 5000 }) : setTimeout(fn, 0));
+  const schedule = () => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, 3000); };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
   // Clic sur le cœur (favori) d'une annonce : elle est marquée comme intéressante, sans aucune requête vers Vinted.
   document.addEventListener("click", (e) => {
     const btn = e.target.closest?.('button[data-testid*="favourite"], button[aria-label*="avori"], button[aria-label*="avourite"], [data-testid*="favourite-button"]');
