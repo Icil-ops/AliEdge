@@ -1,7 +1,7 @@
 {
-  "version": "3.4.0",
-  "notes": "Achat malin : historique des prix de chaque produit, même produit moins cher chez d'autres vendeurs, recherche par image (clic droit sur une photo ou Alt+Maj+S), avis IA de la fiche et codes promo partagés au moment de payer. Ton propre compte Vinted n'est jamais publié dans AliEdge.",
+  "version": "3.4.1",
+  "notes": "Achat malin : historique des prix, même produit moins cher chez d'autres vendeurs, recherche par image (clic droit ou Alt+Maj+S), avis IA de la fiche, codes promo au paiement. Warehouse : tes ventes Vinted à expédier apparaissent dans ton espace. Ton propre compte Vinted n'est jamais publié.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-10-29",
+  "releaseDate": "2026-10-30",
   "minVersion": "3.0.0"
 }

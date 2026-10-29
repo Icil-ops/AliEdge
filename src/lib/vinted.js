@@ -473,3 +473,42 @@ export async function itemDetails(vintedId, market = "fr") {
   }
   return null;
 }
+
+/**
+ * Ventes du membre pas encore expédiées (Vinted → Mes commandes → Ventes), pour les confier à la warehouse.
+ * Lecture du compte connecté uniquement ; rien n'est publié.
+ */
+export async function pendingSales(market = "fr") {
+  const out = [];
+  const seen = new Set();
+  for (const status of ["in_progress", "all"]) {
+    let res;
+    try { res = await vFetch(`https://${host(market)}/api/v2/my_orders?type=sold&status=${status}&page=1&per_page=40`, "json", market); }
+    catch (e) { if (["paused", "blocked", "rate_limited", "budget"].includes(e.code)) throw e; continue; }
+    if (res.status === 401 || res.status === 403) { const err = new Error("Connecte-toi à Vinted dans ce navigateur, puis réessaie."); err.code = "vinted_auth"; throw err; }
+    const b = res.body || {};
+    const list = b.my_orders || b.orders || b.transactions || b.items || [];
+    for (const o of Array.isArray(list) ? list : []) {
+      const id = Number(o.transaction_id ?? o.id);
+      if (!id || seen.has(id)) continue;
+      const statusText = String(o.status ?? o.transaction_status ?? o.status_title ?? "").toLowerCase();
+      // Déjà parti, livré, terminé ou annulé : rien à faire.
+      if (/envoy|expédi|shipped|en route|livr|deliver|termin|complet|finalis|annul|cancel|rembours|refund/.test(statusText)) continue;
+      seen.add(id);
+      const photo = o.photo?.url || o.photo?.thumbnails?.[0]?.url || o.item_photo?.url || (Array.isArray(o.photos) ? o.photos[0]?.url : null) || null;
+      out.push({
+        transaction_id: id,
+        title: String(o.title || o.item_title || o.items?.[0]?.title || "Article vendu").slice(0, 200),
+        price: num(o.price ?? o.item_price ?? o.total_item_price),
+        photo: /^https:\/\//.test(photo || "") ? photo : null,
+        date: o.date || o.created_at || o.updated_at || null,
+        status: String(o.status ?? o.status_title ?? "").slice(0, 80),
+        buyer: o.user?.login || o.buyer?.login || o.opposite_user?.login || null,
+        url: o.conversation_id ? `https://${host(market)}/inbox/${Number(o.conversation_id)}` : o.transaction_id ? `https://${host(market)}/transaction/${id}` : null,
+        market,
+      });
+    }
+    if (out.length || status === "all") break;
+  }
+  return out.slice(0, 40);
+}

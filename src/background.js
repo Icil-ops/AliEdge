@@ -1568,6 +1568,23 @@ const handlers = {
   "capture:start": async () => { const t = await activeTab(); await startCapture(t); return {}; },
 };
 
+// ───────────────────────── Warehouse (ivanbara.com/warehouse) : ventes Vinted pas encore expédiées, à confier en un clic.
+// Seule la page de la warehouse peut demander ces ventes (externally_connectable), et seulement pour le compte Vinted
+// ouvert dans ce navigateur. Rien n'est envoyé ailleurs que dans cette page.
+const WH_ORIGINS = ["https://ivanbara.com", "https://www.ivanbara.com"];
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  let origin = "";
+  try { origin = new URL(sender.url || sender.origin || "").origin; } catch { /* inconnu */ }
+  if (!WH_ORIGINS.includes(origin) || !/^\/warehouse/.test(new URL(sender.url || "https://x/").pathname)) return false;
+  if (msg?.type === "wh:ping") { sendResponse({ ok: true, version: chrome.runtime.getManifest().version }); return false; }
+  if (msg?.type !== "wh:pendingSales") return false;
+  (async () => {
+    const market = (await getSettings()).market || "fr";
+    return vinted.pendingSales(MARKETS[market] ? market : "fr");
+  })().then((data) => sendResponse({ ok: true, data })).catch((e) => sendResponse({ ok: false, error: e?.message || "Lecture impossible.", code: e?.code || "" }));
+  return true;
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const h = handlers[msg?.type];
   if (!h) return false;

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
   "short_name": "AliEdge",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Gratuit. AliExpress, Temu, Shein : prix de revente Vinted, marge, historique des prix, même produit moins cher, recherche par image.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -169,8 +169,8 @@
   ],
   "externally_connectable": {
     "matches": [
-      "https://barapics.com/*",
-      "https://www.barapics.com/*"
+      "https://ivanbara.com/*",
+      "https://www.ivanbara.com/*"
     ]
   },
   "optional_host_permissions": [
