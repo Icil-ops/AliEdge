@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
   "short_name": "AliEdge",
-  "version": "3.3.2",
-  "description": "Gratuit. Sur AliExpress, Temu et Shein : prix de revente Vinted, marge et ventes réellement constatées. Par Ivan Bara.",
+  "version": "3.4.0",
+  "description": "Gratuit. AliExpress, Temu, Shein : prix de revente Vinted, marge, historique des prix, même produit moins cher, recherche par image.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -36,7 +36,8 @@
     "notifications",
     "contextMenus",
     "identity",
-    "clipboardWrite"
+    "clipboardWrite",
+    "activeTab"
   ],
   "host_permissions": [
     "https://*.aliexpress.com/*",
@@ -70,6 +71,21 @@
       ],
       "js": [
         "src/content/product.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.aliexpress.com/*",
+        "https://*.aliexpress.fr/*",
+        "https://*.aliexpress.us/*",
+        "https://*.temu.com/*",
+        "https://*.shein.com/*",
+        "https://*.shein.fr/*"
+      ],
+      "js": [
+        "src/content/search.js",
+        "src/content/coupons.js"
       ],
       "run_at": "document_idle"
     },
@@ -130,6 +146,25 @@
         "src/content/harvest.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.vinted.fr/*",
+        "https://www.vinted.be/*",
+        "https://www.vinted.de/*",
+        "https://www.vinted.es/*",
+        "https://www.vinted.it/*",
+        "https://www.vinted.nl/*",
+        "https://www.vinted.pt/*",
+        "https://www.vinted.lu/*",
+        "https://www.vinted.at/*",
+        "https://www.vinted.pl/*",
+        "https://www.vinted.co.uk/*"
+      ],
+      "js": [
+        "src/content/whoami.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "externally_connectable": {
@@ -140,5 +175,13 @@
   },
   "optional_host_permissions": [
     "https://www.leboncoin.fr/*"
-  ]
+  ],
+  "commands": {
+    "capture-zone": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Capturer une zone de l'écran et trouver le produit chez les fournisseurs"
+    }
+  }
 }

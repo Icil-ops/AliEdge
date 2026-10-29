@@ -27,6 +27,12 @@ let radarCalls = 0;
 const lbcRequests = [];
 const barapicsCalls = [];
 const rpc = {
+  aliedge_register_own_seller: 0,
+  aliedge_report_prices: 3,
+  aliedge_price_history: [12, 9, 6, 2, 0].map((d, i) => ({ day: new Date(Date.now() - d * 864e5).toISOString().slice(0, 10), min_price: [7.9, 7.2, 6.9, 6.4, 6.4][i], max_price: [8.5, 7.9, 7.2, 6.9, 6.4][i], last_price: [7.9, 7.2, 6.9, 6.4, 6.4][i], samples: 3 })),
+  aliedge_coupons_list: [{ id: "00000000-0000-0000-0000-00000000c001", code: "AEFR3", note: "3 € dès 25 €", min_order: 25, expires_on: null, ok_count: 4, ko_count: 1, last_ok_at: new Date().toISOString(), mine: false, my_vote: null }, { id: "00000000-0000-0000-0000-00000000c002", code: "SACFR5", note: null, min_order: null, expires_on: null, ok_count: 0, ko_count: 0, last_ok_at: null, mine: false, my_vote: null }],
+  aliedge_coupon_add: "00000000-0000-0000-0000-00000000c003",
+  aliedge_coupon_vote: null,
   aliedge_me: { pro: true, free_launch: true, contributed: 7, admin: false, skool: true, email: "membre@example.com", source: "skool", expires_at: new Date(Date.now() + 20 * 864e5).toISOString(), used_today: 3, daily_limit: 500 },
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
   aliedge_contribute: "c3f50103-f4a4-414b-b502-74634864fe06",
@@ -135,6 +141,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/api/v2/catalog/items") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ status: 401, json: { code: 100, message: "invalid_authentication_token" } });
     if (url.pathname.startsWith("/catalog") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><main>${catalogItems.slice(0, 6).map((it) => `<div data-testid="grid-item"><a href="/items/${it.id}-x" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €, 9,99 € incl."></a><img src="${it.photo.url}"></div>`).join("")}</main>` });
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
+    if (url.pathname === "/api/v2/users/current") return route.fulfill({ json: { user: { id: 4242, login: "moncomptevinted" } } });
     if (url.pathname === "/api/v2/users") return route.fulfill({ json: { users: [{ id: 8800, login: "vendeuse0" }, { id: 9911, login: "vendeuse01" }] } });
     if (/^\/api\/v2\/users\/\d+$/.test(url.pathname)) return route.fulfill({ json: { user: { id: Number(url.pathname.split("/").pop()), login: "moncompte", feedback_reputation: 0.96, feedback_count: 23, followers_count: 12, item_count: 4, photo: { url: "https://images1.vinted.net/t/u.jpeg" }, about: "Articles neufs, envoi rapide depuis l'entrepôt." } } });
     if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
@@ -144,10 +151,11 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
+  if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/p/trade")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Paiement</title><main><h1>Confirmer la commande</h1><div class="coupon-box"><input type="text" placeholder="Code promo" id="cp"><button type="button" onclick="window.__applied = document.getElementById('cp').value">Appliquer</button></div><p>Total : 12,40 €</p></main>` });
   if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/w/wholesale")) {
     const cards = ["Sac seau cuir tressé femme", "Lunettes de soleil oeil de chat", "Collier chaîne dorée fine", "Casquette brodée vintage", "Pochette téléphone bandoulière"]
       .map((t, i) => `<div class="card"><a href="https://fr.aliexpress.com/item/100500700${i}.html?spm=x"><img src="https://ae01.alicdn.com/kf/L${i}.jpg" alt="${t}"><h3>${t}</h3></a><div class="price">${(3.5 + i).toFixed(2).replace(".", ",")} €</div></div>`).join("");
-    return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche</title><main>${cards}</main>` });
+    return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Recherche</title><main>${cards}</main>` });
   }
   if (h.endsWith("aliexpress.com")) return route.fulfill({ contentType: "text/html", body: fx("ali.html") });
   if (h === "barapics.com" && url.pathname === "/api/public/aliedge-photos") {
@@ -161,6 +169,9 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "alerts:send") return route.fulfill({ headers: cors, json: { ok: true, discord: true, telegram: false, skool: false } });
     if (body.action === "listing") return route.fulfill({ headers: cors, json: { title: "Sac bandoulière cuir noir femme", description: "Joli sac neuf.", category: "Femmes > Sacs > Sacs à bandoulière", brand: "Sans marque", condition: "Neuf sans étiquette", size: "Taille unique", colors: ["Noir"], material: "Cuir synthétique", parcel: "Petit", price: 19, priceReason: "Prix médian des ventes constatées.", hashtags: ["sac", "cuir"], market: null, supplierPrice: 6.4, margin: 12.6 } });
     if (body.action === "diagnostic") return route.fulfill({ headers: cors, json: { summary: "Ton compte a une bonne base mais publie trop peu.", strengths: ["Bonne note"], fixes: [{ title: "Publie 1 annonce par jour", why: "0 annonce cette semaine", how: "Prépare 7 articles le dimanche." }, { title: "Ajoute la marque", why: "Peu d'annonces avec marque", how: "Renseigne le champ marque." }, { title: "Refais les vieilles annonces", why: "Âge médian élevé", how: "Supprime et republie avec de nouvelles photos." }] } });
+    if (body.action === "imagesearch") return route.fulfill({ headers: cors, json: { name: "Sac bandoulière cuir noir", supplier: ["women leather crossbody bag black", "small shoulder bag pu leather"], vinted: ["sac bandoulière noir", "petit sac cuir"], brand: null, branded: false, category: "Sacs" } });
+    if (body.action === "review") return route.fulfill({ headers: cors, json: { verdict: "go", summary: "Bon sac d'entrée de gamme, bien noté.", good: ["Note de 4,8"], watch: ["Les dimensions sont petites"], save: ["Prends la variante noire, moins chère"], resale: "Vends-le autour de 20 € avec des photos portées." } });
+    if (body.action === "compare") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 2).map((c) => [c.id, 0.9])) } });
     if (body.action === "keywords") return route.fulfill({ headers: cors, json: { queries: ["sac bandoulière noir", "petit sac cuir femme"] } });
     if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
     if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
@@ -298,6 +309,53 @@ await panel.waitForSelector("#review-ask", { timeout: 6000 }).catch(() => {});
 check("demande d'avis après la 3e analyse", (await panel.locator("#review-ask").count()) === 1);
 await panel.screenshot({ path: `${shots}/5b-avis.png` });
 await panel.click("#review-later").catch(() => {});
+// 2a. Achat malin : historique des prix, avis IA, codes promo, même produit moins cher, recherche par image
+await panel.waitForSelector(".smart .spark", { timeout: 8000 }).catch(() => {});
+check("achat malin : historique des prix (courbe + plus bas)", (await panel.locator(".smart .spark").count()) === 1 && /6,40/.test(await panel.locator(".smart-stats").innerText().catch(() => "")), (await panel.locator(".smart").innerText().catch(() => "")).slice(0, 120));
+check("achat malin : codes promo de la communauté", (await panel.locator(".smart .coupon").count()) === 2);
+await panel.click("[data-aireview]").catch(() => {});
+await panel.waitForFunction(() => /entrée de gamme/.test(document.querySelector(".smart")?.textContent || ""), null, { timeout: 8000 }).catch(() => {});
+check("achat malin : avis IA de la fiche", barapicsCalls.includes("review") && /Payer moins cher/.test(await panel.locator(".smart").innerText().catch(() => "")));
+await panel.screenshot({ path: `${shots}/5c-achat-malin.png`, fullPage: true });
+{
+  const opened = ctx.waitForEvent("page", { timeout: 10000 }).catch(() => null);
+  await panel.click('[data-compare="aliexpress"]').catch(() => {});
+  const cmp = await opened;
+  if (cmp) {
+    await cmp.waitForLoadState("domcontentloaded").catch(() => {});
+    await cmp.waitForSelector(".aliedge-same", { timeout: 15000 }).catch(() => {});
+    const u = cmp.url();
+    const n = await cmp.locator(".aliedge-same").count();
+    check("même produit moins cher : recherche triée par prix + vendeurs repérés", /SortType=price_asc/.test(u) && /leather-crossbody/.test(u) && n >= 1 && barapicsCalls.includes("compare"), `${u.slice(0, 90)} · ${n} repéré(s)`);
+    await cmp.screenshot({ path: `${shots}/5d-meme-produit.png` });
+    await cmp.close();
+  } else check("même produit moins cher : recherche triée par prix + vendeurs repérés", false, "aucun onglet ouvert");
+}
+{
+  const pay = await ctx.newPage();
+  await pay.goto("https://fr.aliexpress.com/p/trade/confirm.html");
+  await pay.waitForTimeout(2500);
+  check("codes promo proposés sur la page de paiement", (await pay.locator("div[style*='2147483646']").count()) >= 1 && calls.includes("/rest/v1/rpc/aliedge_coupons_list"));
+  await pay.screenshot({ path: `${shots}/5e-paiement.png` });
+  await pay.close();
+}
+await panel.evaluate(() => chrome.storage.session.set({ ae_pending: { route: "image", image: { src: "https://ae01.alicdn.com/kf/clic-droit.jpg" }, at: Date.now() } }));
+await panel.goto(app("/image", false));
+await panel.reload();
+await panel.waitForFunction(() => /women leather crossbody/.test(document.querySelector("main")?.textContent || ""), null, { timeout: 10000 }).catch(() => {});
+const imgText = await panel.locator("main").innerText().catch(() => "");
+check("recherche par image (clic droit) : produit reconnu, liens fournisseurs et Vinted", barapicsCalls.includes("imagesearch") && /women leather crossbody bag/.test(imgText) && (await panel.locator("[data-vq]").count()) === 2 && (await panel.locator('a[href^="https://lens.google.com"]').count()) === 1, imgText.slice(0, 120));
+await panel.screenshot({ path: `${shots}/5f-image.png`, fullPage: true });
+await panel.setInputFiles("#imgfile", { name: "capture.jpg", mimeType: "image/jpeg", buffer: readFileSync(path.join(root, "tests/fixtures/capture.jpg")) }).catch(() => {});
+await panel.waitForFunction(() => document.querySelector(".imgsearch img")?.getAttribute("src")?.startsWith("data:image/jpeg"), null, { timeout: 8000 }).catch(() => {});
+check("recherche par image : image importée depuis l'ordinateur", ((await panel.locator(".imgsearch img").getAttribute("src").catch(() => "")) || "").startsWith("data:image/jpeg"), ((await panel.locator(".imgsearch img").getAttribute("src").catch((e) => e.message)) || "").slice(0, 80) + " " + (await panel.locator(".toast").innerText().catch(() => "")));
+await panel.evaluate(() => chrome.runtime.sendMessage({ type: "prices:history", platform: "aliexpress", source_id: "1005006" })).catch(() => {});
+await panel.waitForTimeout(500);
+check("historique des prix : relevés envoyés depuis les fiches et les résultats", calls.includes("/rest/v1/rpc/aliedge_report_prices"));
+await panel.goto(app("/analyse", false));
+await product.bringToFront();
+await panel.evaluate(() => chrome.runtime.sendMessage({ type: "tab:changed" }).catch(() => {}));
+await panel.waitForSelector(".product h3", { timeout: 10000 }).catch(() => {});
 
 // 2b. Photos Barapics créées depuis le panneau AliEdge (API Barapics)
 await panel.click('[data-act="photos"]');
@@ -593,6 +651,21 @@ if (process.env.STORE_SHOTS) {
     await page.screenshot({ path: `${shotsDir}/${name}.png` });
   }
   console.log(`captures store : ${shotsDir}`);
+}
+
+// Compte Vinted personnel : reconnu, jamais publié ni suivi.
+{
+  const v = await ctx.newPage();
+  await v.goto("https://www.vinted.fr/catalog?search_text=sac");
+  await v.waitForTimeout(5000);
+  const own = await page.evaluate(async () => (await chrome.storage.local.get("ae_own_vinted")).ae_own_vinted || []);
+  const refused = await page.evaluate(() => chrome.runtime.sendMessage({ type: "tracker:add", sellerId: 4242, market: "fr" }));
+  const before = reportBodies.length;
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "vinted:cards", items: [{ vinted_id: 777001, market: "fr", title: "Mon sac perso", price: 20, seller_id: 4242, url: "https://www.vinted.fr/items/777001" }] }));
+  await page.waitForTimeout(500);
+  const leaked = reportBodies.slice(before).some((b) => b.includes("777001"));
+  check("compte Vinted du membre reconnu et jamais publié ni suivi", own.some((x) => x.id === 4242) && calls.includes("/rest/v1/rpc/aliedge_register_own_seller") && refused?.ok === false && !leaked, JSON.stringify({ own: own.map((x) => x.id), refused: refused?.error, leaked }));
+  await v.close();
 }
 
 await ctx.close();

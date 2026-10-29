@@ -1,7 +1,7 @@
 {
-  "version": "3.3.2",
-  "notes": "Leboncoin : suis tes concurrents Leboncoin (« + Concurrent » à côté du vendeur, ou lien de son profil), avec ses ventes probables. Lecture des annonces Leboncoin fiabilisée sur les vraies pages. Vinted plus fluide et plus de bouton « + Concurrent » dans la messagerie.",
+  "version": "3.4.0",
+  "notes": "Achat malin : historique des prix de chaque produit, même produit moins cher chez d'autres vendeurs, recherche par image (clic droit sur une photo ou Alt+Maj+S), avis IA de la fiche et codes promo partagés au moment de payer. Ton propre compte Vinted n'est jamais publié dans AliEdge.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-10-28",
+  "releaseDate": "2026-10-29",
   "minVersion": "3.0.0"
 }

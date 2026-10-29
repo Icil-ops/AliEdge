@@ -109,6 +109,8 @@ async function setup() {
   try { await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }); } catch { /* Chrome < 116 */ }
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: "ae-search", title: "Chercher « %s » sur Vinted avec AliEdge", contexts: ["selection"] });
+    chrome.contextMenus.create({ id: "ae-image", title: "Trouver ce produit chez les fournisseurs (AliEdge)", contexts: ["image"] });
+    chrome.contextMenus.create({ id: "ae-capture", title: "Capturer une zone et trouver le produit (AliEdge)", contexts: ["page", "image", "video", "link", "frame"] });
   });
   await syncAlarms();
   syncLbcScript().catch(() => {});
@@ -171,11 +173,113 @@ async function checkForUpdate() {
 chrome.runtime.onStartup.addListener(setup);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === "ae-image" && /^(https:|data:image\/)/.test(info.srcUrl || "")) {
+    if (tab?.windowId != null) chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+    await openImageSearch(info.srcUrl.startsWith("data:") ? { data: info.srcUrl.slice(0, 380_000) } : { src: info.srcUrl, page: tab?.url || null });
+    return;
+  }
+  if (info.menuItemId === "ae-capture") { startCapture(tab).catch((e) => noteError("capture", e)); return; }
   if (info.menuItemId !== "ae-search" || !info.selectionText) return;
   if (tab?.windowId != null) chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
   await chrome.storage.session.set({ ae_pending: { query: info.selectionText.slice(0, 120), at: Date.now() } });
   broadcast({ type: "pending" });
 });
+
+// ───────────────────────── Recherche par image : clic droit sur une photo, ou capture d'une zone de l'écran.
+
+async function openImageSearch(image) {
+  await chrome.storage.session.set({ ae_pending: { route: "image", image, at: Date.now() } });
+  broadcast({ type: "pending" });
+}
+
+// Raccourci clavier (Alt+Maj+S) : même capture que le clic droit.
+chrome.commands?.onCommand.addListener(async (cmd, tab) => {
+  if (cmd !== "capture-zone") return;
+  const t = tab || (await activeTab());
+  startCapture(t).catch((e) => noteError("capture", e));
+});
+
+/** L'écran est figé (capture), le membre trace un rectangle, AliEdge garde cette zone. */
+async function startCapture(tab) {
+  if (!tab?.id || !/^https?:/.test(tab.url || "")) return;
+  const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 85 });
+  await chrome.storage.session.set({ ae_capture: { tabId: tab.id, shot, at: Date.now() } });
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content/capture.js"] });
+}
+
+async function cropShot(shot, r) {
+  const blob = await (await fetch(shot)).blob();
+  const bmp = await createImageBitmap(blob);
+  const sx = Math.max(0, Math.round(r.x * bmp.width)), sy = Math.max(0, Math.round(r.y * bmp.height));
+  const sw = Math.min(bmp.width - sx, Math.round(r.w * bmp.width)), sh = Math.min(bmp.height - sy, Math.round(r.h * bmp.height));
+  if (sw < 12 || sh < 12) throw new sb.ApiError("Zone trop petite.", 400, "invalid");
+  const scale = Math.min(1, 768 / Math.max(sw, sh));
+  const c = new OffscreenCanvas(Math.round(sw * scale), Math.round(sh * scale));
+  c.getContext("2d").drawImage(bmp, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const out = await c.convertToBlob({ type: "image/jpeg", quality: 0.82 });
+  const buf = new Uint8Array(await out.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return `data:image/jpeg;base64,${btoa(bin)}`;
+}
+
+// ───────────────────────── Même produit moins cher : recherche triée par prix chez le fournisseur,
+// puis AliEdge repère sur la page de résultats les annonces du même article (même photo ou photo identique selon l'IA).
+
+function supplierSearchUrl(platform, q) {
+  const enc = encodeURIComponent(q);
+  if (platform === "temu") return `https://www.temu.com/search_result.html?search_key=${enc}&sort_by=1`;
+  if (platform === "shein") return `https://fr.shein.com/pdsearch/${enc}/?sort=10`;
+  return `https://fr.aliexpress.com/w/wholesale-${q.trim().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}-]/gu, "")}.html?SortType=price_asc`;
+}
+
+async function compareStart({ product, platform = null, query = null }) {
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi pour comparer les vendeurs.", 401, "auth");
+  if (!product?.title) throw new sb.ApiError("Ouvre d'abord une fiche produit.", 400, "invalid");
+  const target = ["aliexpress", "temu", "shein"].includes(platform) ? platform : product.platform || "aliexpress";
+  let q = String(query || "").trim();
+  if (!q && product.image && /^https:\/\//.test(product.image)) {
+    try { q = (await barapics({ action: "imagesearch", image: product.image, hint: product.title.slice(0, 160) })).supplier?.[0] || ""; } catch { /* repli sur le titre */ }
+  }
+  if (!q) q = String(product.title).replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/).filter((w) => w.length > 2).slice(0, 7).join(" ");
+  const tab = await chrome.tabs.create({ url: supplierSearchUrl(target, q), active: true });
+  const { ae_compare: all = {} } = await chrome.storage.session.get("ae_compare");
+  for (const [k, v] of Object.entries(all)) if (Date.now() - v.at > 3 * 3600_000) delete all[k];
+  all[tab.id] = { at: Date.now(), query: q, ref: { platform: product.platform, source_id: product.source_id, title: product.title, image: product.image, images: (product.images || []).slice(0, 6), price: product.priceEur ?? null, url: product.url } };
+  await chrome.storage.session.set({ ae_compare: all });
+  return { query: q, platform: target };
+}
+
+const imgKey = (u) => {
+  const m = String(u || "").match(/\/([A-Za-z0-9_-]{16,})\.(?:jpe?g|png|webp|avif)/i);
+  return m ? m[1] : null;
+};
+
+/** Cartes lues sur la page de résultats : même photo (même fichier chez le fournisseur) ou même article selon l'IA. */
+async function compareCards({ cards = [] }, sender) {
+  const { ae_compare: all = {} } = await chrome.storage.session.get("ae_compare");
+  const sess = all[sender.tab?.id];
+  queuePrices(cards.filter((c) => c.price > 0).map((c) => ({ platform: c.platform, source_id: c.source_id, price: c.price }))).catch(() => {});
+  if (!sess) return { session: false };
+  const ref = sess.ref;
+  const refKeys = new Set([ref.image, ...(ref.images || [])].map(imgKey).filter(Boolean));
+  const list = cards.filter((c) => c.source_id && !(c.platform === ref.platform && String(c.source_id) === String(ref.source_id))).slice(0, 120);
+  const scores = {};
+  list.forEach((c, i) => { if (refKeys.has(imgKey(c.image_url))) scores[i + 1] = 1; });
+  // L'IA compare la photo de référence aux photos des cartes pas encore reconnues (36 au plus par page).
+  const todo = list.map((c, i) => ({ id: i + 1, photo: c.image_url })).filter((c) => !scores[c.id] && /^https:\/\//.test(c.photo || "")).slice(0, 36);
+  const refImage = ref.image && /^https:\/\//.test(ref.image) ? ref.image : null;
+  let ai = false;
+  if (refImage && todo.length) {
+    try {
+      const r = await barapics({ action: "compare", image: refImage, title: ref.title || "", candidates: todo });
+      for (const [id, v] of Object.entries(r.scores || {})) scores[id] = Math.max(scores[id] || 0, Number(v) || 0);
+      ai = true;
+    } catch (e) { if (e.code === "auth") throw e; }
+  }
+  const matches = list.map((c, i) => ({ ...c, score: scores[i + 1] || 0 })).filter((c) => c.score >= 0.7);
+  return { session: true, ref, ai, matches };
+}
 
 // Le panneau suit l'onglet actif.
 chrome.tabs.onActivated.addListener(() => broadcast({ type: "tab:changed" }));
@@ -196,6 +300,7 @@ async function recordSeen(tabId) {
     const p = await currentProduct(tabId);
     if (!p?.supported || !p.title || !p.source_id) return;
     const key = `${p.platform}:${p.source_id}`;
+    if (p.priceEur > 0) queuePrices([{ platform: p.platform, source_id: p.source_id, price: p.priceEur }]);
     if (Date.now() - (seenAt.get(key) || 0) < 12 * 3600_000) return;
     seenAt.set(key, Date.now());
     if (seenAt.size > 1000) seenAt.delete(seenAt.keys().next().value);
@@ -209,6 +314,54 @@ async function flushSeen() {
   clearTimeout(seenTimer);
   const batch = seenQueue.splice(0, 20);
   if (batch.length) await sb.rpc("aliedge_seen_products", { _products: batch }).catch(() => {});
+}
+
+// ───────────────────────── Historique des prix : relevés pris sur les fiches et les résultats que le membre ouvre.
+
+const priceAt = new Map();
+let priceQueue = [];
+let priceTimer = null;
+async function queuePrices(points) {
+  if (!(await getSettings()).shareAnalyses) return;
+  for (const pt of points) {
+    if (!pt?.source_id || !(pt.price > 0)) continue;
+    const k = `${pt.platform}:${pt.source_id}:${pt.price}`;
+    if (Date.now() - (priceAt.get(k) || 0) < 2 * 3600_000) continue;
+    priceAt.set(k, Date.now());
+    if (priceAt.size > 3000) priceAt.delete(priceAt.keys().next().value);
+    priceQueue.push({ platform: pt.platform, source_id: String(pt.source_id), price: round2(pt.price) });
+  }
+  clearTimeout(priceTimer);
+  if (priceQueue.length >= 60) return flushPrices();
+  priceTimer = setTimeout(flushPrices, 15_000);
+}
+async function flushPrices() {
+  clearTimeout(priceTimer);
+  while (priceQueue.length) {
+    const batch = priceQueue.splice(0, 60);
+    try { await sb.rpc("aliedge_report_prices", { _points: batch }); } catch { break; }
+  }
+}
+
+/** Historique d'un produit : points par jour et repères (plus bas, plus haut, moyenne, verdict sur le prix du jour). */
+async function priceHistory({ platform, source_id, current = null }) {
+  await flushPrices().catch(() => {});
+  const rows = (await sb.rpc("aliedge_price_history", { _platform: platform, _source_id: String(source_id) })) || [];
+  const pts = rows.map((r) => ({ day: r.day, min: Number(r.min_price), max: Number(r.max_price), last: Number(r.last_price) }));
+  if (!pts.length) return { points: [], stats: null };
+  const mins = pts.map((x) => x.min);
+  const low = Math.min(...mins), high = Math.max(...pts.map((x) => x.max));
+  const avg = round2(mins.reduce((a, b) => a + b, 0) / mins.length);
+  const now = Number(current) > 0 ? Number(current) : pts[pts.length - 1].last;
+  const lowDay = pts.find((x) => x.min === low)?.day || null;
+  let verdict = "unknown";
+  if (pts.length >= 3 && high > low) {
+    if (now <= low * 1.03) verdict = "lowest";
+    else if (now <= avg) verdict = "good";
+    else if (now >= high * 0.97) verdict = "high";
+    else verdict = "average";
+  }
+  return { points: pts, stats: { low, high, avg, now: round2(now), lowDay, days: pts.length, since: pts[0].day, verdict } };
 }
 
 function broadcast(msg) {
@@ -348,7 +501,7 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
           platform: product.platform, source_id: product.source_id, url: product.url, title: product.title,
           image_url: product.image, price: product.priceEur, currency: "EUR", category: product.category,
         },
-        _items: comparable.filter((i) => !i.excluded && i.relevance >= 0.5).slice(0, 40).map((i) => ({
+        _items: (await dropOwn(comparable)).filter((i) => !i.excluded && i.relevance >= 0.5).slice(0, 40).map((i) => ({
           vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition,
           price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active",
         })),
@@ -531,7 +684,7 @@ async function refreshProducts() {
       const good = items.filter((i) => i.relevance >= 0.5).sort((a, b) => b.relevance - a.relevance).slice(0, 40);
       await sb.rpc("aliedge_refresh", {
         _product_id: p.product_id,
-        _items: good.map((i) => ({ vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition, price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active" })),
+        _items: (await dropOwn(good)).map((i) => ({ vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition, price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active" })),
       });
     } catch (e) {
       if (STOP_CODES.has(e.code)) return;
@@ -708,7 +861,8 @@ async function diagnosticRun({ url }) {
   const id = Number(m[2]);
   const [user, items] = [await vinted.userInfo(id, market).catch(() => null), await vinted.sellerItems(id, market, { pages: 6 }).catch(() => [])];
   if (!user && !items.length) throw new sb.ApiError("Vinted n'a pas répondu : ouvre vinted.fr dans un onglet, connecte-toi, puis relance.", 400, "vinted_auth");
-  if (items.length) reportWardrobe(id, market, items).catch(() => {});
+  // C'est le compte du membre : il n'est jamais publié dans la base commune.
+  addOwnSeller(id, market).catch(() => {});
   const active = items.filter((i) => i.status === "active");
   const sold = items.filter((i) => i.status === "sold");
   const now = Date.now();
@@ -830,6 +984,7 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
   if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi à AliEdge pour suivre un vendeur.", 401, "auth");
   const id = Number(sellerId);
   if (!Number.isFinite(id) || id <= 0) throw new sb.ApiError("Profil Vinted introuvable.", 400, "invalid");
+  if ((await ownSellerIds()).has(id)) throw new sb.ApiError("C'est ton propre compte Vinted : il n'est jamais suivi ni publié dans AliEdge.", 400, "invalid");
   let trackerId;
   try {
     trackerId = await sb.rpc("aliedge_tracker_add", { _seller_id: id, _market: MARKETS[market] ? market : "fr", _label: label ? String(label).slice(0, 80) : null });
@@ -858,7 +1013,33 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "watch") refreshWatches();
 });
 
+// ───────────────────────── Compte Vinted personnel du membre : jamais publié dans la base commune.
+// Il est reconnu sur Vinted (compte connecté) ou par le diagnostic ; ses annonces sont écartées de tous les envois,
+// et le serveur les refuse aussi quand un autre membre les croise.
+
+const OWN_KEY = "ae_own_vinted";
+let ownCache = null;
+async function ownSellerIds() {
+  if (!ownCache) { const r = await chrome.storage.local.get(OWN_KEY); ownCache = new Set((r[OWN_KEY] || []).map((x) => Number(x.id))); }
+  return ownCache;
+}
+async function addOwnSeller(id, market = "fr", login = null) {
+  id = Number(id);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  const r = await chrome.storage.local.get(OWN_KEY);
+  const list = (r[OWN_KEY] || []).filter((x) => Number(x.id) !== id);
+  list.unshift({ id, market, login: login ? String(login).slice(0, 60) : null, at: Date.now() });
+  await chrome.storage.local.set({ [OWN_KEY]: list.slice(0, 5) });
+  ownCache = null;
+  if (await sb.getSession()) await sb.rpc("aliedge_register_own_seller", { _seller_id: id, _market: MARKETS[market] ? market : "fr" }).catch(() => {});
+}
+async function dropOwn(items) {
+  const own = await ownSellerIds();
+  return own.size ? items.filter((i) => !own.has(Number(i?.seller_id))) : items;
+}
+
 async function reportWardrobe(sellerId, market, items) {
+  if ((await ownSellerIds()).has(Number(sellerId))) return {};
   return sb.rpc("aliedge_report_wardrobe", {
     _seller_id: Number(sellerId), _market: market,
     _items: items.slice(0, 1000).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, brand: i.brand, size: i.size, photo_url: i.photo_url, url: i.url, favourites: i.favourites, listed_at: i.listed_at })),
@@ -870,6 +1051,7 @@ const wardrobeSeen = new Map();
 async function reportMember({ sellerId, market, items }) {
   const settings = await getSettings();
   if (!settings.shareAnalyses || !sellerId || !Array.isArray(items) || !(await sb.getSession())) return {};
+  if ((await ownSellerIds()).has(Number(sellerId))) return {};
   const last = wardrobeSeen.get(sellerId);
   if (last && Date.now() - last < 3 * 3600_000) return {};
   wardrobeSeen.set(sellerId, Date.now());
@@ -891,6 +1073,7 @@ async function reportVintedItem(item, raw = null) {
     if (!item.status) return;
     item = { ...item, visited: true };
   }
+  if (item.seller_id && (await ownSellerIds()).has(Number(item.seller_id))) return;
   const last = reported.get(item.vinted_id);
   if (last && Date.now() - last < 6 * 3600_000) return;
   if (!(await sb.getSession())) return;
@@ -906,7 +1089,7 @@ async function reportCards({ items }) {
   const settings = await getSettings();
   if (!settings.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
   const now = Date.now();
-  const fresh = items.filter((i) => Number(i?.vinted_id) > 0 && (i.liked || now - (cardsSeen.get(Number(i.vinted_id)) || 0) > 24 * 3600_000)).slice(0, 96);
+  const fresh = (await dropOwn(items)).filter((i) => Number(i?.vinted_id) > 0 && (i.liked || now - (cardsSeen.get(Number(i.vinted_id)) || 0) > 24 * 3600_000)).slice(0, 96);
   if (!fresh.length) return { added: 0 };
   for (const i of fresh) cardsSeen.set(Number(i.vinted_id), now);
   while (cardsSeen.size > 5000) cardsSeen.delete(cardsSeen.keys().next().value);
@@ -1054,7 +1237,7 @@ async function importQueueTick() {
         const good = items.filter((i) => i.relevance >= 0.5).sort((a, b) => b.relevance - a.relevance).slice(0, 40);
         await sb.rpc("aliedge_contribute", {
           _product: { platform: c.platform, source_id: c.source_id, url: c.url, title: c.title, image_url: c.image_url, price: c.price, currency: "EUR", category: c.category },
-          _items: good.map((i) => ({ vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition, price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active" })),
+          _items: (await dropOwn(good)).map((i) => ({ vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition, price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active" })),
         });
         done++;
       } catch (e) {
@@ -1084,7 +1267,7 @@ async function importVintedLinks(links) {
     found.push({ id, market });
   }
   if (!found.length) throw new sb.ApiError("Colle un ou plusieurs liens d'annonces Vinted (https://www.vinted.fr/items/…).", 400, "links");
-  const items = [];
+  let items = [];
   const failed = [];
   for (const { id, market } of found) {
     try {
@@ -1096,7 +1279,11 @@ async function importVintedLinks(links) {
     }
     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
   }
+  const own = await ownSellerIds();
+  const mine = items.filter((i) => own.has(Number(i.seller_id)));
+  items = items.filter((i) => !own.has(Number(i.seller_id)));
   if (items.length) await sb.rpc("aliedge_report_items", { _items: items });
+  if (mine.length && !items.length) throw new sb.ApiError("Ces annonces sont celles de ton propre compte Vinted : elles ne sont jamais publiées dans AliEdge.", 400, "invalid");
   return { added: items.length, sold: items.filter((i) => i.status === "sold").length, failed: failed.length };
 }
 
@@ -1177,6 +1364,64 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 });
 
 // ───────────────────────── Messages
+
+// ───────────────────────── Avis IA d'une fiche fournisseur
+
+/** Lu dans la page : note, ventes, boutique, livraison, caractéristiques et quelques avis visibles. */
+function readProductExtras() {
+  const txt = (el) => (el ? String(el.textContent || "").replace(/\s+/g, " ").trim() : "");
+  const pick = (sels) => { for (const s of sels) { const el = document.querySelector(s); const t = txt(el); if (t) return t; } return ""; };
+  const host = location.hostname;
+  const out = { store: "", details: "", reviews: "", coupons: [] };
+  if (/aliexpress/.test(host)) {
+    out.store = pick(['[class*="store-header--storeName"]', '[class*="shop-name"]', '[data-pl="store-name"]', '[class*="storeName"]']);
+    out.details = [pick(['[class*="dynamic-shipping"]', '[class*="shipping--wrap"]']), pick(['[class*="specification--list"]', '#nav-specification'])].filter(Boolean).join(" | ");
+    out.reviews = [...document.querySelectorAll('[class*="list--itemReview"], [class*="review--content"], [class*="feedback-item"] [class*="content"]')].slice(0, 8).map(txt).filter(Boolean).join(" / ");
+    out.coupons = [...document.querySelectorAll('[class*="coupon"], [class*="Coupon"]')].map(txt).filter((t) => t && t.length < 120 && /€|%|code|coupon/i.test(t)).slice(0, 6);
+  } else if (/temu/.test(host)) {
+    out.store = pick(['[class*="mallName"]', '[class*="storeName"]', '[class*="shop-name"]']);
+    out.details = pick(['[class*="goodsDetail"]', '[class*="specification"]', '[class*="detail"]']);
+    out.reviews = [...document.querySelectorAll('[class*="review"] [class*="content"], [class*="comment"] [class*="text"]')].slice(0, 8).map(txt).filter(Boolean).join(" / ");
+    out.coupons = [...document.querySelectorAll('[class*="coupon"], [class*="Coupon"]')].map(txt).filter((t) => t && t.length < 120 && /€|%/i.test(t)).slice(0, 6);
+  } else if (/shein/.test(host)) {
+    out.store = pick(['[class*="store-name"]', '[class*="storeName"]']);
+    out.details = pick(['.product-intro__description-table', '[class*="product-intro__description"]', '[class*="description"]']);
+    out.reviews = [...document.querySelectorAll('.rate-des, [class*="review-content"], [class*="comment-content"]')].slice(0, 8).map(txt).filter(Boolean).join(" / ");
+    out.coupons = [...document.querySelectorAll('[class*="coupon"], [class*="Coupon"]')].map(txt).filter((t) => t && t.length < 120 && /€|%/i.test(t)).slice(0, 6);
+  }
+  out.details = out.details.slice(0, 2400);
+  out.reviews = out.reviews.slice(0, 2400);
+  out.store = out.store.slice(0, 110);
+  out.coupons = [...new Set(out.coupons)];
+  return out;
+}
+
+async function productReview({ product, vinted = null, history = null }) {
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi pour demander l'avis IA.", 401, "auth");
+  if (!product?.title || !product.platform) throw new sb.ApiError("Ouvre d'abord une fiche produit.", 400, "invalid");
+  let extras = { store: "", details: "", reviews: "" };
+  if (product.tabId) {
+    try { const [r] = await chrome.scripting.executeScript({ target: { tabId: product.tabId }, func: readProductExtras }); extras = r?.result || extras; } catch { /* page fermée */ }
+  }
+  const rating = Number(product.rating);
+  return barapics({
+    action: "review", platform: product.platform, title: String(product.title).slice(0, 400),
+    price: Number(product.priceEur) > 0 ? round2(product.priceEur) : null,
+    rating: rating > 0 && rating <= 5 ? rating : null,
+    orders: product.orders ? String(product.orders).slice(0, 80) : null,
+    store: extras.store || null, details: extras.details || "", reviews: extras.reviews || "",
+    images: [product.image, ...(product.images || [])].filter((u) => /^https:\/\//.test(u || "")).filter((u, i, a) => a.indexOf(u) === i).slice(0, 2),
+    vinted: vinted ? { sell: vinted.sell ?? null, margin: vinted.margin ?? null, sold: vinted.sold ?? null } : null,
+    history: history ? { min: history.low ?? null, max: history.high ?? null, days: history.days ?? 0 } : null,
+  });
+}
+
+/** Coupons de la boutique affichés sur la fiche ouverte. */
+async function pageCoupons() {
+  const tab = await activeTab();
+  if (!tab?.id || !detectPlatform(tab.url || "")) return [];
+  try { const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readProductExtras }); return r?.result?.coupons || []; } catch { return []; }
+}
 
 const handlers = {
   "auth:state": async () => ({ me: await me(true), settings: await getSettings() }),
@@ -1295,6 +1540,32 @@ const handlers = {
   },
   "open:tab": async ({ hash = "" }) => { await chrome.tabs.create({ url: chrome.runtime.getURL(`app/app.html?mode=tab#${hash}`) }); return {}; },
   "settings:pill": async () => ({ showPill: (await getSettings()).showPill }),
+  "vinted:self": async ({ id, market, login }) => { await addOwnSeller(id, MARKETS[market] ? market : "fr", login); return {}; },
+  "own:list": async () => (await chrome.storage.local.get(OWN_KEY))[OWN_KEY] || [],
+  // Achat malin
+  "prices:history": async (msg) => priceHistory(msg),
+  "compare:start": async (msg) => compareStart(msg),
+  "compare:session": async (_msg, sender) => { const { ae_compare: all = {} } = await chrome.storage.session.get("ae_compare"); const s = all[sender.tab?.id]; return s ? { ref: s.ref, query: s.query } : null; },
+  "compare:cards": async (msg, sender) => compareCards(msg, sender),
+  "compare:end": async (_msg, sender) => { const { ae_compare: all = {} } = await chrome.storage.session.get("ae_compare"); delete all[sender.tab?.id]; await chrome.storage.session.set({ ae_compare: all }); return {}; },
+  "imagesearch:run": async ({ image, hint }) => barapics({ action: "imagesearch", image: String(image || "").slice(0, 380_000), ...(hint ? { hint: String(hint).slice(0, 180) } : {}) }),
+  "review:run": async (msg) => productReview(msg),
+  "coupons:list": async ({ platform }) => sb.rpc("aliedge_coupons_list", { _platform: platform }),
+  "coupons:add": async ({ platform, code, note = null }) => sb.rpc("aliedge_coupon_add", { _platform: platform, _code: String(code || "").slice(0, 40), _note: note ? String(note).slice(0, 140) : null }),
+  "coupons:vote": async ({ id, ok }) => sb.rpc("aliedge_coupon_vote", { _id: id, _ok: !!ok }),
+  "coupons:page": async () => pageCoupons(),
+  "capture:done": async ({ rect }, sender) => {
+    // La fenêtre du panneau s'ouvre d'abord : c'est le geste du membre qui l'autorise.
+    const opening = sender.tab?.windowId != null ? chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch(() => {}) : null;
+    const { ae_capture: cap } = await chrome.storage.session.get("ae_capture");
+    await chrome.storage.session.remove("ae_capture");
+    if (!cap || cap.tabId !== sender.tab?.id || Date.now() - cap.at > 10 * 60_000) throw new sb.ApiError("Capture expirée, recommence.", 400, "invalid");
+    const data = await cropShot(cap.shot, rect || {});
+    await opening;
+    await openImageSearch({ data });
+    return {};
+  },
+  "capture:start": async () => { const t = await activeTab(); await startCapture(t); return {}; },
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -1302,7 +1573,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

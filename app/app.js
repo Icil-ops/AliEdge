@@ -21,6 +21,10 @@ const state = {
   shipping: 0,
   priceOverride: null,
   catalog: { filters: { sort: "sold", platform: "", search: "" }, rows: [], loading: false, error: null, total: 0 },
+  // Achat malin (fiche fournisseur ouverte)
+  smart: { key: null, history: null, historyErr: null, review: null, reviewBusy: false, reviewErr: null, coupons: null, pageCoupons: [], compareBusy: false, open: { review: false } },
+  // Recherche par image
+  img: { image: null, busy: false, result: null, error: null },
 };
 
 // ───────────────────────── Utilitaires
@@ -73,7 +77,7 @@ function announce(msg) {
 function route() {
   const h = location.hash.replace(/^#\/?/, "");
   const [name, qs] = h.split("?");
-  return { name: ["analyse", "catalogue", "radar", "concurrents", "suivis", "compte", "bienvenue"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  return { name: ["analyse", "catalogue", "radar", "concurrents", "suivis", "compte", "bienvenue", "image"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -303,7 +307,222 @@ async function loadProduct() {
     state.productLoading = false;
     if (route().name === "analyse") render();
   }
+  loadSmart();
 }
+
+// ───────────────────────── Achat malin : historique des prix, même produit moins cher, avis IA, codes promo
+
+async function loadSmart(force = false) {
+  const p = state.product;
+  const sm = state.smart;
+  const key = p?.supported && !p.error && p.source_id ? `${p.platform}:${p.source_id}` : null;
+  if (!key || !state.me) { if (sm.key) Object.assign(sm, { key: null, history: null, review: null, coupons: null, pageCoupons: [] }); return; }
+  if (key === sm.key && !force) return;
+  Object.assign(sm, { key, history: null, historyErr: null, review: null, reviewErr: null, coupons: null, pageCoupons: [] });
+  const [h, c, pc] = await Promise.all([
+    api("prices:history", { platform: p.platform, source_id: p.source_id, current: p.priceEur }).catch((e) => ({ error: e.message })),
+    api("coupons:list", { platform: p.platform }).catch(() => []),
+    api("coupons:page").catch(() => []),
+  ]);
+  if (sm.key !== key) return;
+  if (h?.error) sm.historyErr = h.error; else sm.history = h;
+  sm.coupons = c || [];
+  sm.pageCoupons = pc || [];
+  if (route().name === "analyse") render();
+}
+
+const VERDICT_PRICE = {
+  lowest: ["Prix le plus bas relevé", "gain"],
+  good: ["En dessous du prix moyen", "gain"],
+  average: ["Prix dans la moyenne", ""],
+  high: ["Plus cher que d'habitude", "loss"],
+  unknown: ["Pas encore assez de relevés", ""],
+};
+
+function priceSpark(points, w = 300, h = 64) {
+  if (!points?.length) return "";
+  const vals = points.map((x) => x.min);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = hi - lo || 1;
+  const t0 = new Date(points[0].day).getTime(), t1 = new Date(points[points.length - 1].day).getTime();
+  const X = (d) => (points.length === 1 || t1 === t0 ? w / 2 : 4 + ((new Date(d).getTime() - t0) / (t1 - t0)) * (w - 8));
+  const Y = (v) => 6 + (1 - (v - lo) / span) * (h - 14);
+  const path = points.map((x, i) => `${i ? "L" : "M"}${X(x.day).toFixed(1)},${Y(x.min).toFixed(1)}`).join(" ");
+  const area = `${path} L${X(points[points.length - 1].day).toFixed(1)},${h} L${X(points[0].day).toFixed(1)},${h} Z`;
+  const last = points[points.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Évolution du prix : de ${eur(points[0].min)} à ${eur(last.min)}">
+    <path d="${area}" class="spark-area"/><path d="${path}" class="spark-line" fill="none"/>
+    <circle cx="${X(last.day).toFixed(1)}" cy="${Y(last.min).toFixed(1)}" r="3.5" class="spark-dot"/></svg>`;
+}
+
+function smartHtml() {
+  const p = state.product;
+  const sm = state.smart;
+  if (!p?.supported || p.error || !state.me) return "";
+  const h = sm.history;
+  const st = h?.stats;
+  const v = VERDICT_PRICE[st?.verdict || "unknown"];
+  const day = (d) => (d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "");
+  const lens = p.image ? `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(p.image)}` : null;
+  const r = sm.review;
+  const RV = { go: ["Bon produit à tester", "gain"], maybe: ["À vérifier avant de commander", "warn"], avoid: ["À éviter", "loss"] };
+  const coupons = sm.coupons || [];
+  return `
+  <section class="card pad stack smart" aria-label="Acheter malin">
+    <div class="row between"><h3>Acheter malin</h3><span class="small muted">${esc(PLATFORM[p.platform]?.[0] || "")}</span></div>
+
+    <div class="smart-block">
+      <div class="row between"><b>Historique du prix</b>${st ? `<span class="pill ${v[1]}">${esc(v[0])}</span>` : ""}</div>
+      ${sm.historyErr ? `<p class="small muted">${esc(sm.historyErr)}</p>` : !h ? `<div class="skel" style="height:64px;margin-top:8px"></div>` : !st ? `<p class="small muted">Premier relevé de ce produit aujourd'hui. L'historique se construit à chaque visite des membres AliEdge.</p>` : `
+        ${priceSpark(h.points)}
+        <div class="smart-stats num">
+          <div><span>Plus bas</span><b>${eur(st.low)}</b><small>${esc(day(st.lowDay))}</small></div>
+          <div><span>Moyenne</span><b>${eur(st.avg)}</b><small>${st.days} jour${st.days > 1 ? "s" : ""} relevé${st.days > 1 ? "s" : ""}</small></div>
+          <div><span>Plus haut</span><b>${eur(st.high)}</b><small>depuis le ${esc(day(st.since))}</small></div>
+        </div>`}
+    </div>
+
+    <div class="smart-block">
+      <b>Même produit moins cher</b>
+      <p class="small muted" style="margin:4px 0 8px">AliEdge lance une recherche triée par prix et repère sur la page les vendeurs du même article (même photo ou photo identique selon l'IA).</p>
+      <div class="grid3">
+        <button class="btn primary small" type="button" data-compare="${esc(p.platform)}" ${sm.compareBusy ? "disabled" : ""}>${PLATFORM[p.platform]?.[0] || "Comparer"}</button>
+        ${["aliexpress", "temu", "shein"].filter((x) => x !== p.platform).map((x) => `<button class="btn small" type="button" data-compare="${x}" ${sm.compareBusy ? "disabled" : ""}>${PLATFORM[x][0]}</button>`).join("")}
+      </div>
+      ${lens ? `<a class="small" href="${safeUrl(lens)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px">Chercher la photo avec Google Lens</a>` : ""}
+    </div>
+
+    <div class="smart-block">
+      <div class="row between"><b>Avis IA sur la fiche</b>${r ? `<span class="pill ${RV[r.verdict]?.[1] || ""}">${esc(RV[r.verdict]?.[0] || "")}</span>` : ""}</div>
+      ${r ? `
+        <p style="margin:6px 0">${esc(r.summary)}</p>
+        ${r.good?.length ? `<p class="small"><b>Points forts</b></p><ul class="smart-list">${r.good.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${r.watch?.length ? `<p class="small"><b>À surveiller</b></p><ul class="smart-list warn">${r.watch.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${r.save?.length ? `<p class="small"><b>Payer moins cher</b></p><ul class="smart-list">${r.save.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${r.resale ? `<p class="small"><b>Revente Vinted</b></p><p class="small">${esc(r.resale)}</p>` : ""}
+      ` : `
+        <p class="small muted" style="margin:4px 0 8px">Résumé de la fiche, pièges à éviter, comment payer moins cher et l'angle pour le revendre sur Vinted. 25 avis par jour.</p>
+        ${sm.reviewErr ? `<p class="notice warn">${esc(sm.reviewErr)}</p>` : ""}
+        <button class="btn small" type="button" data-aireview ${sm.reviewBusy ? "disabled" : ""}>${sm.reviewBusy ? "Lecture de la fiche…" : "Demander l'avis IA"}</button>`}
+    </div>
+
+    <div class="smart-block">
+      <b>Codes promo</b>
+      ${sm.pageCoupons?.length ? `<p class="small muted" style="margin:4px 0">Coupons affichés sur la fiche :</p><div class="row wrap" style="gap:6px">${sm.pageCoupons.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
+      ${coupons.length ? `<div class="coupons">${coupons.slice(0, 6).map((c) => `
+        <div class="coupon"><div><code>${esc(c.code)}</code><div class="small muted">${[c.note, c.ok_count ? `a marché ${c.ok_count} fois` : "pas encore confirmé"].filter(Boolean).map(esc).join(" · ")}</div></div>
+        <button class="btn small" type="button" data-copycode="${esc(c.code)}">${ICON.copy}Copier</button></div>`).join("")}</div>
+        <p class="small muted">Au moment de payer, AliEdge propose ces codes directement sur la page et te demande s'ils ont marché.</p>`
+      : `<p class="small muted" style="margin:4px 0">Aucun code partagé pour l'instant. Tu peux en ajouter un au moment de payer : il servira à toute la communauté.</p>`}
+    </div>
+  </section>`;
+}
+
+function bindSmart() {
+  document.querySelectorAll("[data-compare]").forEach((b) => b.addEventListener("click", async () => {
+    const p = state.product;
+    state.smart.compareBusy = true; render();
+    try {
+      const r = await api("compare:start", { product: p, platform: b.dataset.compare });
+      toast(`Recherche « ${r.query} » ouverte, triée par prix`);
+    } catch (e) { toast(e.message); }
+    finally { state.smart.compareBusy = false; render(); }
+  }));
+  document.querySelector("[data-aireview]")?.addEventListener("click", async () => {
+    const sm = state.smart;
+    sm.reviewBusy = true; sm.reviewErr = null; render();
+    try {
+      const res = state.entry?.result;
+      sm.review = await api("review:run", {
+        product: state.product,
+        vinted: res ? { sell: res.sell ?? null, margin: res.margin ?? null, sold: res.soldStats?.count ?? null } : null,
+        history: sm.history?.stats || null,
+      });
+    } catch (e) { sm.reviewErr = e.message; }
+    finally { sm.reviewBusy = false; render(); }
+  });
+  document.querySelectorAll("[data-copycode]").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copycode); toast(`Code ${b.dataset.copycode} copié`); } catch { toast("Copie impossible"); }
+  }));
+}
+
+// ───────────────────────── Recherche par image
+
+async function runImageSearch() {
+  const im = state.img;
+  if (!im.image) return;
+  im.busy = true; im.error = null; im.result = null;
+  render();
+  try {
+    im.result = await api("imagesearch:run", { image: im.image.data || im.image.src });
+  } catch (e) { im.error = e; }
+  finally { im.busy = false; if (route().name === "image") render(); }
+}
+
+/** Image choisie dans les fichiers ou collée : réduite à 768 px avant l'envoi. */
+async function imageFromFile(file) {
+  if (!file || !/^image\//.test(file.type)) { toast("Choisis une image (JPG, PNG ou WebP)."); return; }
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch { toast("Image illisible : essaie une autre image."); return; }
+  const scale = Math.min(1, 768 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  state.img.image = { data: c.toDataURL("image/jpeg", 0.82) };
+  runImageSearch();
+}
+
+function viewImage() {
+  const im = state.img;
+  const src = im.image?.data || im.image?.src || null;
+  const supplierLinks = (q) => [
+    ["AliExpress", `https://fr.aliexpress.com/w/wholesale-${encodeURIComponent(q.trim().replace(/\s+/g, "-"))}.html?SortType=total_tranpro_desc`],
+    ["Temu", `https://www.temu.com/search_result.html?search_key=${encodeURIComponent(q)}`],
+    ["Shein", `https://fr.shein.com/pdsearch/${encodeURIComponent(q)}/`],
+  ];
+  const r = im.result;
+  return `
+  <section class="stack" aria-label="Recherche par image">
+    <div class="card pad stack">
+      <h3>Recherche par image</h3>
+      <p class="small muted">Retrouve chez les fournisseurs un produit vu sur Vinted, TikTok, Instagram ou n'importe quel site.</p>
+      <ul class="small muted tips">
+        <li><b>Clic droit sur une photo</b> → « Trouver ce produit chez les fournisseurs ».</li>
+        <li><b>Vidéo ou capture d'écran</b> : clic droit sur la page → « Capturer une zone », ou <kbd>Alt</kbd>+<kbd>Maj</kbd>+<kbd>S</kbd>.</li>
+        <li>Ou ici : choisis une image, ou colle-la avec <kbd>Ctrl</kbd>+<kbd>V</kbd>.</li>
+      </ul>
+      <label class="btn block" for="imgfile">${ICON.camera}Choisir une image<input id="imgfile" type="file" accept="image/*" hidden></label>
+    </div>
+    ${src ? `<div class="card pad stack">
+      <div class="imgsearch"><img src="${esc(src)}" alt="Image recherchée" referrerpolicy="no-referrer">
+        <div>${im.busy ? `<div class="skel" style="height:14px"></div><div class="skel" style="height:14px;width:60%;margin-top:8px"></div><p class="small muted" style="margin-top:8px">L'IA regarde la photo…</p>` : r ? `<h3>${esc(r.name || "Produit")}</h3>${r.category ? `<span class="chip">${esc(r.category)}</span>` : ""}` : ""}</div>
+      </div>
+      ${im.error ? `<p class="notice err">${esc(im.error.message)}${im.error.code === "auth" ? ' <a href="#/compte">Se connecter</a>' : ""}</p>` : ""}
+      ${r?.branded ? `<p class="notice warn">Produit de marque${r.brand ? ` (${esc(r.brand)})` : ""} : les fournisseurs AliExpress, Temu ou Shein ne vendent que des imitations, à ne jamais revendre. Cherche plutôt un article sans marque du même style.</p>` : ""}
+      ${r?.supplier?.length ? `<b>Chez les fournisseurs</b>
+        <div class="stack" style="gap:8px">${r.supplier.map((q) => `<div class="qrow"><span class="small">${esc(q)}</span><span class="row" style="gap:4px">${supplierLinks(q).map(([n, u]) => `<a class="chip" href="${safeUrl(u)}" target="_blank" rel="noopener">${n}</a>`).join("")}</span></div>`).join("")}</div>` : ""}
+      ${im.image?.src && /^https:/.test(im.image.src) ? `<a class="btn small" href="${safeUrl(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(im.image.src)}`)}" target="_blank" rel="noopener">${ICON.search}Comparer avec Google Lens</a>` : ""}
+      ${r?.vinted?.length ? `<b>Sur Vinted</b><div class="row wrap" style="gap:6px">${r.vinted.map((q) => `<button class="btn small" type="button" data-vq="${esc(q)}">${ICON.search}${esc(q)}</button>`).join("")}</div><p class="small muted">Lance l'analyse Vinted : prix de revente, marge et ventes.</p>` : ""}
+    </div>` : ""}
+  </section>`;
+}
+
+function bindImage() {
+  document.querySelectorAll("[data-vq]").forEach((b) => b.addEventListener("click", () => {
+    state.query = b.dataset.vq;
+    state.product = { supported: false };
+    state.entry = null;
+    location.hash = "#/analyse";
+    setTimeout(startAnalysis, 50);
+  }));
+}
+// Délégation : la vue est redessinée souvent, le champ peut changer entre-temps.
+document.addEventListener("change", (e) => { if (e.target?.id === "imgfile") imageFromFile(e.target.files?.[0]); });
+document.addEventListener("paste", (e) => {
+  if (route().name !== "image") return;
+  const f = [...(e.clipboardData?.files || [])].find((x) => /^image\//.test(x.type));
+  if (f) { e.preventDefault(); imageFromFile(f); }
+});
 
 function productPrice() {
   if (state.priceOverride != null) return state.priceOverride;
@@ -413,6 +632,7 @@ function viewAnalyse() {
         ${productPrice() == null ? `<p class="notice warn">Prix non détecté : saisis le prix payé pour calculer la marge.</p>` : ""}
         ${searchControls()}
       </section>`);
+    parts.push(smartHtml());
   } else {
     parts.push(`
       <section class="card pad stack">
@@ -427,6 +647,7 @@ function viewAnalyse() {
           <a class="chip temu" href="https://www.temu.com/fr" target="_blank" rel="noopener">Temu</a>
           <a class="chip shein" href="https://fr.shein.com" target="_blank" rel="noopener">Shein</a>
         </div>
+        <a class="btn block" href="#/image">${ICON.camera}Recherche par image</a>
         <hr style="border:0;border-top:1px solid var(--line);margin:4px 0">
         <h3>Ou cherche directement</h3>
         <label class="field"><span>Prix d'achat (facultatif)</span><div class="input-euro"><input id="price" class="input num" inputmode="decimal" value="${state.priceOverride != null ? money(state.priceOverride) : ""}" placeholder="0,00"></div></label>
@@ -586,6 +807,7 @@ function bindAnalyse() {
   document.querySelector('[data-act="copy"]')?.addEventListener("click", () => openListing(state.entry));
   document.querySelector('[data-act="photos"]')?.addEventListener("click", () => openPhotos(state.entry?.product));
   document.querySelectorAll(".ring circle.meter").forEach((c) => requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.target; }));
+  bindSmart();
 }
 
 async function recomputeIfNeeded() {
@@ -1699,6 +1921,7 @@ async function render() {
   else if (name === "concurrents") html = await viewConcurrents();
   else if (name === "radar") html = await viewRadar();
   else if (name === "bienvenue") html = viewBienvenue(params);
+  else if (name === "image") html = viewImage();
   else html = viewCompte(params);
   if (seq !== renderSeq) return;
   const [upd, notice] = await Promise.all([api("update:state").catch(() => null), api("remote:message").catch(() => null)]);
@@ -1723,6 +1946,7 @@ async function render() {
   else if (name === "concurrents") bindTrackers();
   else if (name === "radar") bindRadar();
   else if (name === "bienvenue") bindBienvenue(params);
+  else if (name === "image") bindImage();
   else bindCompte(params);
 }
 
@@ -1749,6 +1973,12 @@ async function takePending() {
   const p = await api("pending:take").catch(() => null);
   if (!p) return;
   if (p.route === "concurrents") { location.hash = "#/concurrents"; return; }
+  if (p.route === "image" && p.image) {
+    state.img.image = p.image;
+    if (route().name !== "image") location.hash = "#/image"; else render();
+    runImageSearch();
+    return;
+  }
   location.hash = "#/analyse";
   if (p.query) {
     state.query = p.query;
