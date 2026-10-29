@@ -1,6 +1,6 @@
 {
-  "version": "3.2.8",
-  "notes": "Les annonces que tu vois sur Vinted (résultats, accueil, dressings, favoris) et celles que tu mets en favori enrichissent la base commune, sans aucune requête en plus vers Vinted. Catalogue : toutes les ventes constatées, même sans fournisseur. Concurrents : alertes de vente, niche et diagnostic de compte.",
+  "version": "3.2.9",
+  "notes": "Catalogue : interrupteur « Dropshipping Vinted uniquement » qui écarte les grandes marques (Nike, Adidas, Zara…). Les annonces vues sur Vinted et tes favoris enrichissent la base commune, sans requête en plus.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-28",
   "minVersion": "3.0.0"

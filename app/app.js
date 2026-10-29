@@ -697,19 +697,25 @@ function viewCatalogue() {
 async function loadSalesFeed(append = false) {
   const box = document.getElementById("salesfeed");
   if (!box || !state.me) return;
-  const sf = state.salesFeed || (state.salesFeed = { rows: [], total: 0, key: null, at: 0 });
-  const key = state.catalog.filters.search || "";
+  const sf = state.salesFeed || (state.salesFeed = { rows: [], total: 0, key: null, at: 0, dropship: (() => { try { return localStorage.getItem("ae_dropship") !== "0"; } catch { return true; } })() });
+  const key = `${sf.dropship ? 1 : 0}|${state.catalog.filters.search || ""}`;
   // Le catalogue se redessine souvent : on réutilise la liste chargée (2 min) tant que la recherche ne change pas.
   if (append || sf.key !== key || Date.now() - sf.at > 120_000) {
     let rows;
-    try { rows = await api("sales:feed", { search: key || null, offset: append ? sf.rows.length : 0 }); }
+    try { rows = await api("sales:feed", { search: state.catalog.filters.search || null, offset: append ? sf.rows.length : 0, dropship: sf.dropship }); }
     catch { box.innerHTML = ""; return; }
     sf.rows = append ? [...sf.rows, ...rows] : rows;
     sf.total = Number(rows[0]?.total_count ?? sf.rows.length);
     sf.key = key; sf.at = Date.now();
   }
   if (!document.body.contains(box)) return;
-  if (!sf.rows.length) { box.innerHTML = ""; return; }
+  const toggle = `<label class="switch" style="padding:0;border:0" title="Écarte les grandes marques connues (Nike, Adidas, Zara…)"><span><b>Dropshipping Vinted uniquement</b></span><input type="checkbox" id="dropship" ${sf.dropship ? "checked" : ""}></label>`;
+  const bindToggle = () => document.getElementById("dropship")?.addEventListener("change", (e) => { sf.dropship = e.currentTarget.checked; try { localStorage.setItem("ae_dropship", sf.dropship ? "1" : "0"); } catch { /* ignoré */ } loadSalesFeed(); });
+  if (!sf.rows.length) {
+    box.innerHTML = `<div class="row between wrap"><h2>Ventes Vinted constatées</h2>${toggle}</div><p class="small muted" style="margin:0">${sf.dropship ? "Aucune vente de produit sans grande marque pour l'instant. Désactive le filtre pour voir toutes les ventes." : "Aucune vente constatée pour l'instant."}</p>`;
+    bindToggle();
+    return;
+  }
   const line = (r) => `
     <div class="sale-row">
       <a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" style="grid-template-columns:56px 1fr auto">
@@ -720,10 +726,12 @@ async function loadSalesFeed(append = false) {
     </div>`;
   box.innerHTML = `
     <div class="row between wrap"><h2>Ventes Vinted constatées</h2><span class="small muted">${sf.total} vente${sf.total > 1 ? "s" : ""}</span></div>
+    ${toggle}
     <p class="small muted" style="margin:0">Chaque annonce vue vendue par la communauté, même quand le fournisseur n'est pas encore identifié. Trouve-le et relie-le : il rejoint le catalogue pour tout le monde.</p>
     <div class="items">${sf.rows.map(line).join("")}</div>
     ${sf.rows.length < sf.total ? `<button id="salesmore" class="btn block" type="button">Voir plus de ventes</button>` : ""}`;
   bindSupplierForms(box);
+  bindToggle();
   document.getElementById("salesmore")?.addEventListener("click", () => loadSalesFeed(true));
 }
 
