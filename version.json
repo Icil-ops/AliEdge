@@ -1,6 +1,6 @@
 {
-  "version": "3.3.0",
-  "notes": "Nouveau : Leboncoin. Active-le dans le Catalogue : les annonces Leboncoin que tu consultes alimentent la base commune et les ventes Leboncoin s'affichent à côté de Vinted, sans aucune requête en plus. Vinted plus fluide : AliEdge ne travaille plus jamais dans l'onglet Vinted que tu regardes, et plus de bouton « + Concurrent » dans la messagerie.",
+  "version": "3.3.1",
+  "notes": "Leboncoin : suis tes concurrents Leboncoin (« + Concurrent » à côté du vendeur, ou lien de son profil), avec ses ventes probables. Lecture des annonces Leboncoin fiabilisée sur les vraies pages. Vinted plus fluide et plus de bouton « + Concurrent » dans la messagerie.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-10-28",
   "minVersion": "3.0.0"

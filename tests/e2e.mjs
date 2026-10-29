@@ -21,6 +21,7 @@ const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { am
 const calls = [];
 const reportBodies = [];
 const lbcBodies = [];
+const profileBodies = [];
 const startedAt = Date.now();
 let radarCalls = 0;
 const lbcRequests = [];
@@ -55,6 +56,11 @@ const rpc = {
   aliedge_niche_stats: { sold: 7, active_known: 12, median_price: 20, median_days: 3.5, top_sellers: [{ seller_id: 8801, sold: 4, median_price: 21 }, { seller_id: 555, sold: 2, median_price: 19 }], recent: [{ title: "Sac cuir femme", price: 19, url: "https://www.vinted.fr/items/7002", photo_url: "https://images1.vinted.net/t/s2.jpeg", sold_at: new Date(Date.now() - 864e5).toISOString() }] },
   aliedge_sales_feed: [{ vinted_id: 7101, title: "Tapis multicolore", brand: "Vintage", size: null, price: 32, photo_url: "https://images1.vinted.net/t/s9.jpeg", url: "https://www.vinted.fr/items/7101", sold_at: new Date(Date.now() - 864e5).toISOString(), days_to_sell: 14, product_title: null, product_url: null, product_price: null, product_platform: null, total_count: 1 }],
   aliedge_report_lbc_items: 2,
+  aliedge_lbc_report_profile: { shown: 2, gone: 0, complete: true },
+  aliedge_lbc_tracker_add: "00000000-0000-0000-0000-0000000000dd",
+  aliedge_lbc_tracker_remove: true,
+  aliedge_lbc_trackers: [{ id: "00000000-0000-0000-0000-0000000000dd", seller_uuid: "20f25f94-11be-4ddd-9fe0-20891b9db732", label: "Asm4ever", created_at: new Date(Date.now() - 864e5).toISOString(), last_visit_at: new Date().toISOString(), active_count: 2, active_value: 49, gone_30d: 1, amount_30d: 24, median_days: 6 }],
+  aliedge_lbc_tracker_items: [{ list_id: 2900000004, title: "Sac bandoulière y2k recyclé", price: 24, category: "Accessoires & Bagagerie", photo_url: null, url: "https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000004", status: "gone", first_seen_at: new Date(Date.now() - 7 * 864e5).toISOString(), gone_at: new Date(Date.now() - 864e5).toISOString(), days_to_sell: 6, product_url: null, product_price: null, product_platform: null }, { list_id: 2900000005, title: "Sac à bandoulière noir vintage y2k", price: 27, category: null, photo_url: null, url: "https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005", status: "active", first_seen_at: new Date().toISOString(), gone_at: null, days_to_sell: null, product_url: null, product_price: null, product_platform: null }],
   aliedge_lbc_sales_feed: [{ list_id: 2900000009, title: "Lampe de chevet LED tactile", price: 18, category: "Décoration", department: "Rhône", photo_url: "https://img.leboncoin.fr/api/v1/lbcpb1/images/a.jpg", url: "https://www.leboncoin.fr/ad/decoration/2900000009", shipping: true, sold_at: new Date(Date.now() - 36e5).toISOString(), days_to_sell: 4, certainty: "probable", product_title: null, product_url: null, product_price: null, product_platform: null, total_count: 1 }],
   aliedge_link_item: "00000000-0000-0000-0000-0000000000bb",
   aliedge_picks_feed: { member: true, picks: [{ id: "p1", kind: "video", title: "Analyse : le compte qui vend 40 sacs par semaine", note: "Regarde sa stratégie de prix.", url: "https://www.skool.com/vinteddrop/v1", image_url: null, created_at: new Date().toISOString(), locked: false }, { id: "p2", kind: "product", title: "Sac seau tressé", note: null, url: "https://fr.aliexpress.com/item/1005006.html", image_url: "https://ae01.alicdn.com/kf/apres-sac-bandouliere.jpg", created_at: new Date().toISOString(), locked: false }] },
@@ -100,6 +106,7 @@ await ctx.route("**/*", async (route) => {
     calls.push(url.pathname);
     if (url.pathname.endsWith("aliedge_report_items")) reportBodies.push(req.postData() || "");
     if (url.pathname.endsWith("aliedge_report_lbc_items")) lbcBodies.push(req.postData() || "");
+    if (url.pathname.endsWith("aliedge_lbc_report_profile")) profileBodies.push(req.postData() || "");
     if (url.pathname.startsWith("/auth/v1/token") || url.pathname.startsWith("/auth/v1/signup")) return route.fulfill({ json: { access_token: "jwt", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "membre@example.com" } } });
     const name = url.pathname.split("/rpc/")[1];
     if (name && name in rpc) return route.fulfill({ json: rpc[name] });
@@ -109,11 +116,13 @@ await ctx.route("**/*", async (route) => {
   }
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
-    if (url.pathname.startsWith("/ad/decoration/2900000003")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Leboncoin</title><main><h1>Cette annonce n'est plus disponible</h1></main>" });
-    const next = { props: { pageProps: { searchData: { total: 2, ads: [
-      { list_id: 2900000001, subject: "Lampe de chevet LED tactile", price: [18], category_name: "Décoration", location: { department_name: "Rhône", city: "Lyon" }, images: { urls: ["https://img.leboncoin.fr/api/v1/lbcpb1/images/a.jpg"] }, url: "https://www.leboncoin.fr/ad/decoration/2900000001", first_publication_date: "2026-10-25 10:00:00", status: "active", attributes: [{ key: "shippable", value: "true" }], owner: { name: "Jean Dupont" } },
-      { list_id: 2900000002, subject: "Plaid XXL doux", price: [25], category_name: "Linge de maison", location: { department_name: "Nord" }, images: { urls: ["https://img.leboncoin.fr/api/v1/lbcpb1/images/b.jpg"] }, url: "https://www.leboncoin.fr/ad/linge_de_maison/2900000002", first_publication_date: "2026-10-20 09:00:00", status: "active" } ] } } } };
-    return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><main><p>Résultats</p></main><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(next)}</script>` });
+    const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><body>${body}</body>` });
+    // Carte d'annonce telle que Leboncoin l'affiche (relevé sur une vraie page enregistrée).
+    const card = (id, title, price, cp, ville) => `<li><article aria-label="${title}"><div data-qa-id="aditem_container"><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/accessoires_bagagerie/${id}"><span title="Voir l’annonce: ${title}"></span></a><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/${id}.jpg?rule=ad-small"><p>${title}</p><span>${price} €</span><p>Prix: ${price} €.</p><div>dès ${price + 1},90 €</div><span>Livraison dès</span><p aria-hidden="true">Accessoires &amp; Bagagerie</p><p>Catégorie : Accessoires &amp; Bagagerie.</p><p aria-hidden="true">${ville} ${cp}</p><p>Située à ${ville} ${cp}.</p></div></article></li>`;
+    if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000003")) return html("<main><h1>Cette annonce n'est plus disponible</h1></main>");
+    if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000005")) return html(`<main><div data-qa-id="adview_title"><h1>Sac à bandoulière noir vintage y2k</h1></div><div data-qa-id="adview_price">27 €</div><div data-qa-id="adview_delivery_container">Livraison</div><p>Arras 62000</p><div data-qa-id="adview_profile_part"><a href="https://www.leboncoin.fr/profile/31a5e0aa-0000-4000-8000-000000000001/offers"></a><a href="https://www.leboncoin.fr/profile/31a5e0aa-0000-4000-8000-000000000001/offers">Bohem-Paris</a></div></main><script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org/", "@type": "Product", category: "Accessoires & Bagagerie", name: "Sac à bandoulière noir vintage y2k", image: "https://img.leboncoin.fr/api/v1/lbcpb1/images/78/a2.jpg?rule=ad-image", offers: { "@type": "Offer", price: 27, priceCurrency: "EUR", availability: "http://schema.org/InStock" } })}</script>`);
+    if (url.pathname.startsWith("/profile/20f25f94-11be-4ddd-9fe0-20891b9db732")) return html(`<main><h1>Asm4ever</h1><p>2 annonces</p><ul>${card(2900000005, "Sac à bandoulière noir vintage y2k", 27, "62000", "Arras")}${card(2900000006, "Sac seau tressé", 22, "62000", "Arras")}</ul></main>`);
+    return html(`<main><h2>Résultats de recherche : 354 annonces</h2><ul>${card(2900000001, "Lampe de chevet LED tactile", 18, "13001", "Marseille")}${card(2900000002, "Plaid XXL doux", 25, "59000", "Lille")}</ul></main>`);
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
     if (url.pathname.startsWith("/api/v2/catalog/items") && url.searchParams.get("order") === "newest_first") {
@@ -369,7 +378,7 @@ await page.screenshot({ path: `${shots}/7b-radar.png`, fullPage: true });
 // 4. Concurrents : suivi en continu et récap
 await page.goto(app("/concurrents"));
 await page.waitForSelector(".tracker", { timeout: 8000 }).catch(() => {});
-check("concurrent affiché dans l'onglet Concurrents", (await page.locator(".tracker").count()) === 1);
+check("concurrent affiché dans l'onglet Concurrents", (await page.locator("[data-tracker]").count()) === 1);
 await page.fill("#trackurl", "https://www.vinted.fr/member/4242-boutique-sacs").catch(() => {});
 const addsBefore = calls.filter((c) => c.endsWith("aliedge_tracker_add")).length;
 await page.click('#trackform button[type="submit"]').catch(() => {});
@@ -378,7 +387,7 @@ check("concurrent ajouté par le lien de son profil", calls.filter((c) => c.ends
 await page.waitForSelector("[data-tracker]", { timeout: 6000 }).catch(() => {});
 await page.locator("[data-tracker]").first().click().catch(() => {});
 await page.waitForSelector(".tracker-body .kpis", { timeout: 6000 }).catch(() => {});
-check("récap du concurrent (délai de vente, ce qui se vend)", (await page.locator(".tracker-body .kpi").count()) === 6 && (await page.locator(".tracker-body").innerText().catch(() => "")).includes("2,5 j"));
+check("récap du concurrent (délai de vente, ce qui se vend)", (await page.locator("[id^='tb-'] .kpi").count()) === 6 && (await page.locator("[id^='tb-']").first().innerText().catch(() => "")).includes("2,5 j"));
 check("ventes du concurrent listées", (await page.locator(".tracker-body .badge-sold").count()) >= 1);
 check("vente du concurrent : fournisseur connu affiché, sinon recherche du fournisseur", (await page.locator(".tracker-body .supplier.ok").count()) === 1 && (await page.locator(".tracker-body details.supplier").count()) === 1);
 {
@@ -495,17 +504,29 @@ rpc.aliedge_me.admin = false;
   await inbox.close();
 }
 
-// 5c. Leboncoin : annonces affichées lues sans requête en plus, annonce disparue, ventes dans le catalogue
+// 5c. Leboncoin : annonces affichées lues sans requête en plus, annonce, vendeur, concurrents, ventes dans le catalogue
 {
   const lbc = await ctx.newPage();
   await lbc.goto("https://www.leboncoin.fr/recherche?text=lampe");
-  await lbc.waitForTimeout(5500);
-  const body = lbcBodies.join("\n");
-  check("Leboncoin : annonces affichées ajoutées à la base (sans le vendeur)", body.includes('"list_id":2900000001') && body.includes('"department":"Rhône"') && body.includes('"shipping":true') && !body.includes("Dupont") && !body.includes("Lyon"), body.slice(0, 160));
-  await lbc.goto("https://www.leboncoin.fr/ad/decoration/2900000003");
-  await lbc.waitForTimeout(5500);
+  await lbc.waitForTimeout(5000);
+  let body = lbcBodies.join("\n");
+  check("Leboncoin : annonces des résultats ajoutées (département, jamais la ville)", body.includes('"list_id":2900000001') && body.includes('"department":"13"') && body.includes('"price":18') && body.includes('"shipping":true') && !body.includes("Marseille"), body.slice(0, 160));
+  await lbc.goto("https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005");
+  await lbc.waitForTimeout(5000);
+  body = lbcBodies.join("\n");
+  check("Leboncoin : annonce lue avec son vendeur", body.includes('"list_id":2900000005') && body.includes('"seller_uuid":"31a5e0aa-0000-4000-8000-000000000001"') && body.includes('"department":"62"'), body.slice(-200));
+  const addBefore = calls.filter((c) => c.endsWith("aliedge_lbc_tracker_add")).length;
+  check("Leboncoin : bouton « + Concurrent » à côté du vendeur", (await lbc.locator(".aliedge-lbc-competitor").count()) === 1);
+  await lbc.locator(".aliedge-lbc-competitor").first().click().catch(() => {});
+  await lbc.waitForTimeout(1200);
+  check("Leboncoin : concurrent ajouté en un clic", calls.filter((c) => c.endsWith("aliedge_lbc_tracker_add")).length > addBefore);
+  await lbc.goto("https://www.leboncoin.fr/profile/20f25f94-11be-4ddd-9fe0-20891b9db732/offers");
+  await lbc.waitForTimeout(5000);
+  check("Leboncoin : page du vendeur relevée (annonces + disparues)", profileBodies.some((b) => b.includes("20f25f94-11be-4ddd-9fe0-20891b9db732") && b.includes("2900000006") && b.includes('"_total":2')), profileBodies.slice(-1)[0]);
+  await lbc.goto("https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000003");
+  await lbc.waitForTimeout(5000);
   check("Leboncoin : annonce disparue signalée", lbcBodies.some((b) => b.includes('"list_id":2900000003') && b.includes('"status":"gone"')));
-  check("Leboncoin : aucune requête d'AliEdge vers Leboncoin", lbcRequests.every((p) => p === "/recherche" || p.startsWith("/ad/decoration/2900000003")), lbcRequests.join(","));
+  check("Leboncoin : aucune requête d'AliEdge vers Leboncoin", lbcRequests.every((p) => ["/recherche", "/ad/accessoires_bagagerie/2900000005", "/profile/20f25f94-11be-4ddd-9fe0-20891b9db732/offers", "/ad/accessoires_bagagerie/2900000003"].includes(p)), lbcRequests.join(","));
   await lbc.close();
   await page.goto(app("/catalogue"));
   await page.waitForSelector("#salesfeed [data-plat='lbc']", { timeout: 8000 }).catch(() => {});
@@ -514,6 +535,11 @@ rpc.aliedge_me.admin = false;
   const t = await page.locator("#salesfeed").innerText().catch(() => "");
   check("catalogue : ventes Leboncoin (estimation) avec recherche du fournisseur", /Ventes Leboncoin/.test(t) && /estimation/.test(t) && (await page.locator("#salesfeed form[data-lbclink]").count()) === 1, t.slice(0, 120));
   await page.click("#salesfeed [data-plat='vinted']").catch(() => {});
+  await page.goto(app("/concurrents"));
+  await page.waitForSelector("[data-lbctracker]", { timeout: 8000 }).catch(() => {});
+  await page.locator("[data-lbctracker]").first().click().catch(() => {});
+  await page.waitForSelector("#lbt-20f25f94-11be-4ddd-9fe0-20891b9db732 .sale-row", { timeout: 6000 }).catch(() => {});
+  check("Concurrents Leboncoin : suivi, ventes probables et lien vers sa page", (await page.locator("[data-lbctracker]").count()) === 1 && (await page.locator("#lbt-20f25f94-11be-4ddd-9fe0-20891b9db732 a[href*='/profile/20f25f94']").count()) === 1 && (await page.locator("#lbt-20f25f94-11be-4ddd-9fe0-20891b9db732 .badge-sold").count()) === 1);
 }
 
 // 6. Profil d'un vendeur : son dressing met à jour le catalogue

@@ -923,8 +923,10 @@ async function lbcEnabled() { try { return await chrome.permissions.contains({ o
 async function syncLbcScript() {
   const on = await lbcEnabled();
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["ae-lbc"] }).catch(() => []);
+  // Version précédente enregistrée avec moins de scripts : on la remplace.
+  if (on && existing.length && existing[0].js?.length !== 2) { await chrome.scripting.unregisterContentScripts({ ids: ["ae-lbc"] }); existing.length = 0; }
   if (on && !existing.length) {
-    await chrome.scripting.registerContentScripts([{ id: "ae-lbc", matches: LBC_ORIGINS, js: ["src/content/harvest-lbc.js"], runAt: "document_idle", persistAcrossSessions: true }]);
+    await chrome.scripting.registerContentScripts([{ id: "ae-lbc", matches: LBC_ORIGINS, js: ["src/content/harvest-lbc.js", "src/content/lbc-competitors.js"], runAt: "document_idle", persistAcrossSessions: true }]);
   } else if (!on && existing.length) {
     await chrome.scripting.unregisterContentScripts({ ids: ["ae-lbc"] });
   }
@@ -945,6 +947,29 @@ async function reportLbc({ items }) {
   const n = await sb.rpc("aliedge_report_lbc_items", { _items: fresh }).catch(() => 0);
   return { added: n };
 }
+/** Page d'un vendeur Leboncoin : ses annonces + celles qui ont disparu depuis la dernière visite. */
+async function reportLbcProfile({ seller, ids, total, items }) {
+  const settings = await getSettings();
+  if (!settings.shareAnalyses || !(await sb.getSession())) return {};
+  if (Array.isArray(items) && items.length) await reportLbc({ items });
+  return sb.rpc("aliedge_lbc_report_profile", { _seller: String(seller), _ids: (ids || []).map(Number).filter(Boolean).slice(0, 500), _total: Number(total) || null }).catch(() => ({}));
+}
+let lbcTracked = null;
+async function lbcTrackedIds() {
+  if (lbcTracked && Date.now() - lbcTracked.at < 120_000) return lbcTracked.ids;
+  if (!(await sb.getSession())) return [];
+  const rows = await sb.rpc("aliedge_lbc_trackers").catch(() => []);
+  lbcTracked = { at: Date.now(), ids: (rows || []).map((r) => r.seller_uuid) };
+  return lbcTracked.ids;
+}
+async function lbcTrack({ seller, label = null }) {
+  if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi à AliEdge pour suivre un vendeur.", 401, "auth");
+  try { await sb.rpc("aliedge_lbc_tracker_add", { _seller: String(seller), _label: label ? String(label).slice(0, 80) : null }); }
+  catch (e) { if (/too many/.test(e.message)) throw new sb.ApiError("Tu suis déjà 30 concurrents Leboncoin : retires-en un avant d'en ajouter.", 400, "limit"); throw e; }
+  lbcTracked = null;
+  return {};
+}
+
 async function lbcLinkItem({ listId, url }) {
   const platform = detectPlatform(url);
   const id = sourceIdFromUrl(url);
@@ -1188,6 +1213,12 @@ const handlers = {
   "lbc:status": async () => ({ enabled: await syncLbcScript() }),
   "lbc:feed": async ({ search = null, offset = 0, dropship = true } = {}) => sb.rpc("aliedge_lbc_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0), _dropship: dropship !== false }),
   "lbc:link": async (msg) => lbcLinkItem(msg),
+  "lbc:profile": async (msg) => reportLbcProfile(msg),
+  "lbc:trackedIds": async () => lbcTrackedIds(),
+  "lbc:track": async (msg) => lbcTrack(msg),
+  "lbc:untrack": async ({ seller }) => { await sb.rpc("aliedge_lbc_tracker_remove", { _seller: String(seller) }); lbcTracked = null; return {}; },
+  "lbc:trackers": async () => sb.rpc("aliedge_lbc_trackers"),
+  "lbc:trackerItems": async ({ seller }) => sb.rpc("aliedge_lbc_tracker_items", { _seller: String(seller) }),
   "tracker:add": async (msg) => addTracker(msg),
   "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
   "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
@@ -1271,7 +1302,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
+  if (fromContent && !["open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

@@ -1123,8 +1123,10 @@ function viewTrackers(trackers) {
 
 async function viewConcurrents() {
   if (!state.me) return `<section class="card pad stack"><h2>Concurrents</h2><p class="muted">Connecte-toi pour suivre les ventes de tes concurrents.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
-  const [trackers, sales, diag] = await Promise.all([api("tracker:list").catch(() => []), api("competitor:sales").catch(() => null), api("diagnostic:last").catch(() => null)]);
+  const [trackers, sales, diag, lbcOn] = await Promise.all([api("tracker:list").catch(() => []), api("competitor:sales").catch(() => null), api("diagnostic:last").catch(() => null), api("lbc:status").then((r) => r.enabled).catch(() => false)]);
+  const lbcRows = lbcOn ? await api("lbc:trackers").catch(() => []) : [];
   return `${viewTrackers(trackers)}
+    ${viewLbcTrackers(lbcRows, lbcOn)}
     <section class="stack" style="margin-top:22px">${salesFeedHtml(sales)}</section>
     <section class="stack" style="margin-top:22px">
       <h2>Analyser une niche</h2>
@@ -1302,6 +1304,75 @@ async function viewSuivis() {
     <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
 
+
+/** Concurrents Leboncoin : leur page est relue quand tu l'ouvres (aucune requête en arrière-plan vers Leboncoin). */
+function viewLbcTrackers(rows, on) {
+  const days = (d) => (d == null ? "–" : `${String(d).replace(".", ",")} j`);
+  const list = (rows || []).map((t) => `
+    <div class="tracker">
+      <button class="tracker-head" type="button" data-lbctracker="${esc(t.seller_uuid)}" aria-expanded="false">
+        <span class="tracker-dot" aria-hidden="true"></span>
+        <span class="tracker-name"><b>${esc(t.label || "Vendeur Leboncoin")}</b><span class="small muted">suivi depuis ${esc(ago(new Date(t.created_at).getTime()))} · ${t.last_visit_at ? `page vue ${esc(ago(new Date(t.last_visit_at).getTime()))}` : "page jamais ouverte"}</span></span>
+        <span class="tracker-kpi num"><b>${t.active_count}</b><span class="small muted">en ligne</span></span>
+        <span class="tracker-kpi num"><b>${t.gone_30d}</b><span class="small muted">ventes 30 j (estim.)</span></span>
+      </button>
+      <div class="tracker-body" id="lbt-${esc(t.seller_uuid)}" hidden></div>
+    </div>`).join("");
+  return `
+    <section class="stack" style="margin-top:22px">
+      <div class="row between"><h2>Concurrents Leboncoin</h2><span class="small muted">${(rows || []).length} / 30</span></div>
+      ${on ? `
+        <p class="small muted">Colle le lien du profil Leboncoin d'un concurrent, ou clique sur « + Concurrent » à côté de son nom sur Leboncoin. Ouvre sa page de temps en temps (bouton « Revoir ses annonces ») : les annonces disparues depuis ta dernière visite sont comptées comme ventes probables. AliEdge n'envoie aucune requête à Leboncoin à ta place.</p>
+        <form id="lbctrackform" class="row" style="gap:8px">
+          <input class="input" id="lbctrackurl" type="url" inputmode="url" placeholder="https://www.leboncoin.fr/profile/…/offers" aria-label="Lien du profil Leboncoin" style="flex:1">
+          <button class="btn primary" type="submit">Suivre</button>
+        </form>
+        <div id="lbctrackerr" role="alert"></div>
+        <div class="trackers">${list || `<p class="small muted">Aucun concurrent Leboncoin suivi.</p>`}</div>`
+      : `<div class="card pad stack" style="gap:8px"><p class="small muted" style="margin:0">Active Leboncoin pour suivre aussi tes concurrents Leboncoin. AliEdge lit seulement les pages que tu ouvres, sans aucune requête en plus.</p><button class="btn" type="button" id="lbcenable2">Activer Leboncoin</button></div>`}
+    </section>`;
+}
+
+function bindLbcTrackers() {
+  document.getElementById("lbcenable2")?.addEventListener("click", async () => {
+    let ok = false;
+    try { ok = await chrome.permissions.request({ origins: ["https://www.leboncoin.fr/*"] }); } catch { ok = false; }
+    if (ok) { await api("lbc:status").catch(() => {}); toast("Leboncoin activé"); render(); } else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
+  });
+  document.getElementById("lbctrackform")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = document.getElementById("lbctrackerr");
+    const m = document.getElementById("lbctrackurl").value.match(/leboncoin\.fr\/profile\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!m) { err.innerHTML = `<div class="notice err">Colle le lien d'un profil Leboncoin (…/profile/…/offers).</div>`; return; }
+    err.innerHTML = "";
+    try { await api("lbc:track", { seller: m[1].toLowerCase(), label: null }); toast("Concurrent ajouté : ouvre sa page pour relever ses annonces"); render(); }
+    catch (x) { err.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+  });
+  document.querySelectorAll("[data-lbctracker]").forEach((b) => b.addEventListener("click", async () => {
+    const seller = b.dataset.lbctracker;
+    const body = document.getElementById(`lbt-${seller}`);
+    const open = b.getAttribute("aria-expanded") === "true";
+    b.setAttribute("aria-expanded", String(!open));
+    body.hidden = open;
+    if (open || body.dataset.loaded) return;
+    body.innerHTML = `<div class="skel" style="height:90px;margin-top:8px"></div>`;
+    const items = await api("lbc:trackerItems", { seller }).catch(() => []);
+    const gone = items.filter((i) => i.status !== "active"), active = items.filter((i) => i.status === "active");
+    const line = (i) => `<div class="sale-row"><a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.status === "active" ? `en ligne depuis ${esc(ago(new Date(i.first_seen_at).getTime()))}` : `<span class="badge-sold">${i.status === "sold" ? "Vendu" : "Vendu (estimation)"}</span> ${esc(ago(new Date(i.gone_at).getTime()))}${i.days_to_sell != null ? ` · en ${esc(String(i.days_to_sell).replace(".", ","))} j` : ""}`}</div></div><div class="p num">${i.price != null ? eur(Number(i.price)) : ""}</div></a>${i.status !== "active" ? supplierHtml(i) : ""}</div>`;
+    body.innerHTML = `
+      <div class="stack" style="gap:10px;margin-top:8px">
+        <div class="row wrap" style="gap:8px"><a class="btn primary small" href="https://www.leboncoin.fr/profile/${esc(seller)}/offers" target="_blank" rel="noopener">Revoir ses annonces</a><button class="btn ghost small" type="button" data-lbcuntrack="${esc(seller)}">Arrêter le suivi</button></div>
+        <h3 class="small">Ventes probables (${gone.length})</h3>
+        ${gone.length ? `<div class="items">${gone.map(line).join("")}</div>` : `<p class="small muted">Elles apparaissent quand des annonces ont disparu entre deux visites de sa page.</p>`}
+        <h3 class="small">En ligne (${active.length})</h3>
+        ${active.length ? `<div class="items">${active.slice(0, 120).map(line).join("")}</div>` : `<p class="small muted">Ouvre sa page avec « Revoir ses annonces » pour relever ses annonces.</p>`}
+      </div>`;
+    body.dataset.loaded = "1";
+    bindSupplierForms(body);
+    body.querySelector("[data-lbcuntrack]")?.addEventListener("click", async (ev) => { await api("lbc:untrack", { seller: ev.currentTarget.dataset.lbcuntrack }); toast("Concurrent retiré"); render(); });
+  }));
+}
+
 function bindNicheResults(root) {
   root.querySelectorAll("[data-follow]").forEach((b) => b.addEventListener("click", async () => {
     b.disabled = true;
@@ -1326,6 +1397,7 @@ function bindSupplierForms(root) {
 }
 
 function bindTrackers() {
+  bindLbcTrackers();
   document.getElementById("salesnotify")?.addEventListener("change", (e) => { api("competitor:salesNotify", { on: e.currentTarget.checked }).catch(() => {}); });
   const nout = document.getElementById("nicheout");
   if (nout) bindNicheResults(nout);
