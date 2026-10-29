@@ -948,11 +948,11 @@ async function reportLbc({ items }) {
   return { added: n };
 }
 /** Page d'un vendeur Leboncoin : ses annonces + celles qui ont disparu depuis la dernière visite. */
-async function reportLbcProfile({ seller, ids, total, items }) {
+async function reportLbcProfile({ seller, ids, total, items, name = null }) {
   const settings = await getSettings();
   if (!settings.shareAnalyses || !(await sb.getSession())) return {};
   if (Array.isArray(items) && items.length) await reportLbc({ items });
-  return sb.rpc("aliedge_lbc_report_profile", { _seller: String(seller), _ids: (ids || []).map(Number).filter(Boolean).slice(0, 500), _total: Number(total) || null }).catch(() => ({}));
+  return sb.rpc("aliedge_lbc_report_profile", { _seller: String(seller), _ids: (ids || []).map(Number).filter(Boolean).slice(0, 500), _total: Number(total) || null, _name: name ? String(name).slice(0, 80) : null }).catch(() => ({}));
 }
 let lbcTracked = null;
 async function lbcTrackedIds() {

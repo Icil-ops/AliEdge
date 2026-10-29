@@ -14,6 +14,8 @@
   // Département seulement (jamais la ville) : 13001 → 13, 97411 → 974, 20000 → 20.
   const dept = (t) => { const cp = String(t || "").match(/\b(\d{5})\b/)?.[1]; return cp ? (cp.startsWith("97") ? cp.slice(0, 3) : cp.slice(0, 2)) : null; };
   const photo = (img) => { const s = img?.currentSrc || img?.getAttribute("src") || ""; return /^https:\/\//.test(s) ? s : null; };
+  // « Date de dépôt : 10/10/2026. » → 2026-10-10
+  const depot = (t) => { const m = String(t || "").match(/Date de dépôt\s*:\s*(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}T12:00:00+01:00` : null; };
   const profileId = () => location.pathname.match(/^\/profile\/([0-9a-f-]{36})/i)?.[1] || null;
 
   /** Cartes d'annonces affichées : résultats de recherche, annonces similaires, page d'un vendeur. */
@@ -21,7 +23,8 @@
     const out = [];
     const seller = profileId();
     for (const art of document.querySelectorAll("article")) {
-      const box = art.querySelector('[data-qa-id="aditem_container"]');
+      // Le conteneur d'annonce est dans la carte (recherche) ou autour (page vendeur).
+      const box = art.querySelector('[data-qa-id="aditem_container"]') || art.closest('[data-qa-id="aditem_container"]');
       const a = art.querySelector('a[href*="/ad/"], a[href*="/vi/"]');
       const id = idFromUrl(a?.getAttribute("href"));
       if (!box || !id || seen.has(id)) continue;
@@ -37,6 +40,7 @@
         department: dept(text.match(/Située à ([^.]+)\./)?.[1] || ""),
         photo_url: photo(art.querySelector("img")), url: new URL(a.getAttribute("href"), location.href).href.split("?")[0],
         shipping: /Livraison/i.test(text), status: sold ? "sold" : "active", ...(seller ? { seller_uuid: seller } : {}),
+        ...(depot(text) ? { published_at: depot(text) } : {}),
       });
       if (out.length >= 96) break;
     }
@@ -85,7 +89,8 @@
     const seller = profileId();
     if (!seller) return;
     const cards = [...document.querySelectorAll("article a[href*='/ad/']")].map((a) => idFromUrl(a.getAttribute("href"))).filter(Boolean);
-    const total = Number((document.body.innerText || "").match(/(\d[\d ]*)\s+annonces?\b/i)?.[1]?.replace(/ /g, "")) || null;
+    // « Annonces (13) » : nombre d'annonces en ligne du vendeur, affiché sur sa page.
+    const total = Number((document.body.innerText || "").match(/Annonces\s*\((\d+)\)/i)?.[1]) || null;
     const name = (document.querySelector("h1")?.textContent || "").trim().slice(0, 80) || null;
     const key = `${seller}:${cards.length}`;
     if (!cards.length || key === profileSent) return;

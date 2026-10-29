@@ -118,10 +118,10 @@ await ctx.route("**/*", async (route) => {
     lbcRequests.push(url.pathname);
     const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><body>${body}</body>` });
     // Carte d'annonce telle que Leboncoin l'affiche (relevé sur une vraie page enregistrée).
-    const card = (id, title, price, cp, ville) => `<li><article aria-label="${title}"><div data-qa-id="aditem_container"><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/accessoires_bagagerie/${id}"><span title="Voir l’annonce: ${title}"></span></a><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/${id}.jpg?rule=ad-small"><p>${title}</p><span>${price} €</span><p>Prix: ${price} €.</p><div>dès ${price + 1},90 €</div><span>Livraison dès</span><p aria-hidden="true">Accessoires &amp; Bagagerie</p><p>Catégorie : Accessoires &amp; Bagagerie.</p><p aria-hidden="true">${ville} ${cp}</p><p>Située à ${ville} ${cp}.</p></div></article></li>`;
+    const card = (id, title, price, cp, ville) => `<li><article aria-label="${title}"><div data-qa-id="aditem_container"><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/accessoires_bagagerie/${id}"><span title="Voir l’annonce: ${title}"></span></a><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/${id}.jpg?rule=ad-small"><p>${title}</p><span>${price} €</span><p>Prix: ${price} €.</p><div>dès ${price + 1},90 €</div><span>Livraison dès</span><p aria-hidden="true">Accessoires &amp; Bagagerie</p><p>Catégorie : Accessoires &amp; Bagagerie.</p><p aria-hidden="true">${ville} ${cp}</p><p>Située à ${ville} ${cp}.</p><p>10/10/2026</p><p>Date de dépôt : 10/10/2026.</p></div></article></li>`;
     if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000003")) return html("<main><h1>Cette annonce n'est plus disponible</h1></main>");
     if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000005")) return html(`<main><div data-qa-id="adview_title"><h1>Sac à bandoulière noir vintage y2k</h1></div><div data-qa-id="adview_price">27 €</div><div data-qa-id="adview_delivery_container">Livraison</div><p>Arras 62000</p><div data-qa-id="adview_profile_part"><a href="https://www.leboncoin.fr/profile/31a5e0aa-0000-4000-8000-000000000001/offers"></a><a href="https://www.leboncoin.fr/profile/31a5e0aa-0000-4000-8000-000000000001/offers">Bohem-Paris</a></div></main><script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org/", "@type": "Product", category: "Accessoires & Bagagerie", name: "Sac à bandoulière noir vintage y2k", image: "https://img.leboncoin.fr/api/v1/lbcpb1/images/78/a2.jpg?rule=ad-image", offers: { "@type": "Offer", price: 27, priceCurrency: "EUR", availability: "http://schema.org/InStock" } })}</script>`);
-    if (url.pathname.startsWith("/profile/20f25f94-11be-4ddd-9fe0-20891b9db732")) return html(`<main><h1>Asm4ever</h1><p>2 annonces</p><ul>${card(2900000005, "Sac à bandoulière noir vintage y2k", 27, "62000", "Arras")}${card(2900000006, "Sac seau tressé", 22, "62000", "Arras")}</ul></main>`);
+    if (url.pathname.startsWith("/profile/20f25f94-11be-4ddd-9fe0-20891b9db732")) return html(`<main><h1>Asm4ever</h1><p>Annonces (2)</p><ul>${card(2900000005, "Sac à bandoulière noir vintage y2k", 27, "62000", "Arras")}${card(2900000006, "Sac seau tressé", 22, "62000", "Arras")}</ul></main>`);
     return html(`<main><h2>Résultats de recherche : 354 annonces</h2><ul>${card(2900000001, "Lampe de chevet LED tactile", 18, "13001", "Marseille")}${card(2900000002, "Plaid XXL doux", 25, "59000", "Lille")}</ul></main>`);
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
@@ -510,7 +510,7 @@ rpc.aliedge_me.admin = false;
   await lbc.goto("https://www.leboncoin.fr/recherche?text=lampe");
   await lbc.waitForTimeout(5000);
   let body = lbcBodies.join("\n");
-  check("Leboncoin : annonces des résultats ajoutées (département, jamais la ville)", body.includes('"list_id":2900000001') && body.includes('"department":"13"') && body.includes('"price":18') && body.includes('"shipping":true') && !body.includes("Marseille"), body.slice(0, 160));
+  check("Leboncoin : annonces des résultats ajoutées (département, jamais la ville)", body.includes('"list_id":2900000001') && body.includes('"department":"13"') && body.includes('"price":18') && body.includes('"published_at":"2026-10-10T12:00:00+01:00"') && body.includes('"shipping":true') && !body.includes("Marseille"), body.slice(0, 160));
   await lbc.goto("https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005");
   await lbc.waitForTimeout(5000);
   body = lbcBodies.join("\n");
@@ -522,7 +522,7 @@ rpc.aliedge_me.admin = false;
   check("Leboncoin : concurrent ajouté en un clic", calls.filter((c) => c.endsWith("aliedge_lbc_tracker_add")).length > addBefore);
   await lbc.goto("https://www.leboncoin.fr/profile/20f25f94-11be-4ddd-9fe0-20891b9db732/offers");
   await lbc.waitForTimeout(5000);
-  check("Leboncoin : page du vendeur relevée (annonces + disparues)", profileBodies.some((b) => b.includes("20f25f94-11be-4ddd-9fe0-20891b9db732") && b.includes("2900000006") && b.includes('"_total":2')), profileBodies.slice(-1)[0]);
+  check("Leboncoin : page du vendeur relevée (annonces + disparues)", profileBodies.some((b) => b.includes("20f25f94-11be-4ddd-9fe0-20891b9db732") && b.includes("2900000006") && b.includes('"_total":2') && b.includes('"_name":"Asm4ever"')), profileBodies.slice(-1)[0]);
   await lbc.goto("https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000003");
   await lbc.waitForTimeout(5000);
   check("Leboncoin : annonce disparue signalée", lbcBodies.some((b) => b.includes('"list_id":2900000003') && b.includes('"status":"gone"')));
