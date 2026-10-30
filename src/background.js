@@ -494,24 +494,43 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
   // Catalogue communautaire : on partage l'analyse puis on récupère les ventes déjà constatées.
   let productId = null;
   let sold = [];
-  if (settings.shareAnalyses && product?.platform && product.source_id) {
-    try {
-      productId = await sb.rpc("aliedge_contribute", {
-        _product: {
-          platform: product.platform, source_id: product.source_id, url: product.url, title: product.title,
-          image_url: product.image, price: product.priceEur, currency: "EUR", category: product.category,
-        },
-        _items: (await dropOwn(comparable)).filter((i) => !i.excluded && i.relevance >= 0.5).slice(0, 40).map((i) => ({
-          vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition,
-          price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active",
-        })),
-      });
-      const m = await me();
-      if (m?.pro && productId) {
-        const rows = await sb.rpc("aliedge_product_items", { _product_id: productId });
-        sold = (rows || []).filter((r) => r.status === "sold").map((r) => ({ ...r, price: Number(r.price) }));
-      }
-    } catch { /* le partage ne doit jamais bloquer l'analyse */ }
+  // Base commune : TOUTES les annonces trouvées par l'analyse y sont ajoutées (leurs ventes seront suivies).
+  // Seules les annonces vraiment du même article sont reliées au produit fournisseur : même photo,
+  // ou très proches sans grande marque (le serveur écarte aussi les grandes marques).
+  const NO_BRAND = /^(sans marque|marque inconnue|no brand|unbranded|autre|other|fait main|handmade|vintage dressing)$/i;
+  const toRow = (i) => ({
+    vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition,
+    price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active",
+    ...(i.listed_at ? { listed_at: i.listed_at } : {}),
+  });
+  if (settings.shareAnalyses) {
+    const mine = await dropOwn(found);
+    const excludedIds = new Set(excluded.map(Number));
+    const linked = product?.platform && product.source_id
+      ? mine.filter((i) => !excludedIds.has(i.vinted_id) && ((i.visual ?? 0) >= 0.6 || (i.relevance >= 0.6 && (!i.brand || NO_BRAND.test(String(i.brand).trim()))))).sort((a, b) => (b.visual ?? 0) - (a.visual ?? 0) || b.relevance - a.relevance).slice(0, 40)
+      : [];
+    const linkedIds = new Set(linked.map((i) => i.vinted_id));
+    if (linked.length || (product?.platform && product.source_id)) {
+      try {
+        productId = await sb.rpc("aliedge_contribute", {
+          _product: {
+            platform: product.platform, source_id: product.source_id, url: product.url, title: product.title,
+            image_url: product.image, price: product.priceEur, currency: "EUR", category: product.category,
+          },
+          _items: linked.map(toRow),
+        });
+        const m = await me();
+        if (m?.pro && productId) {
+          const rows = await sb.rpc("aliedge_product_items", { _product_id: productId });
+          sold = (rows || []).filter((r) => r.status === "sold").map((r) => ({ ...r, price: Number(r.price) }));
+        }
+      } catch { /* le partage ne doit jamais bloquer l'analyse */ }
+    }
+    // Le reste des annonces trouvées : dans la base commune, sans lien avec ce fournisseur.
+    const rest = mine.filter((i) => !linkedIds.has(i.vinted_id)).slice(0, 192);
+    (async () => {
+      for (let k = 0; k < rest.length; k += 96) await sb.rpc("aliedge_report_items", { _items: rest.slice(k, k + 96).map(toRow) }).catch(() => {});
+    })();
   }
 
   const result = analyse({
