@@ -5,6 +5,7 @@ import * as vinted from "./lib/vinted.js";
 import { analyse, toEur, parsePrice, round2 } from "./lib/pricing.js";
 import { buildQuery, guessCategory } from "./lib/text.js";
 import { extractProduct, detectPlatform, sourceIdFromUrl, canonicalUrl } from "./lib/extract.js";
+import { tourHandlers, TOUR_CONTENT_TYPES } from "./tour.js";
 const STOP_CODES = new Set(["blocked", "rate_limited", "paused", "budget", "busy"]);
 
 const HISTORY_KEY = "ae_history";
@@ -1443,6 +1444,7 @@ async function pageCoupons() {
 }
 
 const handlers = {
+  ...tourHandlers,
   "auth:state": async () => ({ me: await me(true), settings: await getSettings() }),
   "auth:signIn": async ({ email, password }) => { await sb.signIn(email, password); return { me: await me(true) }; },
   "auth:signUp": async ({ email, password, marketing }) => {
@@ -1609,7 +1611,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed"].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

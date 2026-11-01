@@ -77,7 +77,7 @@ function announce(msg) {
 function route() {
   const h = location.hash.replace(/^#\/?/, "");
   const [name, qs] = h.split("?");
-  return { name: ["analyse", "catalogue", "radar", "concurrents", "suivis", "compte", "bienvenue", "image"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  return { name: ["analyse", "catalogue", "radar", "concurrents", "suivis", "compte", "bienvenue", "image", "balade"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -654,6 +654,8 @@ function viewAnalyse() {
         ${searchControls()}
       </section>`);
   }
+
+  if (!isTab) parts.push(`<div id="tourcard"></div>`);
 
   if (state.analysing) {
     parts.push(`
@@ -1644,6 +1646,11 @@ function bindTrackers() {
     catch (x) { nout.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
     finally { btn.disabled = false; btn.textContent = "Analyser"; }
   });
+  if (state.nicheAuto) {
+    state.nicheAuto = false;
+    const f = document.getElementById("nicheform");
+    if (f) { document.getElementById("nicheq").value = state.nicheQuery || ""; f.scrollIntoView({ block: "start" }); f.requestSubmit(); }
+  }
   document.getElementById("trackform")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = document.getElementById("trackerr");
@@ -1904,6 +1911,231 @@ function bindBienvenue(params) {
   });
 }
 
+// ───────────────────────── Balade SHEIN (trouver des niches sans rien faire)
+// La balade parcourt le catalogue SHEIN de l'onglet ouvert, lentement, et note ce qu'elle voit.
+// Le rapport transforme ces articles en pistes : catégories et mots qui reviennent, puis analyse Vinted.
+
+const TOUR_STOP = new Set(("de du des la le les un une et en pour avec sans au aux à a sur par ou d l the and for with of in on to " +
+  "femme femmes homme hommes fille filles garçon enfant enfants bébé women woman men man girls girl boys boy kids baby " +
+  "shein 1pc pièce pièces pcs pc lot set ensemble nouveau nouvelle mode style décontracté casual elegant élégant " +
+  "grande taille plus size couleur unie solid simple basique imprimé print manches courtes longues col rond " +
+  "été hiver printemps automne summer winter spring fall quotidien daily cm mm 2pcs 3pcs").split(/\s+/));
+const tourPrefs = { minutes: 10, pace: "calme" }; // le rythme repart toujours sur « Calme »
+let tourView = { filter: "all", sort: "recent", q: "" };
+
+const tourWords = (title) => String(title || "").toLowerCase()
+  .replace(/[^a-zà-ÿ0-9\s'-]/g, " ").split(/[\s'-]+/)
+  .filter((w) => w.length > 2 && !TOUR_STOP.has(w) && !/^\d+$/.test(w));
+const tourPrice = (p) => { const m = String(p || "").match(/[\d.]+/); return m ? parseFloat(m[0]) : Infinity; };
+const vintedSearch = (q) => `https://www.vinted.fr/catalog?search_text=${encodeURIComponent(q)}`;
+const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+function tourInsights(items) {
+  const cats = {};
+  const words = {};
+  for (const x of items) {
+    const c = x.cats?.length ? x.cats[x.cats.length - 1] : x.from;
+    if (c) cats[c] = (cats[c] || 0) + (x.opened ? 3 : 1); // un article ouvert compte plus qu'un passage
+    const ws = tourWords(x.title);
+    const uniq = new Set(ws);
+    for (let i = 0; i < ws.length - 1; i++) uniq.add(`${ws[i]} ${ws[i + 1]}`);
+    uniq.forEach((w) => { words[w] = (words[w] || 0) + 1; });
+  }
+  const min = items.length > 30 ? 3 : 2;
+  let top = Object.keys(words).filter((w) => words[w] >= min).sort((a, b) => words[b] - words[a] || b.length - a.length);
+  // Un mot seul disparaît quand une expression qui le contient est presque aussi fréquente.
+  top = top.filter((w) => w.includes(" ") || !top.some((p) => p.includes(" ") && p.split(" ").includes(w) && words[p] >= words[w] * 0.7)).slice(0, 20);
+  const catTop = Object.keys(cats).sort((a, b) => cats[b] - cats[a]).slice(0, 6);
+  const prices = items.map((x) => tourPrice(x.price)).filter(Number.isFinite).sort((a, b) => a - b);
+  return { cats, catTop, words, top, median: prices.length ? prices[Math.floor(prices.length / 2)] : null };
+}
+
+function tourControlsHtml(st) {
+  if (!st?.shein) {
+    return `<section class="card pad stack">
+      <h2>Balade SHEIN</h2>
+      <p class="muted">Ouvre une catégorie ou une recherche sur SHEIN dans cet onglet (par exemple « robe crochet »), puis reviens ici pour lancer la balade.</p>
+      <a class="btn primary block" href="https://fr.shein.com" target="_blank" rel="noopener">Ouvrir SHEIN</a>
+    </section>`;
+  }
+  if (st.running) {
+    return `<section class="card pad stack" aria-live="polite">
+      <div class="row between"><h2>Balade en cours</h2><span class="chip shein">SHEIN</span></div>
+      <p class="muted">${st.paused ? "En pause." : `Encore ${esc(mmss(st.left || 0))}.`} ${st.opened ? `${st.opened} article${st.opened > 1 ? "s" : ""} ouvert${st.opened > 1 ? "s" : ""}.` : ""}</p>
+      <p class="small muted">Échap pour arrêter, Espace pour mettre en pause. Si SHEIN demande une vérification, la balade s'arrête et t'attend : fais-la, puis clique « Reprendre » sur la page.</p>
+      <button class="btn block" type="button" id="tourstop">Arrêter la balade</button>
+    </section>`;
+  }
+  const seg = (key, opts) => `<div class="seg" role="group" data-tour="${key}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(tourPrefs[key]) === String(v)}">${l}</button>`).join("")}</div>`;
+  return `<section class="card pad stack">
+    <div class="row between"><h2>Balade SHEIN</h2><span class="chip shein">SHEIN</span></div>
+    <p class="muted">AliEdge parcourt le catalogue à ta place, lentement : défilement, pauses, survol des produits, ouverture de quelques articles. Il note tout ce qu'il voit pour te sortir des pistes de niches.</p>
+    <div class="field"><span>Durée</span>${seg("minutes", [[3, "3 min"], [10, "10 min"], [20, "20 min"], [45, "45 min"]])}</div>
+    <div class="field"><span>Rythme</span>${seg("pace", [["calme", "Calme"], ["normal", "Normal"], ["dynamique", "Dynamique"]])}</div>
+    <label class="row small"><input type="checkbox" id="touropen" ${tourPrefs.open === false ? "" : "checked"}> Ouvrir quelques articles</label>
+    <label class="row small"><input type="checkbox" id="tourcursor" ${tourPrefs.cursor ? "checked" : ""}> Curseur visible (pour filmer)</label>
+    <label class="row small"><input type="checkbox" id="tourbadge" ${tourPrefs.badge === false ? "" : "checked"}> Compteur sur la page</label>
+    <button class="btn primary block" type="button" id="tourstart">Lancer la balade</button>
+    <p class="small muted">Garde-fous : 45 min maximum, 20 articles ouverts par heure. La balade ne clique que sur des articles et ne touche jamais aux vérifications de SHEIN.</p>
+    <div id="tourerr" role="alert"></div>
+  </section>`;
+}
+
+function tourReportHtml(seen) {
+  const all = Object.values(seen || {}).filter((x) => x?.title);
+  if (!all.length) {
+    return `<section class="card empty">${ICON.search}<h2>Pas encore de pistes</h2><p class="muted">Lance une balade : les catégories et les mots qui reviennent apparaîtront ici.</p></section>`;
+  }
+  const ins = tourInsights(all);
+  const opened = all.filter((x) => x.opened).length;
+  const max = ins.catTop.length ? ins.cats[ins.catTop[0]] : 1;
+  let list = all.slice();
+  if (tourView.filter === "opened") list = list.filter((x) => x.opened);
+  if (tourView.q) { const q = tourView.q.toLowerCase(); list = list.filter((x) => `${x.title} ${(x.cats || []).join(" ")} ${x.from || ""}`.toLowerCase().includes(q)); }
+  list.sort((a, b) => (tourView.sort === "views" ? (b.views || 0) - (a.views || 0) : tourView.sort === "price" ? tourPrice(a.price) - tourPrice(b.price) : (b.last || 0) - (a.last || 0)));
+  return `
+    <section class="stack" style="margin-top:18px">
+      <div class="row between"><h2>Pistes de niches</h2><span class="small muted">${all.length} vus · ${opened} ouverts${ins.median != null ? ` · prix médian ${eur(ins.median)}` : ""}</span></div>
+      ${ins.top.length ? `<div class="card pad stack">
+        <h3>Ce qui revient le plus</h3>
+        <p class="small muted">« Analyser » regarde les annonces et les ventes sur Vinted pour ce mot. « Vinted » ouvre la recherche.</p>
+        <div class="items">${ins.top.slice(0, 12).map((w) => `
+          <div class="row between" style="gap:8px">
+            <span><b>${esc(w)}</b> <span class="small muted">×${ins.words[w]}</span></span>
+            <span class="row" style="gap:6px"><button class="btn small primary" type="button" data-niche="${esc(w)}">Analyser</button><a class="btn small" href="${vintedSearch(w)}" target="_blank" rel="noopener">Vinted</a></span>
+          </div>`).join("")}</div>
+      </div>` : `<p class="notice info">Pas encore assez d'articles pour dégager des mots : laisse la balade tourner un peu plus.</p>`}
+      ${ins.catTop.length ? `<div class="card pad stack"><h3>Catégories</h3>${ins.catTop.map((c) => `
+        <div><div class="row between small"><span>${esc(c)}</span><span class="muted">${ins.cats[c]}</span></div>
+        <div style="height:6px;border-radius:99px;background:var(--soft);overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.round((ins.cats[c] / max) * 100)}%;background:var(--violet)"></div></div></div>`).join("")}</div>` : ""}
+      <div class="row between wrap" style="gap:8px">
+        <div class="seg" role="group" aria-label="Filtrer">
+          <button type="button" data-tf="all" aria-pressed="${tourView.filter === "all"}">Tous</button>
+          <button type="button" data-tf="opened" aria-pressed="${tourView.filter === "opened"}">Ouverts</button>
+          <button type="button" data-ts="recent" aria-pressed="${tourView.sort === "recent"}">Récents</button>
+          <button type="button" data-ts="views" aria-pressed="${tourView.sort === "views"}">Plus vus</button>
+          <button type="button" data-ts="price" aria-pressed="${tourView.sort === "price"}">Prix</button>
+        </div>
+        <input class="input" id="tourq" type="search" placeholder="Filtrer" aria-label="Filtrer les articles" value="${esc(tourView.q)}" style="flex:1;min-width:120px">
+      </div>
+      <div class="items">${list.slice(0, 150).map((x) => `
+        <div class="item">
+          ${x.img ? `<img src="${safeUrl(x.img)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : '<div class="ph"></div>'}
+          <div><a class="t" href="${safeUrl(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>
+            <div class="m">${x.opened ? "Ouvert · " : x.views > 1 ? `Vu ×${x.views} · ` : ""}${esc((x.cats?.length ? x.cats[x.cats.length - 1] : x.from) || "")}${x.rating ? ` · ★ ${esc(x.rating)}` : ""}</div></div>
+          <div class="stack" style="align-items:flex-end;gap:4px"><span class="p num">${esc(String(x.price || "—").replace(".", ","))}</span><a class="btn small" href="${vintedSearch(tourWords(x.title).slice(0, 4).join(" ") || x.title)}" target="_blank" rel="noopener">Vinted</a></div>
+        </div>`).join("") || `<p class="muted small">Aucun article ne correspond.</p>`}</div>
+      <div class="row" style="gap:8px"><button class="btn small" type="button" id="tourcsv">Exporter (CSV)</button><button class="btn small" type="button" id="tourclear">Tout effacer</button></div>
+      <p class="small muted">Ce sont les articles que SHEIN t'a montrés, pas forcément les meilleures ventes : vérifie toujours la demande sur Vinted avant de choisir une niche.</p>
+    </section>`;
+}
+
+let tourTimer = null;
+async function viewBalade() {
+  const [st, seen, prefs] = await Promise.all([
+    api("tour:state").catch(() => null),
+    api("tour:seen").catch(() => ({})),
+    chrome.storage.local.get("ae_tour_prefs").then((r) => r.ae_tour_prefs || {}).catch(() => ({})),
+  ]);
+  Object.assign(tourPrefs, { minutes: [3, 10, 20, 45].includes(prefs.minutes) ? prefs.minutes : 10, open: prefs.open, cursor: prefs.cursor, badge: prefs.badge });
+  state.tourSeen = seen;
+  state.tourState = st;
+  return `<div class="row between" style="margin-bottom:10px"><a class="small" href="#/analyse">← Analyse</a></div>${tourControlsHtml(st)}<div id="tourreport">${tourReportHtml(seen)}</div>`;
+}
+
+function saveTourPrefs() {
+  chrome.storage.local.set({ ae_tour_prefs: { minutes: tourPrefs.minutes, open: tourPrefs.open, cursor: tourPrefs.cursor, badge: tourPrefs.badge } });
+}
+
+function bindTourReport() {
+  const box = document.getElementById("tourreport");
+  if (!box) return;
+  const rerender = () => { box.innerHTML = tourReportHtml(state.tourSeen); bindTourReport(); };
+  box.querySelectorAll("[data-tf]").forEach((b) => b.addEventListener("click", () => { tourView.filter = b.dataset.tf; rerender(); }));
+  box.querySelectorAll("[data-ts]").forEach((b) => b.addEventListener("click", () => { tourView.sort = b.dataset.ts; rerender(); }));
+  const q = document.getElementById("tourq");
+  q?.addEventListener("input", () => { tourView.q = q.value.trim(); clearTimeout(q._t); q._t = setTimeout(() => { rerender(); const el = document.getElementById("tourq"); el?.focus(); el?.setSelectionRange(el.value.length, el.value.length); }, 250); });
+  box.querySelectorAll("[data-niche]").forEach((b) => b.addEventListener("click", () => {
+    state.nicheQuery = b.dataset.niche;
+    state.nicheAuto = true;
+    location.hash = "#/concurrents";
+  }));
+  box.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => { const d = document.createElement("div"); d.className = "ph"; img.replaceWith(d); }));
+  document.getElementById("tourcsv")?.addEventListener("click", () => {
+    const rows = Object.values(state.tourSeen || {}).map((x) => [x.title, x.price, (x.cats || []).join(" > "), x.from, x.opened ? "oui" : "non", x.views || 0, x.rating || "", x.reviews || "", x.url]);
+    const csv = [["titre", "prix", "catégorie", "page", "ouvert", "vu", "note", "avis", "lien"], ...rows]
+      .map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    a.download = "pistes-niches-shein.csv";
+    a.click();
+  });
+  document.getElementById("tourclear")?.addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirmer l'effacement"; return; }
+    await api("tour:clear").catch(() => {});
+    state.tourSeen = {};
+    rerender();
+  });
+}
+
+function bindBalade() {
+  clearInterval(tourTimer);
+  document.querySelectorAll("[data-tour]").forEach((group) => {
+    const key = group.dataset.tour;
+    group.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      tourPrefs[key] = key === "minutes" ? Number(b.dataset.v) : b.dataset.v;
+      group.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      saveTourPrefs();
+    }));
+  });
+  [["touropen", "open"], ["tourcursor", "cursor"], ["tourbadge", "badge"]].forEach(([id, key]) => {
+    document.getElementById(id)?.addEventListener("change", (e) => { tourPrefs[key] = e.target.checked; saveTourPrefs(); });
+  });
+  document.getElementById("tourstart")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true; btn.textContent = "Lancement…";
+    try {
+      await api("tour:start", { opts: {
+        minutes: tourPrefs.minutes, pace: tourPrefs.pace,
+        open: document.getElementById("touropen").checked,
+        cursor: document.getElementById("tourcursor").checked,
+        badge: document.getElementById("tourbadge").checked,
+      } });
+      toast("Balade lancée");
+      render();
+    } catch (x) {
+      document.getElementById("tourerr").innerHTML = `<div class="notice err">${esc(x.message)}</div>`;
+      btn.disabled = false; btn.textContent = "Lancer la balade";
+    }
+  });
+  document.getElementById("tourstop")?.addEventListener("click", async () => { await api("tour:stop").catch(() => {}); render(); });
+  bindTourReport();
+  // Pendant la balade : état et pistes rafraîchis toutes les 5 s.
+  if (state.tourState?.running) {
+    tourTimer = setInterval(async () => {
+      if (route().name !== "balade") { clearInterval(tourTimer); return; }
+      if (document.activeElement?.id === "tourq") return;
+      const st = await api("tour:state").catch(() => null);
+      if (!st?.running) { clearInterval(tourTimer); render(); return; }
+      state.tourSeen = await api("tour:seen").catch(() => state.tourSeen);
+      const scroll = $view.scrollTop;
+      render().then(() => { $view.scrollTop = scroll; });
+    }, 5000);
+  }
+}
+
+// Petit encart sur l'onglet Analyse quand une page SHEIN est ouverte.
+async function fillTourCard() {
+  const box = document.getElementById("tourcard");
+  if (!box) return;
+  const st = await api("tour:state").catch(() => null);
+  if (!st?.shein) { box.remove(); return; }
+  box.innerHTML = `<a class="card pad row between" href="#/balade" style="text-decoration:none;color:inherit;gap:10px">
+    <span><b>${st.running ? "Balade SHEIN en cours" : "Balade SHEIN"}</b><br><span class="small muted">${st.running ? "Voir l'avancement et les pistes" : "Trouve des niches sans rien faire : AliEdge parcourt le catalogue pour toi."}</span></span>
+    <span class="btn small primary">${st.running ? "Voir" : "Lancer"}</span></a>`;
+}
+
 // ───────────────────────── Rendu
 
 let renderSeq = 0;
@@ -1912,7 +2144,7 @@ async function render() {
   let { name, params } = route();
   // Premier lancement, compte connecté : prise en main avant tout le reste.
   if (state.me && !onboarded && name !== "bienvenue" && name !== "compte") { location.hash = "#/bienvenue"; return; }
-  document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name}`));
+  document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" ? "analyse" : name}`));
   document.querySelectorAll(".tabs a[aria-current]").forEach((a) => a.setAttribute("aria-current", "page"));
   let html;
   if (name === "analyse") html = viewAnalyse();
@@ -1922,6 +2154,7 @@ async function render() {
   else if (name === "radar") html = await viewRadar();
   else if (name === "bienvenue") html = viewBienvenue(params);
   else if (name === "image") html = viewImage();
+  else if (name === "balade") html = await viewBalade();
   else html = viewCompte(params);
   if (seq !== renderSeq) return;
   const [upd, notice] = await Promise.all([api("update:state").catch(() => null), api("remote:message").catch(() => null)]);
@@ -1940,13 +2173,14 @@ async function render() {
     const el = document.getElementById(keepFocus);
     if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); }
   }
-  if (name === "analyse") { bindAnalyse(); renderSteps(); }
+  if (name === "analyse") { bindAnalyse(); renderSteps(); fillTourCard(); }
   else if (name === "catalogue") bindCatalogue();
   else if (name === "suivis") bindSuivis();
   else if (name === "concurrents") bindTrackers();
   else if (name === "radar") bindRadar();
   else if (name === "bienvenue") bindBienvenue(params);
   else if (name === "image") bindImage();
+  else if (name === "balade") bindBalade();
   else bindCompte(params);
 }
 
@@ -1961,7 +2195,7 @@ window.addEventListener("hashchange", () => {
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === "tab:changed" && !isTab) loadProduct();
+  if (msg?.type === "tab:changed" && !isTab) { if (route().name === "balade") render(); else loadProduct(); }
   if (msg?.type === "pending") takePending();
   if (msg?.type === "radar:new" && route().name === "radar") refreshRadarFeed();
   if (msg?.type === "sales:new" && route().name === "concurrents" && !document.activeElement?.matches?.("input")) render();

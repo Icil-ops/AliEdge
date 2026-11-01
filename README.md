@@ -9,6 +9,7 @@ Extension Chrome pour revendeurs Vinted : sur une fiche AliExpress, Temu ou Shei
 - **Catalogue** des produits déjà vendus sur Vinted, avec leur source AliExpress / Temu / Shein, ventes 7 j / 30 j et marge estimée.
 - **Suivis** : alerte quand le prix Vinted d'un produit bouge de plus de 10 %.
 - **Sur Vinted** : bouton « Trouver le fournisseur » (Google Lens, AliExpress, Temu, Shein) sur chaque annonce.
+- **Balade SHEIN** : sur une catégorie SHEIN, AliEdge parcourt le catalogue à la place du membre (lentement, rythme « Calme » par défaut), ouvre quelques articles puis revient, et sort des pistes de niches (catégories et mots qui reviennent, bouton « Analyser » vers l'analyse de niche Vinted). Garde-fous : 45 min maximum, 20 articles ouverts par heure, pause nette si SHEIN demande une vérification (la personne la fait elle-même). Code : `src/tour.js` (service worker) et `src/content/tour.js` (page).
 - **Barapics** : un clic envoie le titre et les photos du produit au studio photo, sans réimport.
 
 ## Comptes et offres

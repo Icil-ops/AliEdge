@@ -95,6 +95,15 @@ cpSync(root, ext, { recursive: true, filter: (src) => !/[\\/](node_modules|\.git
   m.host_permissions = [...m.host_permissions, ...(m.optional_host_permissions || [])];
   writeFileSync(path.join(ext, "manifest.json"), JSON.stringify(m, null, 2));
 }
+// Balade SHEIN accélérée pour le test (mêmes gestes, pauses et écarts raccourcis).
+{
+  const f = path.join(ext, "src/content/tour.js");
+  writeFileSync(f, readFileSync(f, "utf8")
+    .replace("pause: 1.7, speed: [180, 380]", "pause: 0.15, speed: [2500, 4000]")
+    .replace("openGap: 80000, product: [26000, 55000]", "openGap: 2500, product: [2500, 3500]")
+    .replace("weights: { scroll: 44, product: 24, back: 8, read: 16, flick: 0, open: 8 }", "weights: { scroll: 40, product: 10, back: 5, read: 5, flick: 0, open: 40 }")
+    .replace("const MAX_OPENS_PER_HOUR = 20;", "const MAX_OPENS_PER_HOUR = 2;"));
+}
 const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `aliedge-profile-${Date.now()}`), {
   headless: true,
   channel: "chromium",
@@ -150,6 +159,14 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
     if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
+  }
+  if (/(^|\.)shein\.com$/.test(h)) {
+    const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><head><meta charset="utf-8">${body}` });
+    const pid = url.pathname.match(/-p-(\d+)\.html$/);
+    if (pid) return html(`<title>Robe | SHEIN</title><script type="application/ld+json">${JSON.stringify([{ "@type": "Product", name: `Robe crochet bohème ${pid[1]}`, image: ["https://img.ltwebstatic.com/robe.jpg"], offers: { price: "14.99" }, aggregateRating: { ratingValue: 4.8, reviewCount: 120 } }, { "@type": "BreadcrumbList", itemListElement: [{ name: "Accueil" }, { name: "Femme" }, { name: "Robes" }, { name: "Robes crochet" }] }])}</script></head><body style="margin:0"><h1>Robe crochet bohème ${pid[1]}</h1><ul class="thumbs">${'<li style="display:inline-block;width:60px;height:80px;background:#ccc"></li>'.repeat(4)}</ul><div style="height:2600px">Description</div>${url.searchParams.has("verif") ? "" : ""}</body></html>`);
+    const names = ["Robe crochet bohème", "Robe crochet plage", "Sac crochet fleur", "Top crochet été", "Gilet crochet vintage", "Bob crochet"];
+    const cards = Array.from({ length: 48 }, (_, i) => { const t = `${names[i % names.length]} ${i}`; return `<section role="listitem" class="product-card" style="display:inline-block;width:180px;height:330px;margin:6px;vertical-align:top"><a href="/${t.replace(/ /g, "-")}-p-${1000 + i}.html" target="_blank" aria-label="${t}"><img alt="${t}" src="https://img.ltwebstatic.com/p${i}.jpg" style="width:100%;height:240px"></a><div class="goods-title">${t}</div><div>${9 + (i % 7)},99€</div></section>`; }).join("");
+    return html(`<title>Crochet | SHEIN FR</title></head><body style="margin:0"><h1>Crochet</h1>${cards}</body></html>`);
   }
   if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/p/trade")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Paiement</title><main><h1>Confirmer la commande</h1><div class="coupon-box"><input type="text" placeholder="Code promo" id="cp"><button type="button" onclick="window.__applied = document.getElementById('cp').value">Appliquer</button></div><p>Total : 12,40 €</p></main>` });
   if (h.endsWith("aliexpress.com") && url.pathname.startsWith("/w/wholesale")) {
@@ -666,6 +683,70 @@ if (process.env.STORE_SHOTS) {
   const leaked = reportBodies.slice(before).some((b) => b.includes("777001"));
   check("compte Vinted du membre reconnu et jamais publié ni suivi", own.some((x) => x.id === 4242) && calls.includes("/rest/v1/rpc/aliedge_register_own_seller") && refused?.ok === false && !leaked, JSON.stringify({ own: own.map((x) => x.id), refused: refused?.error, leaked }));
   await v.close();
+}
+
+// Balade SHEIN : parcourt le catalogue, ouvre un article puis revient, note les articles,
+// s'arrête net sur une vérification SHEIN, respecte le plafond d'articles ouverts par heure.
+{
+  const sh = await ctx.newPage();
+  await sh.setViewportSize({ width: 1280, height: 800 });
+  await sh.goto("https://fr.shein.com/category/crochet.html");
+  await sh.waitForTimeout(800);
+  const tabId = await page.evaluate(async () => (await chrome.tabs.query({ url: "https://fr.shein.com/*" }))[0]?.id);
+  const st0 = await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:state", tabId: id }), tabId);
+  const started = await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:start", tabId: id, opts: { minutes: 3, open: true, badge: true, cursor: true } }), tabId);
+  const urls = new Set();
+  let maxY = 0;
+  for (let i = 0; i < 18; i++) {
+    await sh.waitForTimeout(1500);
+    const s = await sh.evaluate(() => ({ u: location.pathname, y: scrollY })).catch(() => null);
+    if (s) { urls.add(s.u); if (s.u.includes("category")) maxY = Math.max(maxY, s.y); }
+  }
+  const visitedProduct = [...urls].some((u) => /-p-\d+\.html$/.test(u));
+  const backToList = (await sh.evaluate(() => location.pathname).catch(() => "")).includes("category") || urls.has("/category/crochet.html");
+  const seen = await page.evaluate(() => chrome.runtime.sendMessage({ type: "tour:seen" }));
+  const items = Object.values(seen?.data || {});
+  const opened = items.filter((x) => x.opened);
+  check("Balade SHEIN : défile, ouvre un article puis revient au catalogue", st0?.data?.shein === true && started?.ok && maxY > 300 && visitedProduct && backToList, JSON.stringify({ maxY, urls: [...urls].slice(0, 4) }));
+  check("Balade SHEIN : articles vus et ouverts notés pour les pistes de niches", items.length >= 6 && opened.length >= 1 && opened[0].cats?.includes("Robes crochet") && opened[0].price === "14.99 €", `${items.length} vus, ${opened.length} ouverts`);
+
+  // Vérification SHEIN : la balade s'arrête net et ne reprend qu'une fois la vérification faite.
+  await sh.waitForURL(/category/, { timeout: 15000 }).catch(() => {});
+  await sh.waitForTimeout(1200);
+  await sh.evaluate(() => { const d = document.createElement("div"); d.className = "geetest_panel"; d.style.cssText = "position:fixed;left:300px;top:150px;width:320px;height:220px;background:#fff;z-index:9"; document.body.appendChild(d); });
+  await sh.waitForTimeout(2000);
+  const y1 = await sh.evaluate(() => scrollY);
+  await sh.waitForTimeout(3000);
+  const y2 = await sh.evaluate(() => scrollY);
+  const label = await sh.evaluate(() => document.querySelector("#ae-shein-tour-badge [data-label]")?.textContent || "");
+  await sh.click("#ae-shein-tour-badge [data-pause]");
+  await sh.waitForTimeout(600);
+  const badgeLabel = () => sh.evaluate(() => document.querySelector("#ae-shein-tour-badge [data-label]")?.textContent || "");
+  const stillPaused = /vérification/.test(await badgeLabel());
+  await sh.evaluate(() => document.querySelector(".geetest_panel").remove());
+  await sh.click("#ae-shein-tour-badge [data-pause]");
+  await sh.waitForTimeout(500);
+  const resumed = !/vérification|pause/i.test(await badgeLabel());
+  check("Balade SHEIN : pause nette sur une vérification SHEIN, reprise seulement après", y1 === y2 && /vérification/.test(label) && stillPaused && resumed, JSON.stringify({ y1, y2, stillPaused, resumed }));
+
+  // Plafond d'articles ouverts (2 par heure dans la copie de test) puis arrêt depuis le panneau.
+  await sh.waitForTimeout(9000);
+  const tours = await sw.evaluate(async () => (await chrome.storage.session.get("ae_shein_tours")).ae_shein_tours || {});
+  const tour = Object.values(tours)[0] || {};
+  await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:stop", tabId: id }), tabId);
+  await sh.waitForTimeout(600);
+  const gone = await sh.evaluate(() => !document.getElementById("ae-shein-tour-badge")).catch(() => false);
+  const ended = await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:state", tabId: id }), tabId);
+  check("Balade SHEIN : plafond d'articles par heure, arrêt depuis le panneau", (tour.opensLog || []).length <= 2 && tour.cautious === true && gone && ended?.data?.running === false, JSON.stringify({ opens: (tour.opensLog || []).length, cautious: tour.cautious }));
+
+  // Panneau : la page Balade affiche les pistes (mots qui reviennent) et le bouton Analyser.
+  await page.goto(app("/balade"));
+  await page.waitForTimeout(1500);
+  const txt = await page.locator("#view").innerText();
+  const nicheBtn = await page.locator("[data-niche]").count();
+  check("Balade SHEIN : rapport « pistes de niches » dans le panneau", /Pistes de niches/.test(txt) && /crochet/i.test(txt) && nicheBtn > 0, `${nicheBtn} pistes`);
+  await page.screenshot({ path: `${shots}/balade.png`, fullPage: true });
+  await sh.close();
 }
 
 await ctx.close();
