@@ -150,6 +150,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/api/v2/catalog/items") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ status: 401, json: { code: 100, message: "invalid_authentication_token" } });
     if (url.pathname.startsWith("/catalog") && /secours/.test(url.searchParams.get("search_text") || "")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><main>${catalogItems.slice(0, 6).map((it) => `<div data-testid="grid-item"><a href="/items/${it.id}-x" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €, 9,99 € incl."></a><img src="${it.photo.url}"></div>`).join("")}</main>` });
     if (url.pathname.startsWith("/api/v2/catalog/items")) return route.fulfill({ json: { items: catalogItems, pagination: { total_entries: 214 } } });
+    if (url.pathname === "/api/v2/my_orders") return route.fulfill({ contentType: "application/json", body: fx("my_orders.json") });
     if (url.pathname === "/api/v2/users/current") return route.fulfill({ json: { user: { id: 4242, login: "moncomptevinted" } } });
     if (url.pathname === "/api/v2/users") return route.fulfill({ json: { users: [{ id: 8800, login: "vendeuse0" }, { id: 9911, login: "vendeuse01" }] } });
     if (/^\/api\/v2\/users\/\d+$/.test(url.pathname)) return route.fulfill({ json: { user: { id: Number(url.pathname.split("/").pop()), login: "moncompte", feedback_reputation: 0.96, feedback_count: 23, followers_count: 12, item_count: 4, photo: { url: "https://images1.vinted.net/t/u.jpeg" }, about: "Articles neufs, envoi rapide depuis l'entrepôt." } } });
@@ -683,6 +684,23 @@ if (process.env.STORE_SHOTS) {
   const leaked = reportBodies.slice(before).some((b) => b.includes("777001"));
   check("compte Vinted du membre reconnu et jamais publié ni suivi", own.some((x) => x.id === 4242) && calls.includes("/rest/v1/rpc/aliedge_register_own_seller") && refused?.ok === false && !leaked, JSON.stringify({ own: own.map((x) => x.id), refused: refused?.error, leaked }));
   await v.close();
+}
+
+// Ventes à expédier : chaque vente retrouve son produit fournisseur, un clic la confie à la warehouse.
+{
+  const sup = { url: "https://fr.aliexpress.com/item/1005008123456.html", title: "Ceinture tressée cuir marron", price: 3.2, platform: "aliexpress" };
+  const before = await page.evaluate(() => chrome.runtime.sendMessage({ type: "sales:pending" }));
+  const linked = await page.evaluate((s) => chrome.runtime.sendMessage({ type: "sales:link", title: "Ceinture tressée marron", supplier: s }), sup);
+  const after = await page.evaluate(() => chrome.runtime.sendMessage({ type: "sales:pending" }));
+  const sale = (after?.data || []).find((x) => x.transaction_id === 23500000004);
+  await page.goto(app("/suivis"));
+  await page.waitForTimeout(1000);
+  await page.click("#salesload");
+  await page.waitForTimeout(2500);
+  const href = await page.locator("[data-wh]").first().getAttribute("href").catch(() => "");
+  const shown = await page.locator("#salesbox").innerText().catch(() => "");
+  check("Ventes à expédier : produit fournisseur retrouvé, « Confier à la warehouse » prêt", before?.ok && linked?.ok && sale?.supplier?.url === sup.url && sale.supplier.sure === true && /vsale=23500000004/.test(href || "") && /Ceinture tressée cuir marron/.test(shown), JSON.stringify({ supplier: sale?.supplier?.url, href }));
+  await page.screenshot({ path: `${shots}/ventes.png`, fullPage: true });
 }
 
 // Balade SHEIN : parcourt le catalogue, ouvre un article puis revient, note les articles,

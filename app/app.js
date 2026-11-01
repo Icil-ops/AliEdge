@@ -1,5 +1,5 @@
 // AliEdge — panneau latéral et plein écran.
-import { MARKETS, BUY_URL, BARAPICS_URL, SKOOL_URL, PRIVACY_URL } from "../src/config.js";
+import { MARKETS, BUY_URL, BARAPICS_URL, SKOOL_URL, PRIVACY_URL, WAREHOUSE_URL } from "../src/config.js";
 import { VERDICT_LABEL, histogram } from "../src/lib/pricing.js";
 import { draftListing, buildQuery } from "../src/lib/text.js";
 
@@ -1289,6 +1289,8 @@ async function openListing(entry) {
   }
   try {
     const l = await api("barapics", { body: { action: "listing", title: product.title || entry.query, description: "", images, ...(product.priceEur ? { supplierPrice: `${money(product.priceEur)} €` } : {}) } });
+    // L'annonce créée ici est reliée à ce produit : à la vente, la warehouse saura quoi acheter.
+    if (l.title && product.url) api("sales:link", { title: l.title, supplier: { url: product.url, title: product.title, price: product.priceEur, image: product.image, platform: product.platform } }).catch(() => {});
     const tags = (l.hashtags || []).map((h) => `#${h}`).join(" ");
     d.querySelector("#lbody").innerHTML = `
       <div class="ticket"><div><div class="k">Prix conseillé</div><div class="big num pos">${eur(l.price)}</div>
@@ -1524,7 +1526,8 @@ async function viewSuivis() {
       <div class="p num" style="color:${(e.result.margin ?? 0) > 0 ? "var(--gain)" : "var(--loss)"}">${eur(e.result.margin, true)}</div>
     </button>`).join("") : `<p class="muted">Tes analyses apparaîtront ici.</p>`;
   return `
-    <section class="stack"><h2>Produits suivis</h2><div class="items">${w}</div></section>
+    ${salesSectionHtml()}
+    <section class="stack" style="margin-top:22px"><h2>Produits suivis</h2><div class="items">${w}</div></section>
     <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
 
@@ -1684,6 +1687,7 @@ function bindTrackers() {
 }
 
 function bindSuivis(hist) {
+  bindSales();
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.addEventListener("click", async () => { await api("watch:remove", { key: b.dataset.unwatch }); render(); }));
   document.getElementById("clearhist")?.addEventListener("click", async () => { await api("history:clear"); render(); });
   document.querySelectorAll("[data-hist]").forEach((b) => b.addEventListener("click", async () => {
@@ -1908,6 +1912,99 @@ function bindBienvenue(params) {
       toast(err.message);
       e.currentTarget.disabled = false;
     }
+  });
+}
+
+// ───────────────────────── Ventes à expédier → warehouse
+// Chaque vente Vinted pas encore expédiée est reliée à son produit fournisseur. Un clic l'envoie à la
+// warehouse d'Ivan Bara avec le lien d'achat déjà rempli : la warehouse achète, emballe et expédie.
+
+const sales = { state: "idle", list: [], error: "", linking: null, cands: null };
+
+function supplierLine(s, i) {
+  const sup = s.supplier;
+  if (sales.linking === i) {
+    const opts = (sales.cands || []).slice(0, 30).map((c, j) => `<option value="${j}">${esc((c.title || c.url).slice(0, 70))}</option>`).join("");
+    return `<form class="stack" data-linkform="${i}" style="gap:6px;margin-top:6px">
+      ${opts ? `<select class="input" name="pick"><option value="">Choisir un produit analysé…</option>${opts}</select>` : ""}
+      <input class="input" name="url" type="url" inputmode="url" placeholder="ou colle le lien AliExpress / Temu / Shein">
+      <div class="row" style="gap:6px"><button class="btn small primary" type="submit">Relier</button><button class="btn small ghost" type="button" data-linkcancel>Annuler</button></div>
+    </form>`;
+  }
+  if (!sup) return `<div class="m">Produit fournisseur inconnu · <button class="btn ghost small" type="button" data-link="${i}">Associer</button></div>`;
+  return `<div class="m">${sup.sure ? "✓" : "Suggestion :"} <a href="${safeUrl(sup.url)}" target="_blank" rel="noopener">${esc((sup.title || "produit fournisseur").slice(0, 60))}</a>${sup.price ? ` · ${eur(sup.price)}` : ""}
+    ${sup.sure ? `<button class="btn ghost small" type="button" data-link="${i}">Changer</button>` : `<button class="btn ghost small" type="button" data-confirm="${i}">C'est bien lui</button><button class="btn ghost small" type="button" data-link="${i}">Changer</button>`}</div>`;
+}
+
+function salesSectionHtml() {
+  const head = `<div class="row between"><h2>Ventes à expédier</h2>${sales.state === "done" ? '<button class="btn ghost small" type="button" id="salesreload">↻</button>' : ""}</div>`;
+  let body;
+  if (sales.state === "idle") body = `<div class="card pad stack"><p class="small muted">AliEdge lit tes ventes Vinted pas encore expédiées (compte ouvert dans ce navigateur) et retrouve le produit fournisseur de chacune. Un clic, et la warehouse achète, emballe et expédie à ta place.</p><button class="btn primary block" type="button" id="salesload">Voir mes ventes à expédier</button></div>`;
+  else if (sales.state === "loading") body = `<div class="skel" style="height:90px"></div>`;
+  else if (sales.state === "error") body = `<div class="notice warn">${esc(sales.error)}</div>`;
+  else if (!sales.list.length) body = `<p class="muted small">Aucune vente en attente d'expédition.</p>`;
+  else body = `<div class="items">${sales.list.map((s, i) => `
+    <div class="item" style="grid-template-columns:56px 1fr">
+      ${s.photo ? `<img src="${safeUrl(s.photo)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+      <div>
+        <div class="row between" style="gap:8px;align-items:flex-start"><span class="t">${esc(s.title)}</span><span class="p num">${s.price ? eur(s.price) : ""}</span></div>
+        <div class="m">${[s.buyer ? `pour ${esc(s.buyer)}` : "", esc(s.status || "")].filter(Boolean).join(" · ")}</div>
+        ${supplierLine(s, i)}
+        <a class="btn small ${s.supplier ? "primary" : ""}" style="margin-top:6px" href="${esc(WAREHOUSE_URL)}?vsale=${encodeURIComponent(s.transaction_id)}" target="_blank" rel="noopener" data-wh="${i}">Confier à la warehouse</a>
+      </div>
+    </div>`).join("")}</div>
+    <p class="small muted">Sur la page warehouse, il ne reste qu'à vérifier l'article et ajouter le bordereau Vinted.</p>`;
+  return `<section class="stack" id="salesbox">${head}${body}</section>`;
+}
+
+async function loadSales() {
+  sales.state = "loading"; sales.linking = null;
+  refreshSales();
+  try { sales.list = await api("sales:pending"); sales.state = "done"; }
+  catch (e) { sales.state = "error"; sales.error = e.message; }
+  refreshSales();
+}
+
+function refreshSales() {
+  const box = document.getElementById("salesbox");
+  if (!box) return;
+  box.outerHTML = salesSectionHtml();
+  bindSales();
+}
+
+function bindSales() {
+  const box = document.getElementById("salesbox");
+  if (!box) return;
+  box.querySelector("#salesload")?.addEventListener("click", loadSales);
+  box.querySelector("#salesreload")?.addEventListener("click", loadSales);
+  box.querySelectorAll("[data-link]").forEach((b) => b.addEventListener("click", async () => {
+    sales.linking = Number(b.dataset.link);
+    if (!sales.cands) sales.cands = await api("sales:candidates").catch(() => []);
+    refreshSales();
+  }));
+  box.querySelector("[data-linkcancel]")?.addEventListener("click", () => { sales.linking = null; refreshSales(); });
+  box.querySelectorAll("[data-confirm]").forEach((b) => b.addEventListener("click", async () => {
+    const s = sales.list[Number(b.dataset.confirm)];
+    await api("sales:link", { title: s.title, supplier: s.supplier }).catch((e) => toast(e.message));
+    s.supplier = { ...s.supplier, sure: true };
+    toast("Produit relié à cette vente");
+    refreshSales();
+  }));
+  box.querySelector("[data-linkform]")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget;
+    const s = sales.list[Number(f.dataset.linkform)];
+    const pick = f.pick?.value !== "" && f.pick ? sales.cands[Number(f.pick.value)] : null;
+    const url = f.url.value.trim();
+    const supplier = url ? { url, title: s.title } : pick;
+    if (!supplier) { toast("Choisis un produit ou colle un lien"); return; }
+    try {
+      await api("sales:link", { title: s.title, supplier });
+      s.supplier = { ...supplier, sure: true };
+      sales.linking = null;
+      toast("Produit relié à cette vente");
+      refreshSales();
+    } catch (x) { toast(x.message); }
   });
 }
 

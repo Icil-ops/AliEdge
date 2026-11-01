@@ -6,6 +6,7 @@ import { analyse, toEur, parsePrice, round2 } from "./lib/pricing.js";
 import { buildQuery, guessCategory } from "./lib/text.js";
 import { extractProduct, detectPlatform, sourceIdFromUrl, canonicalUrl } from "./lib/extract.js";
 import { tourHandlers, TOUR_CONTENT_TYPES } from "./tour.js";
+import { matchSale, titleKey } from "./lib/match.js";
 const STOP_CODES = new Set(["blocked", "rate_limited", "paused", "budget", "busy"]);
 
 const HISTORY_KEY = "ae_history";
@@ -1445,6 +1446,10 @@ async function pageCoupons() {
 
 const handlers = {
   ...tourHandlers,
+  "sales:pending": async () => { const market = (await getSettings()).market || "fr"; return pendingSalesWithSupplier(MARKETS[market] ? market : "fr"); },
+  "sales:link": async (msg) => linkSale(msg),
+  "sales:unlink": async (msg) => unlinkSale(msg),
+  "sales:candidates": async () => supplierCandidates(),
   "auth:state": async () => ({ me: await me(true), settings: await getSettings() }),
   "auth:signIn": async ({ email, password }) => { await sb.signIn(email, password); return { me: await me(true) }; },
   "auth:signUp": async ({ email, password, marketing }) => {
@@ -1589,6 +1594,55 @@ const handlers = {
   "capture:start": async () => { const t = await activeTab(); await startCapture(t); return {}; },
 };
 
+// ───────────────────────── Ventes à expédier → produit fournisseur (pour la warehouse)
+// Les liens « titre d'annonce → produit fournisseur » restent dans ce navigateur (ae_sale_links).
+const SALE_LINKS_KEY = "ae_sale_links";
+
+function cleanSupplier(x) {
+  if (!x || !/^https:\/\//.test(String(x.url || ""))) return null;
+  const price = Number(x.price);
+  return {
+    url: String(x.url).slice(0, 600),
+    title: String(x.title || "").slice(0, 200),
+    price: Number.isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : null,
+    image: /^https:\/\//.test(String(x.image || "")) ? String(x.image).slice(0, 600) : null,
+    platform: ["aliexpress", "temu", "shein"].includes(x.platform) ? x.platform : (detectPlatform(String(x.url)) || null),
+  };
+}
+async function saleLinks() { return (await chrome.storage.local.get(SALE_LINKS_KEY))[SALE_LINKS_KEY] || {}; }
+async function linkSale({ title, supplier }) {
+  const key = titleKey(title);
+  const sup = cleanSupplier(supplier);
+  if (!key || !sup) throw Object.assign(new Error("Lien fournisseur invalide (il doit commencer par https://)."), { code: "invalid" });
+  const links = await saleLinks();
+  links[key] = { ...sup, at: Date.now() };
+  const keys = Object.keys(links);
+  if (keys.length > 400) keys.sort((a, b) => (links[a].at || 0) - (links[b].at || 0)).slice(0, keys.length - 400).forEach((k) => delete links[k]);
+  await chrome.storage.local.set({ [SALE_LINKS_KEY]: links });
+  return { ok: true };
+}
+async function unlinkSale({ title }) {
+  const links = await saleLinks();
+  delete links[titleKey(title)];
+  await chrome.storage.local.set({ [SALE_LINKS_KEY]: links });
+  return { ok: true };
+}
+/** Produits analysés, candidats pour relier une vente. */
+async function supplierCandidates() {
+  const hist = await getList(HISTORY_KEY).catch(() => []);
+  const seen = new Set();
+  return hist.map((e) => ({ ...cleanSupplier({ ...e.product, price: e.product?.priceEur ?? e.product?.price }), query: e.query || "" }))
+    .filter((c) => c.url && !seen.has(c.url) && seen.add(c.url));
+}
+/** Ventes à expédier, chacune avec son produit fournisseur (sûr ou suggéré). */
+async function pendingSalesWithSupplier(market) {
+  const [sales, links, cands] = await Promise.all([vinted.pendingSales(market), saleLinks(), supplierCandidates()]);
+  return sales.map((s) => {
+    const m = matchSale(s, links, cands);
+    return { ...s, supplier: m ? { url: m.url, title: m.title, price: m.price, image: m.image, platform: m.platform, sure: m.sure } : null };
+  });
+}
+
 // ───────────────────────── Warehouse (ivanbara.com/warehouse) : ventes Vinted pas encore expédiées, à confier en un clic.
 // Seule la page de la warehouse peut demander ces ventes (externally_connectable), et seulement pour le compte Vinted
 // ouvert dans ce navigateur. Rien n'est envoyé ailleurs que dans cette page.
@@ -1601,7 +1655,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "wh:pendingSales") return false;
   (async () => {
     const market = (await getSettings()).market || "fr";
-    return vinted.pendingSales(MARKETS[market] ? market : "fr");
+    return pendingSalesWithSupplier(MARKETS[market] ? market : "fr");
   })().then((data) => sendResponse({ ok: true, data })).catch((e) => sendResponse({ ok: false, error: e?.message || "Lecture impossible.", code: e?.code || "" }));
   return true;
 });

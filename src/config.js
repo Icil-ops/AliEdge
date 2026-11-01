@@ -8,6 +8,7 @@ export const BUY_URL = ALIEDGE_PAGE;
 export const PRIVACY_URL = "https://ivanbara.com/aliedge/confidentialite";
 export const RESET_URL = `${SITE_URL}/reset-password`;
 export const BARAPICS_URL = `${SITE_URL}/app`;
+export const WAREHOUSE_URL = "https://ivanbara.com/warehouse/";
 export const SKOOL_URL = "https://www.skool.com/vinteddrop-accompagnement-5463/about";
 
 export const MARKETS = {
