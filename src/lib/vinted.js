@@ -474,6 +474,17 @@ export async function itemDetails(vintedId, market = "fr") {
   return null;
 }
 
+/** Annonce complète telle que Vinted la renvoie (description, photos, marque, taille, état) : pour la republier ailleurs. */
+export async function itemRaw(vintedId, market = "fr") {
+  for (const path of [`/api/v2/items/${vintedId}/details`, `/api/v2/items/${vintedId}`]) {
+    let res;
+    try { res = await vFetch(`https://${host(market)}${path}`, "json", market); } catch (e) { if (e.code === "paused" || e.code === "blocked") throw e; continue; }
+    const it = res.body?.item;
+    if (it?.id) return it;
+  }
+  return null;
+}
+
 /**
  * Une commande de « Mes commandes → Ventes » (format relevé sur une vraie réponse Vinted, octobre 2026) :
  * { transaction_id, conversation_id (texte), title, price: { amount }, status (texte), transaction_user_status

@@ -1578,6 +1578,7 @@ async function viewSuivis() {
     </button>`).join("") : `<p class="muted">Tes analyses apparaîtront ici.</p>`;
   return `
     ${salesSectionHtml()}
+    ${repostHtml()}
     <section class="stack" style="margin-top:22px"><h2>Produits suivis</h2><div class="items">${w}</div></section>
     <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
@@ -1803,6 +1804,7 @@ function bindTrackers() {
 
 function bindSuivis(hist) {
   bindSales();
+  bindRepost();
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.addEventListener("click", async () => { await api("watch:remove", { key: b.dataset.unwatch }); render(); }));
   document.getElementById("clearhist")?.addEventListener("click", async () => { await api("history:clear"); render(); });
   document.querySelectorAll("[data-hist]").forEach((b) => b.addEventListener("click", async () => {
@@ -2226,6 +2228,42 @@ function bindSales() {
       toast("Produit relié à cette vente");
       refreshSales();
     } catch (x) { toast(x.message); }
+  });
+}
+
+// ───────────────────────── Beebs, canal de vente en plus : reposter ses annonces Vinted en série
+const repost = { state: "idle", items: [], sel: new Set(), error: "", market: "fr" };
+function repostHtml() {
+  let body;
+  if (repost.state === "idle") body = `<div class="card pad stack"><p class="small muted">Beebs comme canal de vente en plus : choisis tes annonces Vinted, AliEdge les prépare une par une sur Beebs (texte, prix, photos). Tu cliques sur « Mettre en vente » à chaque fois, la suivante s'ouvre toute seule.</p><button class="btn primary block" type="button" id="repostload">Choisir mes annonces Vinted</button></div>`;
+  else if (repost.state === "loading") body = `<div class="skel" style="height:90px"></div>`;
+  else if (repost.state === "error") body = `<div class="notice warn">${esc(repost.error)}</div>${/beebs/i.test(repost.error) ? `<button class="btn" type="button" id="repostenable">Activer Beebs</button>` : ""}`;
+  else if (!repost.items.length) body = `<p class="muted small">Aucune annonce en ligne sur ton compte Vinted.</p>`;
+  else body = `<div class="row between wrap" style="gap:8px"><label class="row small"><input type="checkbox" id="repostall"> Tout sélectionner (hors déjà sur Beebs)</label><span class="small muted">${repost.sel.size} sélectionnée${repost.sel.size > 1 ? "s" : ""}</span></div>
+    <div class="items">${repost.items.map((i) => `<label class="item" style="grid-template-columns:20px 44px 1fr auto;cursor:pointer"><input type="checkbox" data-rp="${i.id}" ${repost.sel.has(i.id) ? "checked" : ""}>${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:56px">` : '<div class="ph" style="width:44px;height:56px"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.posted ? "Déjà sur Beebs" : ""}</div></div><div class="p num">${i.price != null ? eur(i.price) : ""}</div></label>`).join("")}</div>
+    <button class="btn primary block" type="button" id="repostgo" ${repost.sel.size ? "" : "disabled"}>Publier ${repost.sel.size || ""} annonce${repost.sel.size > 1 ? "s" : ""} sur Beebs</button>
+    <p class="small muted">Sois connecté à Beebs. Vérifie chaque annonce avant de la mettre en vente (catégorie, état, taille).</p>`;
+  return `<section class="stack" id="repostbox" style="margin-top:22px"><h2>Publier sur Beebs</h2>${body}</section>`;
+}
+function refreshRepost() { const b = document.getElementById("repostbox"); if (!b) return; b.outerHTML = repostHtml(); bindRepost(); }
+function bindRepost() {
+  const box = document.getElementById("repostbox");
+  if (!box) return;
+  const load = async () => {
+    if (!(await api("beebs:status").catch(() => ({ enabled: false }))).enabled) { repost.state = "error"; repost.error = "Active Beebs pour publier tes annonces sur Beebs."; refreshRepost(); return; }
+    repost.state = "loading"; refreshRepost();
+    try { repost.items = await api("beebs:myItems"); repost.market = repost.items[0]?.market || "fr"; repost.state = "done"; }
+    catch (e) { repost.state = "error"; repost.error = e.message; }
+    refreshRepost();
+  };
+  box.querySelector("#repostload")?.addEventListener("click", load);
+  box.querySelector("#repostenable")?.addEventListener("click", async () => { if (await enableBeebs()) { state.beebsPerm = true; load(); } });
+  box.querySelectorAll("[data-rp]").forEach((c) => c.addEventListener("change", () => { const id = Number(c.dataset.rp); if (c.checked) repost.sel.add(id); else repost.sel.delete(id); refreshRepost(); }));
+  box.querySelector("#repostall")?.addEventListener("change", (e) => { repost.sel = new Set(e.target.checked ? repost.items.filter((i) => !i.posted).map((i) => i.id).slice(0, 40) : []); refreshRepost(); });
+  box.querySelector("#repostgo")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true; e.currentTarget.textContent = "Préparation…";
+    try { await api("beebs:queue", { ids: [...repost.sel], market: repost.market }); toast("Beebs s'ouvre avec ta première annonce"); }
+    catch (x) { toast(x.message); refreshRepost(); }
   });
 }
 

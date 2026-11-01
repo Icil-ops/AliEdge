@@ -175,6 +175,7 @@
     return null;
   }
   const isSellForm = () => !!document.querySelector('input[type="file"]') && !!field("body");
+  let submittedAt = 0;
   async function mountSell(l) {
     if (document.getElementById("aliedge-beebs-sell")) return;
     const ui = shell("aliedge-beebs-sell", "Annonce AliEdge");
@@ -183,13 +184,35 @@
     panel.hidden = false;
     const vals = { title: l.title, body: l.description, price: l.price ? String(Math.round(l.price)) : "", brand: l.brand || "" };
     const f = (k, label, v) => v ? `<div class="f"><b>${esc(label)}</b><div>${esc(v)}</div><button class="b" type="button" data-copy="${k}">Copier</button></div>` : "";
-    panel.innerHTML = `<h4>Annonce AliEdge pour Beebs</h4>
+    const q = l.queue;
+    panel.innerHTML = `<h4>Annonce AliEdge pour Beebs${q ? ` · ${q.index + 1} / ${q.total}` : ""}</h4>
       ${f("title", "Titre", vals.title)}${f("body", "Description", vals.body)}${f("price", "Prix", vals.price && `${vals.price} €`)}${f("brand", "Marque", vals.brand)}
       ${[l.condition && `État : ${l.condition}`, l.size && `Taille : ${l.size}`, l.category && `Catégorie : ${l.category}`].filter(Boolean).map((t) => `<p class="msg">${esc(t)}</p>`).join("")}
       ${(l.photos || []).length ? `<div class="f"><b>Photos (${l.photos.length})</b><div class="thumbs">${l.photos.slice(0, 10).map((u) => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join("")}</div></div>` : ""}
       <button class="b p wide" type="button" data-fill>Tout remplir</button>
       <p class="msg" data-msg>Vérifie l'annonce, choisis la catégorie, l'état et la taille si Beebs les demande, puis clique sur « Mettre en vente ».</p>
-      <button class="b wide" type="button" data-done>Annonce publiée : effacer de l'aide</button>`;
+      ${q ? `<button class="b p wide" type="button" data-next>Publiée : annonce suivante</button><div class="bar" style="margin:4px"><button class="chip" type="button" data-skip>Passer celle-ci</button><button class="chip" type="button" data-stop>Arrêter</button></div>`
+        : `<button class="b wide" type="button" data-done>Annonce publiée : effacer de l'aide</button>`}`;
+    const goNext = async (posted) => {
+      const r = await send({ type: posted ? "beebs:next" : "beebs:next", posted });
+      const d = r?.ok ? r.data : null;
+      ui.host.remove();
+      if (d && !d.done) location.href = `${location.origin}/fr?ae=sell`;
+    };
+    panel.querySelector("[data-next]")?.addEventListener("click", () => goNext(true));
+    panel.querySelector("[data-skip]")?.addEventListener("click", () => goNext(false));
+    panel.querySelector("[data-stop]")?.addEventListener("click", async () => { await send({ type: "beebs:stopQueue" }); ui.host.remove(); });
+    // Le membre clique sur le bouton de mise en vente de Beebs : quand le formulaire disparaît, on passe à la suivante.
+    if (q) {
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest?.("button, [role=button], input[type=submit]");
+        if (b && /mettre en vente|publier|vendre/i.test(clean(b.textContent || b.value)) && !ui.host.contains(b)) submittedAt = Date.now();
+      }, true);
+      const watch = setInterval(() => {
+        if (!document.getElementById("aliedge-beebs-sell")) { clearInterval(watch); return; }
+        if (submittedAt && Date.now() - submittedAt > 3000 && !isSellForm()) { clearInterval(watch); goNext(true); }
+      }, 1000);
+    }
     panel.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(vals[b.dataset.copy].replace(/ €$/, "")); b.textContent = "Copié"; } catch { b.textContent = "Copie impossible"; }
       setTimeout(() => { b.textContent = "Copier"; }, 1500);
@@ -205,7 +228,7 @@
         ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète la catégorie, l'état et la taille si besoin, puis clique sur « Mettre en vente ».`
         : "Les champs ne sont pas encore affichés sur cette étape : utilise les boutons « Copier ».";
     });
-    panel.querySelector("[data-done]").addEventListener("click", async () => { await send({ type: "beebs:clearListing" }); ui.host.remove(); });
+    panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: "beebs:clearListing" }); ui.host.remove(); });
     // Remplissage automatique dès que le formulaire est là : il ne reste qu'à vérifier et cliquer sur « Mettre en vente ».
     setTimeout(() => panel.querySelector("[data-fill]")?.click(), 900);
   }

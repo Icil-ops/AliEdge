@@ -850,6 +850,21 @@ if (process.env.STORE_SHOTS) {
   const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector('textarea').value, p: document.querySelector('input[name="price"]').value })) : {};
   check("Beebs : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Beebs » ouvre le formulaire avec l'annonce", onItem === 1 && onDressing === 1 && tr.active_count === 1 && tr.gone_30d === 1 && onSell === 1 && filled.t === "Robe crochet bohème" && filled.d === "Neuve." && filled.p === "15", JSON.stringify({ onItem, onDressing, tr, sell: sellTab?.url() || null, onSell, filled }));
   await sellTab?.close();
+  // Reposter plusieurs annonces Vinted du membre sur Beebs, l'une après l'autre.
+  const mine = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:myItems" }));
+  const ids = (mine?.data || []).slice(0, 2).map((i) => i.id);
+  await page.evaluate((x) => chrome.runtime.sendMessage({ type: "beebs:queue", ids: x, market: "fr" }), ids);
+  let qTab = null;
+  for (let i = 0; i < 20 && !qTab; i++) { await page.waitForTimeout(500); qTab = ctx.pages().find((p) => /beebs\.app\/fr\/vendre/.test(p.url())); }
+  if (qTab) await qTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
+  await qTab?.waitForFunction(() => document.querySelector('input[name="title"]')?.value, null, { timeout: 8000 }).catch(() => {});
+  const firstTitle = qTab ? await qTab.evaluate(() => document.querySelector('input[name="title"]').value) : "";
+  const queued = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:listing" }));
+  const nxt = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:next", posted: true }));
+  const second = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:listing" }));
+  check("Beebs : plusieurs annonces Vinted reprises l'une après l'autre (file)", ids.length === 2 && firstTitle.length > 3 && nxt?.data?.done === false && second?.data?.queue?.index === 1 && second.data.title !== firstTitle, JSON.stringify({ ids, firstTitle, queued: queued?.data?.title, panel: qTab ? await qTab.locator("#aliedge-beebs-sell").count() : -1, next: nxt?.data, second: second?.data?.title }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:stopQueue" }));
+  await qTab?.close();
   await bb.close();
 }
 

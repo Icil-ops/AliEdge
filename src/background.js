@@ -1308,13 +1308,48 @@ const beebsHandlers = {
     return { tracked: true, complete };
   },
   // Annonce préparée pour Beebs (depuis une annonce Vinted du membre ou depuis l'analyse) : reprise sur beebs.app.
-  "beebs:listing": async () => (await chrome.storage.local.get("ae_beebs_listing")).ae_beebs_listing || null,
+  "beebs:listing": async () => {
+    const st = await chrome.storage.local.get(["ae_beebs_listing", "ae_beebs_queue"]);
+    const l = st.ae_beebs_listing || null;
+    return l && st.ae_beebs_queue ? { ...l, queue: { index: st.ae_beebs_queue.index, total: st.ae_beebs_queue.ids.length } } : l;
+  },
   "beebs:saveListing": async ({ listing }) => {
     if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
     await chrome.storage.local.set({ ae_beebs_listing: listing ? { ...listing, at: Date.now() } : null });
     return {};
   },
   "beebs:clearListing": async () => { await chrome.storage.local.remove("ae_beebs_listing"); return {}; },
+  // ───── Reposter plusieurs annonces Vinted du membre sur Beebs, l'une après l'autre (le membre clique sur
+  // « Mettre en vente » pour chacune ; AliEdge prépare et remplit la suivante).
+  "beebs:myItems": async () => {
+    const own = (await chrome.storage.local.get(OWN_KEY))[OWN_KEY] || [];
+    if (!own.length) throw Object.assign(new Error("Ouvre Vinted connecté à ton compte : AliEdge le reconnaîtra, puis reviens ici."), { code: "invalid" });
+    const market = MARKETS[own[0].market] ? own[0].market : "fr";
+    const items = await vinted.sellerItems(own[0].id, market, { pages: 3 });
+    const posted = (await chrome.storage.local.get("ae_beebs_posted")).ae_beebs_posted || {};
+    return items.filter((i) => i.status === "active").map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
+  },
+  "beebs:queue": async ({ ids = [], market = "fr" }) => {
+    const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
+    if (!list.length) throw Object.assign(new Error("Choisis au moins une annonce."), { code: "invalid" });
+    await chrome.storage.local.set({ ae_beebs_queue: { ids: list, index: 0, market: MARKETS[market] ? market : "fr" } });
+    const listing = await beebsListingFor(list[0], market);
+    return beebsHandlers["beebs:open"]({ listing });
+  },
+  // Annonce publiée (ou passée) sur Beebs : on prépare la suivante de la file.
+  "beebs:next": async ({ posted = true } = {}) => {
+    const st = await chrome.storage.local.get(["ae_beebs_queue", "ae_beebs_listing", "ae_beebs_posted"]);
+    const q = st.ae_beebs_queue;
+    const cur = st.ae_beebs_listing;
+    if (posted && cur?.vintedId) { const p = st.ae_beebs_posted || {}; p[cur.vintedId] = Date.now(); await chrome.storage.local.set({ ae_beebs_posted: p }); }
+    if (!q || q.index + 1 >= q.ids.length) { await chrome.storage.local.remove(["ae_beebs_queue", "ae_beebs_listing"]); return { done: true }; }
+    q.index += 1;
+    await chrome.storage.local.set({ ae_beebs_queue: q });
+    const listing = await beebsListingFor(q.ids[q.index], q.market);
+    await beebsHandlers["beebs:saveListing"]({ listing });
+    return { done: false, index: q.index, total: q.ids.length };
+  },
+  "beebs:stopQueue": async () => { await chrome.storage.local.remove(["ae_beebs_queue", "ae_beebs_listing"]); return {}; },
   // « Publier sur Beebs » depuis Vinted : si l'accès à beebs.app manque, le panneau AliEdge le demande en un clic.
   "beebs:open": async ({ listing }) => {
     await beebsHandlers["beebs:saveListing"]({ listing });
@@ -1323,7 +1358,18 @@ const beebsHandlers = {
     return { enabled: on };
   },
 };
-const BEEBS_CONTENT_TYPES = ["beebs:trackedIds", "beebs:track", "beebs:untrack", "beebs:dressing", "beebs:listing", "beebs:clearListing", "beebs:open"];
+/** Annonce Vinted du membre, reprise pour Beebs : titre, description, prix, marque, taille, état, photos. */
+async function beebsListingFor(vintedId, market = "fr") {
+  const it = await vinted.itemRaw(vintedId, market);
+  if (!it) throw Object.assign(new Error("Annonce Vinted introuvable (supprimée ou vendue ?)."), { code: "invalid" });
+  const photos = (it.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10);
+  return {
+    vintedId: Number(vintedId), title: String(it.title || "").slice(0, 70), description: String(it.description || "").trim(),
+    price: Number(it.price?.amount ?? it.price) || null, brand: it.brand_title || it.brand || null, size: it.size_title || it.size || null,
+    condition: it.status || it.condition || null, photos, from: "vinted",
+  };
+}
+const BEEBS_CONTENT_TYPES = ["beebs:next", "beebs:stopQueue", "beebs:trackedIds", "beebs:track", "beebs:untrack", "beebs:dressing", "beebs:listing", "beebs:clearListing", "beebs:open"];
 chrome.permissions.onRemoved.addListener(() => { syncLbcScript().catch(() => {}); });
 
 const lbcSeen = new Map();
