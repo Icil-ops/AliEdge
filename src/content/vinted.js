@@ -1,6 +1,6 @@
 // Page d'une annonce Vinted : « Trouver le fournisseur » + statut de l'annonce pour le catalogue.
-// Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » (texte, prix et photos repris dans
-// l'assistant de dépôt Leboncoin ; le membre relit et publie lui-même).
+// Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » et « Publier sur Beebs » (texte, prix et
+// photos repris dans l'assistant de dépôt de chaque site ; le membre vérifie et publie lui-même).
 (() => {
   if (window.__aliedgeVinted) return;
   window.__aliedgeVinted = true;
@@ -104,7 +104,15 @@
     a.target = "_blank"; a.rel = "noopener"; a.dataset.lbc = "1";
     a.innerHTML = 'Publier aussi sur Leboncoin<span aria-hidden="true">↗</span>';
     a.addEventListener("click", () => { chrome.runtime.sendMessage({ type: "lbc:saveListing", listing }).catch(() => {}); });
-    mountedMenu.append(sep, a);
+    // « Publier sur Beebs » : AliEdge ouvre Beebs, ouvre le formulaire de vente et remplit l'annonce (photos comprises).
+    const bb = document.createElement("a");
+    bb.href = "#"; bb.dataset.beebs = "1";
+    bb.innerHTML = 'Publier sur Beebs<span aria-hidden="true">↗</span>';
+    bb.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.runtime.sendMessage({ type: "beebs:open", listing: { ...listing, brand: raw.brand_title || raw.brand || null, size: raw.size_title || raw.size || null, condition: raw.status || raw.condition || null } }).catch(() => {});
+    });
+    mountedMenu.append(sep, a, bb);
   }
 
   // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.

@@ -30,6 +30,7 @@ async function setSettings(patch) {
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   await syncAlarms(next);
   if ("lbc" in patch) await syncLbcScript().catch(() => {});
+  if ("beebs" in patch) await syncBeebsScript().catch(() => {});
   return next;
 }
 
@@ -118,6 +119,7 @@ async function setup() {
   });
   await syncAlarms();
   syncLbcScript().catch(() => {});
+  syncBeebsScript().catch(() => {});
   syncOwnSellers().catch(() => {});
   checkForUpdate().catch(() => {});
 }
@@ -1223,7 +1225,105 @@ async function lbcReviewReminder() {
     message: "Ouvre leur page pour relever leurs annonces et repérer leurs ventes.",
   });
 }
-chrome.permissions.onAdded.addListener(() => { syncLbcScript().catch(() => {}); });
+chrome.permissions.onAdded.addListener(() => { syncLbcScript().catch(() => {}); syncBeebsScript().catch(() => {}); });
+chrome.permissions.onRemoved.addListener(() => { syncBeebsScript().catch(() => {}); });
+
+// ───────────────────────── Beebs (accès facultatif à beebs.app) : outils sur les pages que le membre ouvre
+// (fournisseur, concurrents, aide au dépôt). AUCUNE requête automatique vers Beebs.
+// Les concurrents Beebs sont suivis dans ce navigateur : à chaque visite de leur dressing, les annonces disparues
+// depuis la visite précédente sont comptées comme ventes probables.
+const BEEBS_ORIGINS = ["https://www.beebs.app/*", "https://beebs.app/*"];
+const BEEBS_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/beebs.js"];
+const BEEBS_KEY = "ae_beebs_trackers";
+async function beebsEnabled() {
+  try { if (!(await chrome.permissions.contains({ origins: BEEBS_ORIGINS }))) return false; } catch { return false; }
+  return (await getSettings()).beebs !== false;
+}
+async function syncBeebsScript() {
+  const on = await beebsEnabled();
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["ae-beebs"] }).catch(() => []);
+  if (on && existing.length && (existing[0].js || []).join() !== BEEBS_JS.join()) { await chrome.scripting.unregisterContentScripts({ ids: ["ae-beebs"] }); existing.length = 0; }
+  if (on && !existing.length) await chrome.scripting.registerContentScripts([{ id: "ae-beebs", matches: BEEBS_ORIGINS, js: BEEBS_JS, runAt: "document_idle", persistAcrossSessions: true }]);
+  else if (!on && existing.length) await chrome.scripting.unregisterContentScripts({ ids: ["ae-beebs"] });
+  return on;
+}
+const BEEBS_UID = /^[A-Za-z0-9_-]{10,64}$/;
+async function beebsTrackers() { return (await chrome.storage.local.get(BEEBS_KEY))[BEEBS_KEY] || {}; }
+async function beebsSave(t) { await chrome.storage.local.set({ [BEEBS_KEY]: t }); }
+function beebsSummary(uid, t) {
+  const now = Date.now();
+  const gone = Object.values(t.gone || {});
+  return {
+    uid, label: t.label || null, added: t.added, last_visit_at: t.lastVisit || null,
+    active_count: Object.keys(t.items || {}).length,
+    gone_30d: gone.filter((g) => now - g.goneAt < 30 * 864e5).length,
+    amount_30d: Math.round(gone.filter((g) => now - g.goneAt < 30 * 864e5).reduce((a, g) => a + (Number(g.price) || 0), 0) * 100) / 100,
+  };
+}
+const beebsHandlers = {
+  "beebs:status": async () => ({ enabled: await syncBeebsScript() }),
+  "beebs:trackers": async () => { const all = await beebsTrackers(); return Object.entries(all).map(([u, t]) => beebsSummary(u, t)).sort((a, b) => (b.last_visit_at || 0) - (a.last_visit_at || 0)); },
+  "beebs:trackedIds": async () => Object.keys(await beebsTrackers()),
+  "beebs:track": async ({ uid, label = null }) => {
+    if (!BEEBS_UID.test(String(uid || ""))) throw Object.assign(new Error("Lien de dressing Beebs invalide."), { code: "invalid" });
+    const all = await beebsTrackers();
+    if (!all[uid] && Object.keys(all).length >= 30) throw Object.assign(new Error("Tu suis déjà 30 concurrents Beebs : retires-en un avant d'en ajouter."), { code: "limit" });
+    all[uid] = { ...(all[uid] || { added: Date.now(), items: {}, gone: {} }), label: label ? String(label).slice(0, 80) : all[uid]?.label || null };
+    await beebsSave(all);
+    return { ok: true };
+  },
+  "beebs:untrack": async ({ uid }) => { const all = await beebsTrackers(); delete all[uid]; await beebsSave(all); return {}; },
+  "beebs:trackerItems": async ({ uid }) => { const t = (await beebsTrackers())[uid]; return t ? { items: Object.values(t.items || {}), gone: Object.values(t.gone || {}).sort((a, b) => b.goneAt - a.goneAt) } : { items: [], gone: [] }; },
+  // Dressing d'un concurrent suivi, ouvert par le membre : on compare avec la visite précédente.
+  "beebs:dressing": async ({ uid, name, total, items = [] }) => {
+    const all = await beebsTrackers();
+    const t = all[uid];
+    if (!t) return { tracked: false };
+    const now = Date.now();
+    const seen = {};
+    for (const i of items.slice(0, 500)) {
+      if (!/^\d{3,15}$/.test(String(i.id || ""))) continue;
+      const prev = t.items?.[i.id];
+      seen[i.id] = { id: String(i.id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo: /^https:\/\//.test(i.photo || "") ? i.photo : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, firstSeen: prev?.firstSeen || now, lastSeen: now };
+    }
+    // Seulement si la page a tout affiché (sinon une annonce non chargée passerait pour vendue).
+    const complete = total == null || Object.keys(seen).length >= Number(total);
+    if (complete && t.lastVisit) {
+      const keys = new Set(Object.values(seen).map((x) => titleKey(x.title)));
+      for (const [id, old] of Object.entries(t.items || {})) {
+        if (seen[id]) continue;
+        // Remise en ligne avec le même titre : republication, pas une vente.
+        if (keys.has(titleKey(old.title))) continue;
+        t.gone = t.gone || {};
+        t.gone[id] = { ...old, goneAt: now, days: Math.round(((now - old.firstSeen) / 864e5) * 10) / 10 };
+      }
+    }
+    t.items = complete ? seen : { ...(t.items || {}), ...seen };
+    t.lastVisit = now;
+    if (name && !t.label) t.label = String(name).slice(0, 80);
+    const goneIds = Object.keys(t.gone || {});
+    if (goneIds.length > 300) goneIds.sort((a, b) => t.gone[a].goneAt - t.gone[b].goneAt).slice(0, goneIds.length - 300).forEach((k) => delete t.gone[k]);
+    all[uid] = t;
+    await beebsSave(all);
+    return { tracked: true, complete };
+  },
+  // Annonce préparée pour Beebs (depuis une annonce Vinted du membre ou depuis l'analyse) : reprise sur beebs.app.
+  "beebs:listing": async () => (await chrome.storage.local.get("ae_beebs_listing")).ae_beebs_listing || null,
+  "beebs:saveListing": async ({ listing }) => {
+    if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
+    await chrome.storage.local.set({ ae_beebs_listing: listing ? { ...listing, at: Date.now() } : null });
+    return {};
+  },
+  "beebs:clearListing": async () => { await chrome.storage.local.remove("ae_beebs_listing"); return {}; },
+  // « Publier sur Beebs » depuis Vinted : si l'accès à beebs.app manque, le panneau AliEdge le demande en un clic.
+  "beebs:open": async ({ listing }) => {
+    await beebsHandlers["beebs:saveListing"]({ listing });
+    const on = await beebsEnabled();
+    chrome.tabs.create({ url: on ? "https://www.beebs.app/fr?ae=sell" : chrome.runtime.getURL("app/app.html?mode=tab#/compte?beebs=1") });
+    return { enabled: on };
+  },
+};
+const BEEBS_CONTENT_TYPES = ["beebs:trackedIds", "beebs:track", "beebs:untrack", "beebs:dressing", "beebs:listing", "beebs:clearListing", "beebs:open"];
 chrome.permissions.onRemoved.addListener(() => { syncLbcScript().catch(() => {}); });
 
 const lbcSeen = new Map();
@@ -1549,6 +1649,7 @@ async function pageCoupons() {
 
 const handlers = {
   ...tourHandlers,
+  ...beebsHandlers,
   "sales:pending": async () => { const market = (await getSettings()).market || "fr"; return pendingSalesWithSupplier(MARKETS[market] ? market : "fr"); },
   "sales:link": async (msg) => linkSale(msg),
   "sales:unlink": async (msg) => unlinkSale(msg),
@@ -1792,7 +1893,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...BEEBS_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

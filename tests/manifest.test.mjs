@@ -24,7 +24,8 @@ test("les traductions du nom et de la description respectent les limites du stor
 
 test("Leboncoin reste une permission facultative (une permission obligatoire désactiverait AliEdge à la mise à jour)", () => {
   assert.ok(!m.host_permissions.some((h) => h.includes("leboncoin")));
-  assert.deepEqual(m.optional_host_permissions, ["https://www.leboncoin.fr/*"]);
+  assert.ok(m.optional_host_permissions.includes("https://www.leboncoin.fr/*"));
+  assert.ok(!m.host_permissions.some((h) => h.includes("beebs")), "Beebs reste facultatif aussi");
 });
 
 test("le paquet du store contient tout ce que le manifest utilise (traductions comprises)", () => {

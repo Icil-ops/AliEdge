@@ -115,6 +115,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
 });
 
 const radarUrls = [];
+let beebsStock = [[34000001, "Robe crochet fille", 12], [34000002, "Gilet bébé laine", 9]];
 await ctx.route("**/*", async (route) => {
   const req = route.request();
   const url = new URL(req.url());
@@ -131,6 +132,15 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.includes("/rest/v1/aliedge_saved")) return route.fulfill({ json: [] });
     if (url.pathname.includes("/rest/v1/app_settings")) return route.fulfill({ json: [] });
     return route.fulfill({ status: 404, json: { message: "not mocked" } });
+  }
+  if (/(^|\.)beebs\.app$/.test(h)) {
+    const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><head><meta charset="utf-8">${body}` });
+    const head = '<header><a href="/fr/vendre">Vendre</a></header>';
+    const card = (id, t, p) => `<a href="/fr/p/${id}-x" style="display:inline-block;width:150px"><img alt="${t}" src="https://cdn.beebs.app/${id}.jpg" style="width:150px;height:150px"><span>${p} € 00</span><span>${t}</span></a>`;
+    if (url.pathname.startsWith("/fr/p/")) return html(`<title>Robe | Beebs</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Robe crochet fille 6 ans", image: ["https://cdn.beebs.app/a.jpg"], offers: { price: "12.00" } })}</script></head><body>${head}<h1>Robe crochet fille 6 ans</h1><p>Vendu par</p><a href="/fr/dressing/KJ3GOEqX9Kdh8kFE7Ti2MOwOcDo2">CELINE D.</a></body></html>`);
+    if (url.pathname.startsWith("/fr/dressing/")) return html(`<title>Dressing de CELINE D</title></head><body>${head}<h1>CELINE D.</h1><p>Annonces (${beebsStock.length})</p>${beebsStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
+    if (url.pathname.startsWith("/fr/vendre")) return html(`<title>Vendre | Beebs</title></head><body>${head}<h1>Mettre un article en vente</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title" placeholder="Titre"></label><label>Description <textarea name="description"></textarea></label><label>Prix <input name="price" placeholder="Prix"></label><button type="button">Mettre en vente</button></body></html>`);
+    return html(`<title>Beebs</title></head><body>${head}<h1>Seconde main des familles</h1></body></html>`);
   }
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
@@ -814,6 +824,33 @@ if (process.env.STORE_SHOTS) {
   check("Leboncoin : réponses toutes prêtes, aide à la négociation, badge produit repéré, moments de publication", onMessages === 1 && offer?.ok && badges === 1 && best?.data?.grid?.length === 7, JSON.stringify({ onMessages, badges, offer: offer?.data, n: best?.data?.n }));
   check("Leboncoin activé : outils sur l'annonce et assistant de dépôt", onAd === 1 && onDeposit === 1 && st?.data?.enabled === true && info?.data?.title === "Sac bandoulière cuir noir", JSON.stringify({ onAd, onDeposit, enabled: st?.data?.enabled }));
   await lbc.close();
+}
+
+// Beebs : outils sur un article, concurrent suivi par son dressing (ventes probables), « Publier sur Beebs ».
+{
+  const bb = await ctx.newPage();
+  await bb.setViewportSize({ width: 1280, height: 800 });
+  await bb.goto("https://www.beebs.app/fr/p/34000009-robe");
+  await bb.waitForSelector("#aliedge-beebs-tools", { timeout: 9000 }).catch(() => {});
+  const onItem = await bb.locator("#aliedge-beebs-tools").count();
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:track", uid: "KJ3GOEqX9Kdh8kFE7Ti2MOwOcDo2", label: "CELINE D." }));
+  await bb.goto("https://www.beebs.app/fr/dressing/KJ3GOEqX9Kdh8kFE7Ti2MOwOcDo2");
+  await bb.waitForTimeout(4000);
+  beebsStock = [[34000001, "Robe crochet fille", 12]];
+  await bb.reload();
+  await bb.waitForTimeout(4500);
+  const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackers" })))?.data?.[0] || {};
+  const onDressing = await bb.locator(".aliedge-beebs-competitor").count();
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:open", listing: { title: "Robe crochet bohème", description: "Neuve.", price: 15, photos: ["https://cdn.beebs.app/a.jpg"] } }));
+  let sellTab = null;
+  for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /beebs\.app\/fr\/vendre/.test(p.url())); }
+  if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
+  const onSell = sellTab ? await sellTab.locator("#aliedge-beebs-sell").count() : 0;
+  await sellTab?.waitForTimeout(2500);
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector('textarea').value, p: document.querySelector('input[name="price"]').value })) : {};
+  check("Beebs : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Beebs » ouvre le formulaire avec l'annonce", onItem === 1 && onDressing === 1 && tr.active_count === 1 && tr.gone_30d === 1 && onSell === 1 && filled.t === "Robe crochet bohème" && filled.d === "Neuve." && filled.p === "15", JSON.stringify({ onItem, onDressing, tr, sell: sellTab?.url() || null, onSell, filled }));
+  await sellTab?.close();
+  await bb.close();
 }
 
 // Version anglaise : panneau traduit, éléments ajoutés sur les sites traduits, texte des sites jamais touché.

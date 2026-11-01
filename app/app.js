@@ -1397,8 +1397,11 @@ async function viewConcurrents() {
   if (!state.me) return `<section class="card pad stack"><h2>Concurrents</h2><p class="muted">Connecte-toi pour suivre les ventes de tes concurrents.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
   const [trackers, sales, diag, lbcOn] = await Promise.all([api("tracker:list").catch(() => []), api("competitor:sales").catch(() => null), api("diagnostic:last").catch(() => null), api("lbc:status").then((r) => r.enabled).catch(() => false)]);
   const lbcRows = lbcOn ? await api("lbc:trackers").catch(() => []) : [];
+  const beebsOn = (await api("beebs:status").catch(() => ({ enabled: false }))).enabled;
+  const beebsRows = beebsOn ? await api("beebs:trackers").catch(() => []) : [];
   return `${viewTrackers(trackers)}
     ${viewLbcTrackers(lbcRows, lbcOn)}
+    ${viewBeebsTrackers(beebsRows, beebsOn)}
     <section class="stack" style="margin-top:22px">${salesFeedHtml(sales)}</section>
     <section class="stack" style="margin-top:22px">
       <h2>Analyser une niche</h2>
@@ -1608,6 +1611,65 @@ function viewLbcTrackers(rows, on) {
     </section>`;
 }
 
+/** Concurrents Beebs : suivis dans ce navigateur, relevés quand tu ouvres leur dressing (aucune requête vers Beebs). */
+function viewBeebsTrackers(rows, on) {
+  const stale = (t) => !t.last_visit_at || Date.now() - t.last_visit_at > 3 * 864e5;
+  const list = (rows || []).map((t) => `
+    <div class="tracker">
+      <button class="tracker-head" type="button" data-bbtracker="${esc(t.uid)}" aria-expanded="false">
+        <span class="tracker-dot" aria-hidden="true"></span>
+        <span class="tracker-name"><b>${esc(t.label || "Vendeur Beebs")}</b>${stale(t) ? ' <span class="pill warn">à revoir</span>' : ""}<span class="small muted">suivi depuis ${esc(ago(t.added))} · ${t.last_visit_at ? `dressing vu ${esc(ago(t.last_visit_at))}` : "dressing jamais ouvert"}</span></span>
+        <span class="tracker-kpi num"><b>${t.active_count}</b><span class="small muted">en ligne</span></span>
+        <span class="tracker-kpi num"><b>${t.gone_30d}</b><span class="small muted">ventes 30 j (estim.)</span></span>
+      </button>
+      <div class="tracker-body" id="bbt-${esc(t.uid)}" hidden></div>
+    </div>`).join("");
+  return `
+    <section class="stack" id="beebssection" style="margin-top:22px">
+      <div class="row between"><h2>Concurrents Beebs</h2><span class="small muted">${(rows || []).length} / 30</span></div>
+      ${on ? `
+        <p class="small muted">Colle le lien du dressing Beebs d'un concurrent, ou clique sur « + Concurrent » sur Beebs (dressing ou article). Ouvre son dressing de temps en temps : les annonces disparues depuis ta dernière visite sont comptées comme ventes probables.</p>
+        <form id="bbtrackform" class="row" style="gap:8px">
+          <input class="input" id="bbtrackurl" type="url" inputmode="url" placeholder="https://www.beebs.app/fr/dressing/…" aria-label="Lien du dressing Beebs" style="flex:1">
+          <button class="btn primary" type="submit">Suivre</button>
+        </form>
+        <div id="bbtrackerr" role="alert"></div>
+        <div class="trackers">${list || `<p class="small muted">Aucun concurrent Beebs suivi.</p>`}</div>`
+      : `<div class="card pad stack" style="gap:8px"><p class="small muted" style="margin:0">Active Beebs pour suivre aussi tes concurrents Beebs et publier tes annonces Vinted sur Beebs en un clic.</p><button class="btn" type="button" id="beebsenable2">Activer Beebs</button></div>`}
+    </section>`;
+}
+
+function bindBeebsTrackers() {
+  document.getElementById("beebsenable2")?.addEventListener("click", async () => { if (await enableBeebs()) render(); });
+  document.getElementById("bbtrackform")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = document.getElementById("bbtrackerr");
+    const m = document.getElementById("bbtrackurl").value.match(/beebs\.app\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/);
+    if (!m) { err.innerHTML = `<div class="notice warn">Colle le lien d'un dressing Beebs (…/dressing/…).</div>`; return; }
+    try { await api("beebs:track", { uid: m[1] }); toast("Concurrent ajouté : ouvre son dressing pour relever ses annonces"); render(); }
+    catch (x) { err.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
+  });
+  document.querySelectorAll("[data-bbtracker]").forEach((b) => b.addEventListener("click", async () => {
+    const uid = b.dataset.bbtracker;
+    const body = document.getElementById(`bbt-${uid}`);
+    const open = b.getAttribute("aria-expanded") === "true";
+    b.setAttribute("aria-expanded", String(!open));
+    body.hidden = open;
+    if (open || body.dataset.loaded) return;
+    const { items = [], gone = [] } = await api("beebs:trackerItems", { uid }).catch(() => ({}));
+    const line = (i, sold) => `<a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}<div><div class="t">${esc(i.title || "Article")}</div><div class="m">${sold ? `<span class="badge-sold">Vente probable</span> ${esc(ago(i.goneAt))}${i.days != null ? ` · en ${esc(String(i.days).replace(".", ","))} j` : ""}` : `en ligne depuis ${esc(ago(i.firstSeen))}`}</div></div><div class="p num">${i.price != null ? eur(Number(i.price)) : ""}</div></a>`;
+    body.innerHTML = `<div class="stack" style="gap:10px;margin-top:8px">
+      <div class="row wrap" style="gap:8px"><a class="btn primary small" href="https://www.beebs.app/fr/dressing/${esc(uid)}" target="_blank" rel="noopener">Revoir son dressing</a><button class="btn ghost small" type="button" data-bbuntrack="${esc(uid)}">Arrêter le suivi</button></div>
+      <h3 class="small">Ventes probables (${gone.length})</h3>
+      ${gone.length ? `<div class="items">${gone.map((i) => line(i, true)).join("")}</div>` : `<p class="small muted">Elles apparaissent quand des annonces ont disparu entre deux visites de son dressing.</p>`}
+      <h3 class="small">En ligne (${items.length})</h3>
+      ${items.length ? `<div class="items">${items.slice(0, 120).map((i) => line(i, false)).join("")}</div>` : `<p class="small muted">Ouvre son dressing avec « Revoir son dressing » pour relever ses annonces.</p>`}
+    </div>`;
+    body.dataset.loaded = "1";
+    body.querySelector("[data-bbuntrack]")?.addEventListener("click", async (ev) => { await api("beebs:untrack", { uid: ev.currentTarget.dataset.bbuntrack }); toast("Concurrent retiré"); render(); });
+  }));
+}
+
 function bindLbcTrackers() {
   if (route().params.get("lbc") === "review") document.getElementById("lbcsection")?.scrollIntoView({ block: "start" });
   document.getElementById("lbcenable2")?.addEventListener("click", async () => {
@@ -1677,6 +1739,7 @@ function bindSupplierForms(root) {
 
 function bindTrackers() {
   bindLbcTrackers();
+  bindBeebsTrackers();
   document.getElementById("salesnotify")?.addEventListener("change", (e) => { api("competitor:salesNotify", { on: e.currentTarget.checked }).catch(() => {}); });
   const nout = document.getElementById("nicheout");
   if (nout) bindNicheResults(nout);
@@ -1820,6 +1883,7 @@ function viewCompte(params) {
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Ajouter les produits des recherches fournisseurs</b><br><span class="small muted">Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).</span></span><input type="checkbox" data-set="autoSupplier" ${s.autoSupplier !== false ? "checked" : ""}></label>
+      <label class="switch"><span><b>Beebs</b><br><span class="small muted">Publier tes annonces Vinted sur Beebs en un clic, suivre tes concurrents Beebs, trouver le fournisseur d'un article. Aucune requête en plus vers Beebs.</span></span><input type="checkbox" data-set="beebs" ${s.beebs !== false && state.beebsPerm ? "checked" : ""}></label>
       <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
       <details class="fold" data-fold="replies" style="margin-top:6px"><summary><b>Réponses toutes prêtes (messagerie Leboncoin)</b></summary>
         <div class="stack" style="margin-top:8px">
@@ -1848,10 +1912,22 @@ async function enableLbc() {
   toast("Leboncoin activé");
   return true;
 }
+const BEEBS_PERM = { origins: ["https://www.beebs.app/*", "https://beebs.app/*"] };
+async function enableBeebs() {
+  let ok = false;
+  try { ok = await chrome.permissions.request(BEEBS_PERM); } catch { ok = false; }
+  if (!ok) { toast("Accès à beebs.app refusé : rien n'a changé."); return false; }
+  await saveSettings({ beebs: true }).catch(() => {});
+  await api("beebs:status").catch(() => {});
+  toast("Beebs activé");
+  return true;
+}
+
 async function loadLbcAsk() {
   const has = await chrome.permissions.contains(LBC_PERM).catch(() => true);
   const later = (await chrome.storage.local.get("ae_lbc_ask_later")).ae_lbc_ask_later || 0;
   state.lbcPerm = has;
+  state.beebsPerm = await chrome.permissions.contains(BEEBS_PERM).catch(() => false);
   state.lbcAsk = !has && Date.now() - later > 14 * 864e5; // « Plus tard » : reproposé 14 jours après
 }
 
@@ -1875,6 +1951,7 @@ const DEFAULT_LBC_REPLIES = [
 ];
 
 function bindCompte(params) {
+  document.getElementById("beebsenable")?.addEventListener("click", async () => { if (await enableBeebs()) { state.beebsPerm = true; render(); } });
   const rep = document.getElementById("lbcreplies");
   if (rep) {
     api("lbc:replies").then((r) => { rep.value = (r && r.length ? r : DEFAULT_LBC_REPLIES).join("\n\n"); }).catch(() => { rep.value = DEFAULT_LBC_REPLIES.join("\n\n"); });
@@ -1934,6 +2011,10 @@ function bindCompte(params) {
   });
   document.querySelectorAll("[data-set]").forEach((el) => el.addEventListener("change", async () => {
     const k = el.dataset.set;
+    if (k === "beebs" && el.checked && !(await chrome.permissions.contains(BEEBS_PERM).catch(() => false))) {
+      if (!(await enableBeebs())) el.checked = false; else state.beebsPerm = true;
+      return;
+    }
     if (k === "lbc" && el.checked && !(await chrome.permissions.contains(LBC_PERM).catch(() => false))) {
       if (!(await enableLbc())) el.checked = false;
       else { state.lbcAsk = false; }
@@ -2396,7 +2477,7 @@ async function render() {
   else if (name === "bienvenue") html = viewBienvenue(params);
   else if (name === "image") html = viewImage();
   else if (name === "balade") html = await viewBalade();
-  else html = viewCompte(params) + langPickerHtml();
+  else html = (params.get("beebs") && state.me && !state.beebsPerm ? `<div class="notice info row between wrap" style="margin-bottom:12px"><span><b>Active Beebs pour publier ton annonce.</b> Un clic, puis reviens sur ton annonce Vinted et clique à nouveau sur « Publier sur Beebs ».</span><button class="btn primary small" type="button" id="beebsenable">Activer Beebs</button></div>` : "") + viewCompte(params) + langPickerHtml();
   if (seq !== renderSeq) return;
   const [upd, notice] = await Promise.all([api("update:state").catch(() => null), api("remote:message").catch(() => null)]);
   if (seq !== renderSeq) return;
