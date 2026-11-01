@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "AliEdge — AliExpress, Temu & Shein → Vinted",
+  "name": "__MSG_extName__",
   "short_name": "AliEdge",
   "version": "3.4.3",
-  "description": "Gratuit. AliExpress, Temu, Shein : prix de revente Vinted, marge, historique des prix, même produit moins cher, recherche par image.",
+  "description": "__MSG_extDesc__",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -12,7 +12,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "AliEdge",
+    "default_title": "__MSG_actionTitle__",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -70,6 +70,8 @@
         "https://*.shein.fr/*"
       ],
       "js": [
+        "src/i18n/en.js",
+        "src/content/i18n-start.js",
         "src/content/product.js"
       ],
       "run_at": "document_idle"
@@ -84,6 +86,8 @@
         "https://*.shein.fr/*"
       ],
       "js": [
+        "src/i18n/en.js",
+        "src/content/i18n-start.js",
         "src/content/search.js",
         "src/content/coupons.js"
       ],
@@ -104,6 +108,8 @@
         "https://www.vinted.co.uk/items/*"
       ],
       "js": [
+        "src/i18n/en.js",
+        "src/content/i18n-start.js",
         "src/content/vinted.js"
       ],
       "run_at": "document_idle"
@@ -123,6 +129,8 @@
         "https://www.vinted.co.uk/member/*"
       ],
       "js": [
+        "src/i18n/en.js",
+        "src/content/i18n-start.js",
         "src/content/member.js"
       ],
       "run_at": "document_idle"
@@ -142,6 +150,8 @@
         "https://www.vinted.co.uk/*"
       ],
       "js": [
+        "src/i18n/en.js",
+        "src/content/i18n-start.js",
         "src/content/competitors.js",
         "src/content/harvest.js"
       ],
@@ -162,6 +172,8 @@
         "https://www.vinted.co.uk/*"
       ],
       "js": [
+        "src/i18n/en.js",
+        "src/content/i18n-start.js",
         "src/content/whoami.js"
       ],
       "run_at": "document_idle"
@@ -181,7 +193,8 @@
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "Capturer une zone de l'écran et trouver le produit chez les fournisseurs"
+      "description": "__MSG_captureZone__"
     }
-  }
+  },
+  "default_locale": "fr"
 }

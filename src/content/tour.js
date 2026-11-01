@@ -478,6 +478,10 @@
     await lookAt(card, true); // on regarde d'abord, le curseur reste sur la photo
     if (!alive()) return true;
     await wait(500, 1300);
+    // Jamais de clic pendant une vérification SHEIN (ou une pause) : on attend que la personne ait repris.
+    if (verificationShown()) onVerification();
+    await hold();
+    if (!alive() || !card.isConnected) return false;
     const from = location.href;
     const opensLog = ((S.tour.opensLog || []).filter((t) => t > Date.now() - 3600000)).concat(Date.now());
     S.tour.opensLog = opensLog;

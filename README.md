@@ -20,6 +20,10 @@ Page publique : https://ivanbara.com/aliedge · Chrome Web Store : https://chrom
 
 Le serveur (tables, fonctions, robot) vit dans le repo Barapics : migration `0017_aliedge.sql`, route `/api/public/aliedge-robot`.
 
+## Langues
+
+Le code est écrit en français. `src/i18n/en.js` traduit à la volée en anglais tout ce qu'AliEdge affiche (panneau, boutons ajoutés sur les sites, badge de la balade) quand Chrome n'est pas en français, ou si le membre choisit « English » dans Compte → Langue. Le texte des sites eux-mêmes n'est jamais touché. Nom et description du store : `_locales/fr` et `_locales/en`. Un texte ajouté au panneau doit aussi être ajouté au dictionnaire anglais (le test e2e relève ce qui reste en français).
+
 ## Développement
 
 Aucune compilation : charger le dossier dans `chrome://extensions` (mode développeur → « Charger l'extension non empaquetée »).

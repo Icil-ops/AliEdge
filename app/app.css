@@ -470,3 +470,87 @@ a.radar-item { text-decoration: none; color: inherit; }
 .qrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--soft); border-radius: 10px; padding: 8px 10px; }
 .tips { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 kbd { font: 600 11px/1 ui-monospace, Menlo, monospace; padding: 2px 5px; border-radius: 5px; border: 1px solid var(--line); background: var(--card); }
+
+/* ═══════════ Design épuré (v3.5) ═══════════
+   Moins de cadres, moins d'ombres, plus d'air : une seule action principale par écran,
+   le détail replié dans des volets. */
+:root {
+  --paper: #ffffff;
+  --line: #ecebf1;
+  --soft: #f4f3f8;
+  --muted: #74708a;
+  --radius: 16px;
+  --shadow: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #111017; --card: #18161f; --line: #26232f; --soft: #1f1c28; --shadow: none; }
+}
+body { font-size: 14px; line-height: 1.5; }
+.top { background: color-mix(in srgb, var(--paper) 92%, transparent); border-bottom: 1px solid var(--line); }
+.brand { padding: 12px 14px 6px; gap: 8px; }
+.logo { width: 26px; height: 26px; }
+.brand-name { font-size: 16px; }
+.plan { font-size: 11px; padding: 3px 9px; font-weight: 650; }
+.plan.pro { background: var(--soft); color: var(--violet-ink); }
+.expand { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.expand.on { color: var(--violet); background: var(--soft); }
+.tabs { padding: 0 8px; gap: 0; }
+.tabs a { font-size: 13px; font-weight: 550; padding: 8px 6px 10px; border-bottom-width: 2px; }
+.tabs a[aria-current="page"] { font-weight: 650; }
+
+main { padding: 16px 16px 72px; }
+.stack > * + * { margin-top: 14px; }
+.card { border-color: var(--line); box-shadow: none; }
+.card.pad, .pad { padding: 16px; }
+h2 { font-size: 16px; letter-spacing: -.01em; }
+h3 { font-size: 14.5px; letter-spacing: -.005em; }
+.small.muted, p.small { line-height: 1.5; }
+.btn { border-radius: 11px; box-shadow: none; }
+.btn.primary { box-shadow: 0 6px 16px -10px color-mix(in srgb, var(--violet) 80%, transparent); }
+.input { border-radius: 11px; background: var(--paper); }
+.notice { border-radius: 12px; }
+.chip { font-weight: 600; }
+.item { border-color: var(--line); border-radius: 14px; }
+
+/* Volets repliables */
+details.fold > summary {
+  list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 2px 0;
+  user-select: none;
+}
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::after {
+  content: ""; margin-left: auto; flex: none; width: 8px; height: 8px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px); transition: transform .2s;
+}
+details.fold[open] > summary::after { transform: rotate(-135deg) translateY(-1px); }
+details.fold > summary .pill { margin-left: 4px; }
+details.fold.soft > summary { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+details.fold.soft > summary .fold-val { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--ink); opacity: .75; }
+
+/* Acheter malin : une liste de volets */
+.smart { padding: 6px 16px; }
+.smart-title { padding: 10px 0 2px; font-size: 13px; color: var(--muted); font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.smart > * + * { margin-top: 0; }
+.smart-block { border-top: 1px solid var(--line); padding: 12px 0; }
+.smart-block:first-of-type { border-top: 1px solid var(--line); padding-top: 12px; }
+.smart-block[open] > summary { margin-bottom: 10px; }
+.smart-stats div { background: var(--soft); border-radius: 12px; }
+
+/* Barre du bas : deux liens discrets au lieu de deux gros boutons */
+.dock {
+  display: flex; justify-content: center; gap: 6px; padding: 8px;
+  background: color-mix(in srgb, var(--paper) 94%, transparent); border-top: 1px solid var(--line);
+}
+.dock-btn, .dock-btn.skool {
+  background: transparent; color: var(--muted); font-weight: 600; font-size: 12.5px;
+  padding: 6px 12px; border-radius: 999px;
+}
+.dock-btn:hover, .dock-btn.skool:hover { background: var(--soft); color: var(--ink); filter: none; transform: none; }
+.dock-btn svg { opacity: .8; }
+
+.fold-val { flex: 1; text-align: right; }
+details.fold.soft > summary > span:first-child { white-space: nowrap; }
+.trends > summary, .import-vinted > summary { display: flex; align-items: center; gap: 8px; }
+.import-row { display: block; }
+.import-row > * + * { margin-top: 6px; }

@@ -16,6 +16,9 @@
       </svg>
       <span class="brand-name">AliEdge</span>
       <button id="plan" class="plan" type="button">Gratuit</button>
+      <a id="account" class="expand" href="#/compte" title="Compte" aria-label="Compte">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+      </a>
       <button id="expand" class="expand" type="button" title="Ouvrir en plein écran" aria-label="Ouvrir en plein écran">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
       </button>
@@ -26,21 +29,21 @@
       <a href="#/radar">Radar</a>
       <a href="#/concurrents">Concurrents</a>
       <a href="#/suivis">Suivis</a>
-      <a href="#/compte">Compte</a>
     </nav>
   </header>
   <main id="view" tabindex="-1"></main>
   <nav class="dock" aria-label="Outils de la méthode">
     <a id="dock-barapics" class="dock-btn" href="https://barapics.com/app" target="_blank" rel="noopener" title="Créer des photos réalistes du produit avec Barapics">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="4"/></svg>
-      Photos Barapics
+      Photos
     </a>
     <a id="dock-skool" class="dock-btn skool" href="https://www.skool.com/vinteddrop-accompagnement-5463/about" target="_blank" rel="noopener" title="La méthode VintedDrop : formation et entrepôt">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/></svg>
-      Skool VintedDrop
+      Skool
     </a>
   </nav>
   <div id="live" class="sr-only" aria-live="polite"></div>
+  <script src="../src/i18n/en.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

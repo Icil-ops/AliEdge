@@ -368,11 +368,10 @@ function smartHtml() {
   const RV = { go: ["Bon produit à tester", "gain"], maybe: ["À vérifier avant de commander", "warn"], avoid: ["À éviter", "loss"] };
   const coupons = sm.coupons || [];
   return `
-  <section class="card pad stack smart" aria-label="Acheter malin">
-    <div class="row between"><h3>Acheter malin</h3><span class="small muted">${esc(PLATFORM[p.platform]?.[0] || "")}</span></div>
-
-    <div class="smart-block">
-      <div class="row between"><b>Historique du prix</b>${st ? `<span class="pill ${v[1]}">${esc(v[0])}</span>` : ""}</div>
+  <section class="card smart" aria-label="Acheter malin">
+    <h3 class="smart-title">Acheter malin</h3>
+    <details class="fold smart-block" data-fold="history" ${sm.open.history ? "open" : ""}>
+      <summary><b>Historique du prix</b>${st ? `<span class="pill ${v[1]}">${esc(v[0])}</span>` : ""}</summary>
       ${sm.historyErr ? `<p class="small muted">${esc(sm.historyErr)}</p>` : !h ? `<div class="skel" style="height:64px;margin-top:8px"></div>` : !st ? `<p class="small muted">Premier relevé de ce produit aujourd'hui. L'historique se construit à chaque visite des membres AliEdge.</p>` : `
         ${priceSpark(h.points)}
         <div class="smart-stats num">
@@ -380,20 +379,20 @@ function smartHtml() {
           <div><span>Moyenne</span><b>${eur(st.avg)}</b><small>${st.days} jour${st.days > 1 ? "s" : ""} relevé${st.days > 1 ? "s" : ""}</small></div>
           <div><span>Plus haut</span><b>${eur(st.high)}</b><small>depuis le ${esc(day(st.since))}</small></div>
         </div>`}
-    </div>
+    </details>
 
-    <div class="smart-block">
-      <b>Même produit moins cher</b>
+    <details class="fold smart-block" data-fold="compare" ${sm.open.compare ? "open" : ""}>
+      <summary><b>Même produit moins cher</b></summary>
       <p class="small muted" style="margin:4px 0 8px">AliEdge lance une recherche triée par prix et repère sur la page les vendeurs du même article (même photo ou photo identique selon l'IA).</p>
       <div class="grid3">
         <button class="btn primary small" type="button" data-compare="${esc(p.platform)}" ${sm.compareBusy ? "disabled" : ""}>${PLATFORM[p.platform]?.[0] || "Comparer"}</button>
         ${["aliexpress", "temu", "shein"].filter((x) => x !== p.platform).map((x) => `<button class="btn small" type="button" data-compare="${x}" ${sm.compareBusy ? "disabled" : ""}>${PLATFORM[x][0]}</button>`).join("")}
       </div>
       ${lens ? `<a class="small" href="${safeUrl(lens)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px">Chercher la photo avec Google Lens</a>` : ""}
-    </div>
+    </details>
 
-    <div class="smart-block">
-      <div class="row between"><b>Avis IA sur la fiche</b>${r ? `<span class="pill ${RV[r.verdict]?.[1] || ""}">${esc(RV[r.verdict]?.[0] || "")}</span>` : ""}</div>
+    <details class="fold smart-block" data-fold="review" ${sm.open.review || r || sm.reviewBusy ? "open" : ""}>
+      <summary><b>Avis IA sur la fiche</b>${r ? `<span class="pill ${RV[r.verdict]?.[1] || ""}">${esc(RV[r.verdict]?.[0] || "")}</span>` : ""}</summary>
       ${r ? `
         <p style="margin:6px 0">${esc(r.summary)}</p>
         ${r.good?.length ? `<p class="small"><b>Points forts</b></p><ul class="smart-list">${r.good.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
@@ -404,17 +403,17 @@ function smartHtml() {
         <p class="small muted" style="margin:4px 0 8px">Résumé de la fiche, pièges à éviter, comment payer moins cher et l'angle pour le revendre sur Vinted. 25 avis par jour.</p>
         ${sm.reviewErr ? `<p class="notice warn">${esc(sm.reviewErr)}</p>` : ""}
         <button class="btn small" type="button" data-aireview ${sm.reviewBusy ? "disabled" : ""}>${sm.reviewBusy ? "Lecture de la fiche…" : "Demander l'avis IA"}</button>`}
-    </div>
+    </details>
 
-    <div class="smart-block">
-      <b>Codes promo</b>
+    <details class="fold smart-block" data-fold="coupons" ${sm.open.coupons ? "open" : ""}>
+      <summary><b>Codes promo</b>${coupons.length ? `<span class="pill">${coupons.length}</span>` : ""}</summary>
       ${sm.pageCoupons?.length ? `<p class="small muted" style="margin:4px 0">Coupons affichés sur la fiche :</p><div class="row wrap" style="gap:6px">${sm.pageCoupons.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
       ${coupons.length ? `<div class="coupons">${coupons.slice(0, 6).map((c) => `
         <div class="coupon"><div><code>${esc(c.code)}</code><div class="small muted">${[c.note, c.ok_count ? `a marché ${c.ok_count} fois` : "pas encore confirmé"].filter(Boolean).map(esc).join(" · ")}</div></div>
         <button class="btn small" type="button" data-copycode="${esc(c.code)}">${ICON.copy}Copier</button></div>`).join("")}</div>
         <p class="small muted">Au moment de payer, AliEdge propose ces codes directement sur la page et te demande s'ils ont marché.</p>`
       : `<p class="small muted" style="margin:4px 0">Aucun code partagé pour l'instant. Tu peux en ajouter un au moment de payer : il servira à toute la communauté.</p>`}
-    </div>
+    </details>
   </section>`;
 }
 
@@ -632,7 +631,6 @@ function viewAnalyse() {
         ${productPrice() == null ? `<p class="notice warn">Prix non détecté : saisis le prix payé pour calculer la marge.</p>` : ""}
         ${searchControls()}
       </section>`);
-    parts.push(smartHtml());
   } else {
     parts.push(`
       <section class="card pad stack">
@@ -674,14 +672,19 @@ function viewAnalyse() {
   }
 
   if (state.entry && !state.analysing) parts.push(viewResult(state.entry));
+  if (p?.supported && !p.error) parts.push(smartHtml());
   return parts.join("");
 }
 
 function searchControls() {
   const s = state.settings || {};
   const markets = Object.entries(MARKETS).map(([k, m]) => `<option value="${k}" ${s.market === k ? "selected" : ""}>${m.label}</option>`).join("");
+  const cond = { all: "Tous états", new: "Neuf avec étiquette", very_good: "Neuf ou très bon" }[s.condition || "all"];
   return `
-    <label class="field"><span>Recherche Vinted</span><input id="query" class="input" value="${esc(state.query)}" placeholder="ex. robe satin longue"></label>
+    <details class="fold soft" data-fold="search" ${state.foldSearch === true || (state.foldSearch !== false && !state.query) ? "open" : ""}>
+      <summary><span>Recherche Vinted</span><span class="fold-val">${esc((state.query || "—").slice(0, 34))} · ${esc(MARKETS[s.market || "fr"]?.label || "")} · ${esc(cond)}</span></summary>
+      <div class="stack" style="margin-top:10px">
+    <label class="field"><span>Mots-clés</span><input id="query" class="input" value="${esc(state.query)}" placeholder="ex. robe satin longue"></label>
     <div class="grid2">
       <label class="field"><span>Pays</span><select id="market" class="input">${markets}</select></label>
       <label class="field"><span>État</span><select id="condition" class="input">
@@ -690,6 +693,8 @@ function searchControls() {
         <option value="very_good" ${s.condition === "very_good" ? "selected" : ""}>Neuf ou très bon état</option>
       </select></label>
     </div>
+      </div>
+    </details>
     <button id="go" class="btn primary block" type="button" ${state.analysing ? "disabled" : ""}>${ICON.search}${state.entry ? "Relancer l'analyse" : "Analyser sur Vinted"}</button>`;
 }
 
@@ -868,23 +873,24 @@ function viewCatalogue() {
       </div>
       <div class="seg" role="group" aria-label="Trier">${sorts.map(([k, l]) => `<button type="button" data-sort="${k}" aria-pressed="${f.sort === k}">${l}</button>`).join("")}</div>
       <section class="picks" id="picks" aria-label="Sélection VintedDrop"></section>
-      <details class="card pad trends" id="trends">
+      <details class="card pad trends fold" id="trends">
         <summary><b>Tendances du marché Vinted</b><span class="small muted">30 derniers jours</span></summary>
         <div id="trendsbody" style="margin-top:10px"><div class="skel" style="height:60px"></div></div>
       </details>
-      <details class="card pad import-vinted">
-        <summary><b>Ajouter des annonces Vinted par leur lien</b><span class="small muted">données réelles</span></summary>
-        <form id="vintedimport" class="stack" style="margin-top:8px">
-          <textarea class="input" id="vintedlinks" rows="3" placeholder="https://www.vinted.fr/items/…  (un lien par ligne, 20 au plus)" aria-label="Liens d'annonces Vinted"></textarea>
-          <button class="btn" type="submit">Ajouter au catalogue</button>
-          <p class="small muted">AliEdge relève le titre, le prix, la photo et le statut (en ligne ou vendue) de chaque annonce. Elles alimentent les tendances et les prix constatés.</p>
-        </form>
+      <details class="card pad import-vinted fold">
+        <summary><b>Ajouter au catalogue</b></summary>
+        <div class="stack" style="margin-top:10px">
+          <div class="import-row">
+            <button id="import-page" class="btn block" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
+            <p id="import-status" class="small muted" aria-live="polite"></p>
+            <span class="small muted">Sur une recherche AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
+          </div>
+          <form id="vintedimport" class="stack">
+            <textarea class="input" id="vintedlinks" rows="3" placeholder="Liens d'annonces Vinted, un par ligne (20 au plus)" aria-label="Liens d'annonces Vinted"></textarea>
+            <button class="btn" type="submit">Ajouter ces annonces</button>
+          </form>
+        </div>
       </details>
-      <div class="import-row">
-        <button id="import-page" class="btn" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
-        <p id="import-status" class="small muted" aria-live="polite"></p>
-        <span class="small muted">Sur une recherche ou une catégorie AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
-      </div>
       ${!state.me.pro ? `<div class="notice info row between wrap"><span>Version gratuite : les 3 premiers produits sont visibles.</span><a class="btn primary" href="${BUY_URL}" target="_blank" rel="noopener">Tout débloquer</a></div>` : ""}
     </div>`;
   let body;
@@ -1095,6 +1101,7 @@ async function importStatus() {
   if (!st || !st.left) { box.textContent = ""; return; }
   const done = Math.max(0, st.total - st.left);
   box.innerHTML = `Recherche Vinted des produits ajoutés : <b>${done} / ${st.total}</b> · environ ${Math.ceil(st.left / 2)} min restantes`;
+  const fold = box.closest("details"); if (fold) fold.open = true; // import en cours : on le montre
 }
 
 async function openProduct(row) {
@@ -1363,15 +1370,17 @@ async function viewConcurrents() {
       </form>
       <div id="nicheout">${nicheHtml(state.niche)}</div>
     </section>
-    <section class="stack" style="margin-top:22px">
-      <h2>Diagnostic de ton compte</h2>
+    <details class="card pad fold" data-fold="diag" style="margin-top:22px" ${diag || state.smart.open.diag ? "open" : ""}>
+      <summary><h2>Diagnostic de ton compte</h2>${diag?.score != null ? `<span class="pill">${esc(diag.score)}/100</span>` : ""}</summary>
+      <div class="stack" style="margin-top:10px">
       <p class="small muted">Colle le lien de ton profil Vinted : AliEdge lit tes annonces et ton profil, te donne une note sur 100 et les corrections qui comptent le plus, en te comparant à tes concurrents suivis.</p>
       <form id="diagform" class="row" style="gap:8px">
         <input class="input" id="diagurl" type="url" inputmode="url" placeholder="https://www.vinted.fr/member/123456-ton-pseudo" aria-label="Lien de ton profil Vinted" value="${esc(diag?.url || "")}" style="flex:1" required>
         <button class="btn primary" type="submit">${diag ? "Refaire" : "Lancer"}</button>
       </form>
       <div id="diagout">${diagnosticHtml(diag)}</div>
-    </section>`;
+      </div>
+    </details>`;
 }
 
 /** Produit fournisseur d'une annonce vendue : celui de la base commune, sinon les recherches pour le trouver. */
@@ -1774,7 +1783,22 @@ function viewCompte(params) {
     </div>`;
 }
 
+// Langue du panneau : automatique (langue de Chrome), français ou anglais.
+let langPref = "auto";
+function langPickerHtml() {
+  return `<label class="field" style="max-width:440px;margin:16px auto 0"><span>Langue</span>
+    <select id="langpick" class="input">
+      <option value="auto" ${langPref === "auto" ? "selected" : ""}>Automatique</option>
+      <option value="fr" ${langPref === "fr" ? "selected" : ""} data-no-i18n>Français</option>
+      <option value="en" ${langPref === "en" ? "selected" : ""} data-no-i18n>English</option>
+    </select></label>`;
+}
+
 function bindCompte(params) {
+  document.getElementById("langpick")?.addEventListener("change", async (e) => {
+    await chrome.storage.local.set({ ae_lang: e.target.value });
+    location.reload();
+  });
   document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => { location.hash = `#/compte?mode=${b.dataset.mode}`; }));
   const form = document.getElementById("authform");
   const err = document.getElementById("autherr");
@@ -2243,6 +2267,7 @@ async function render() {
   if (state.me && !onboarded && name !== "bienvenue" && name !== "compte") { location.hash = "#/bienvenue"; return; }
   document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" ? "analyse" : name}`));
   document.querySelectorAll(".tabs a[aria-current]").forEach((a) => a.setAttribute("aria-current", "page"));
+  document.getElementById("account")?.classList.toggle("on", name === "compte" || name === "bienvenue");
   let html;
   if (name === "analyse") html = viewAnalyse();
   else if (name === "catalogue") html = viewCatalogue();
@@ -2252,7 +2277,7 @@ async function render() {
   else if (name === "bienvenue") html = viewBienvenue(params);
   else if (name === "image") html = viewImage();
   else if (name === "balade") html = await viewBalade();
-  else html = viewCompte(params);
+  else html = viewCompte(params) + langPickerHtml();
   if (seq !== renderSeq) return;
   const [upd, notice] = await Promise.all([api("update:state").catch(() => null), api("remote:message").catch(() => null)]);
   if (seq !== renderSeq) return;
@@ -2280,6 +2305,18 @@ async function render() {
   else if (name === "balade") bindBalade();
   else bindCompte(params);
 }
+
+// Les volets repliables gardent leur état d'un rendu à l'autre.
+// (seuls les clics du membre comptent : un volet rendu ouvert par défaut ne change rien.)
+document.addEventListener("click", (e) => {
+  const sum = e.target.closest?.("details.fold > summary");
+  const d = sum?.parentElement;
+  if (!d?.dataset.fold) return;
+  setTimeout(() => {
+    if (d.dataset.fold === "search") state.foldSearch = d.open;
+    else state.smart.open[d.dataset.fold] = d.open;
+  }, 0);
+});
 
 let lastRoute = null;
 window.addEventListener("hashchange", () => {
@@ -2324,6 +2361,8 @@ async function takePending() {
 }
 
 (async function init() {
+  langPref = (await chrome.storage.local.get("ae_lang")).ae_lang || "auto";
+  document.documentElement.lang = (await globalThis.AE_I18N?.start([document.body])) || "fr";
   await Promise.all([loadAuth(), loadOnboarded()]);
   lastRoute = route().name;
   render();

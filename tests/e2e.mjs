@@ -107,8 +107,11 @@ cpSync(root, ext, { recursive: true, filter: (src) => !/[\\/](node_modules|\.git
 const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `aliedge-profile-${Date.now()}`), {
   headless: true,
   channel: "chromium",
-  args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
+  args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, "--lang=fr-FR"],
   viewport: { width: 420, height: 900 },
+  // Chrome en français : le panneau s'affiche en français (la version anglaise est vérifiée à la fin).
+  locale: "fr-FR",
+  env: { ...process.env, LANG: "fr_FR.UTF-8", LANGUAGE: "fr" },
 });
 
 const radarUrls = [];
@@ -328,6 +331,9 @@ check("demande d'avis après la 3e analyse", (await panel.locator("#review-ask")
 await panel.screenshot({ path: `${shots}/5b-avis.png` });
 await panel.click("#review-later").catch(() => {});
 // 2a. Achat malin : historique des prix, avis IA, codes promo, même produit moins cher, recherche par image
+await panel.waitForSelector(".smart", { timeout: 8000 }).catch(() => {});
+// Les volets « Acheter malin » sont repliés par défaut (design épuré) : on les ouvre comme le ferait le membre.
+await panel.evaluate(() => document.querySelectorAll(".smart details.fold").forEach((d) => { d.open = true; }));
 await panel.waitForSelector(".smart .spark", { timeout: 8000 }).catch(() => {});
 check("achat malin : historique des prix (courbe + plus bas)", (await panel.locator(".smart .spark").count()) === 1 && /6,40/.test(await panel.locator(".smart-stats").innerText().catch(() => "")), (await panel.locator(".smart").innerText().catch(() => "")).slice(0, 120));
 check("achat malin : codes promo de la communauté", (await panel.locator(".smart .coupon").count()) === 2);
@@ -337,7 +343,8 @@ check("achat malin : avis IA de la fiche", barapicsCalls.includes("review") && /
 await panel.screenshot({ path: `${shots}/5c-achat-malin.png`, fullPage: true });
 {
   const opened = ctx.waitForEvent("page", { timeout: 10000 }).catch(() => null);
-  await panel.click('[data-compare="aliexpress"]').catch(() => {});
+  await panel.evaluate(() => { const d = document.querySelector('[data-fold="compare"]'); if (d) d.open = true; });
+await panel.click('[data-compare="aliexpress"]').catch(() => {});
   const cmp = await opened;
   if (cmp) {
     await cmp.waitForLoadState("domcontentloaded").catch(() => {});
@@ -502,6 +509,7 @@ check("vente du concurrent : fournisseur connu affiché, sinon recherche du four
   check("niche : meilleur vendeur suivi en un clic", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > before);
 }
 {
+  await page.evaluate(() => { const d = document.querySelector('[data-fold="diag"]'); if (d) d.open = true; });
   await page.fill("#diagurl", "https://www.vinted.fr/member/31337-moncompte").catch(() => {});
   await page.click('#diagform button[type="submit"]').catch(() => {});
   await page.waitForSelector("#diagout .diag-score", { timeout: 15000 }).catch(() => {});
@@ -741,7 +749,7 @@ if (process.env.STORE_SHOTS) {
   await sh.waitForTimeout(600);
   const badgeLabel = () => sh.evaluate(() => document.querySelector("#ae-shein-tour-badge [data-label]")?.textContent || "");
   const stillPaused = /vérification/.test(await badgeLabel());
-  await sh.evaluate(() => document.querySelector(".geetest_panel").remove());
+  await sh.evaluate(() => document.querySelector(".geetest_panel")?.remove());
   await sh.click("#ae-shein-tour-badge [data-pause]");
   await sh.waitForTimeout(500);
   const resumed = !/vérification|pause/i.test(await badgeLabel());
@@ -765,6 +773,47 @@ if (process.env.STORE_SHOTS) {
   check("Balade SHEIN : rapport « pistes de niches » dans le panneau", /Pistes de niches/.test(txt) && /crochet/i.test(txt) && nicheBtn > 0, `${nicheBtn} pistes`);
   await page.screenshot({ path: `${shots}/balade.png`, fullPage: true });
   await sh.close();
+}
+
+// Version anglaise : panneau traduit, éléments ajoutés sur les sites traduits, texte des sites jamais touché.
+{
+  await page.evaluate(() => chrome.storage.local.set({ ae_lang: "en" }));
+  await page.goto(app("/suivis"));
+  await page.reload();
+  await page.waitForTimeout(1500);
+  const tabs = await page.locator(".tabs").innerText();
+  const body = await page.locator("#view").innerText();
+  const sh = await ctx.newPage();
+  await sh.setViewportSize({ width: 1280, height: 800 });
+  await sh.goto("https://fr.shein.com/category/crochet.html");
+  await sh.waitForTimeout(800);
+  const tabId = await page.evaluate(async () => (await chrome.tabs.query({ url: "https://fr.shein.com/*" }))[0]?.id);
+  await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:start", tabId: id, opts: { minutes: 3, open: false } }), tabId);
+  await sh.waitForTimeout(1500);
+  const badge = await sh.evaluate(() => document.getElementById("ae-shein-tour-badge")?.innerText || "");
+  const siteTitle = await sh.evaluate(() => document.querySelector("h1")?.textContent || "");
+  await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:stop", tabId: id }), tabId);
+  check("version anglaise : panneau et éléments ajoutés sur les sites traduits, site intact", /Analyze/.test(tabs) && /Catalog/.test(tabs) && /Sales to ship/.test(body) && /Tour/.test(badge) && /Stop/.test(badge) && siteTitle === "Crochet", JSON.stringify({ tabs: tabs.replace(/\s+/g, " ").slice(0, 60), badge: badge.replace(/\s+/g, " ") }));
+  await page.screenshot({ path: `${shots}/english.png`, fullPage: true });
+  const left = new Set();
+  const harvest = async () => (await page.evaluate(() => {
+    const FR = /[éèàùçêâîôûœ«»]|\b(le|la|les|des|une|pour|sur|ton|tes|avec|dans|aucun|ventes?|annonces?|produits?|prix|suivi|vendu|depuis|ligne|filtres?|réglages)\b/i;
+    const out = [];
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let n; while ((n = w.nextNode())) { const t = n.nodeValue.replace(/\s+/g, " ").trim(); if (t.length > 1 && FR.test(t) && !n.parentElement.closest("script,style,[data-no-i18n]")) out.push(t); }
+    document.querySelectorAll("[placeholder],[title],[aria-label]").forEach((e) => ["placeholder", "title", "aria-label"].forEach((a) => { const v = e.getAttribute(a); if (v && FR.test(v)) out.push(v); }));
+    return out;
+  })).forEach((t) => left.add(t));
+  for (const [h, n] of [["/analyse", "english-analyse"], ["/catalogue", "english-catalogue"], ["/concurrents", "english-concurrents"], ["/radar", "english-radar"], ["/balade", "english-balade"], ["/compte", "english-compte"], ["/suivis", "english-suivis"], ["/image", "english-image"]]) {
+    await page.goto(app(h)); await page.reload(); await page.waitForTimeout(1800);
+    await page.evaluate(() => document.querySelectorAll("details").forEach((d) => { d.open = true; }));
+    await page.waitForTimeout(800);
+    await harvest();
+    await page.screenshot({ path: `${shots}/${n}.png`, fullPage: true });
+  }
+  writeFileSync(path.join(os.tmpdir(), "aliedge-en-left.json"), JSON.stringify([...left], null, 1));
+  await sh.close();
+  await page.evaluate(() => chrome.storage.local.set({ ae_lang: "fr" }));
 }
 
 await ctx.close();

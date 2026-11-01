@@ -41,7 +41,7 @@ function endTour(tabId) {
 
 async function inject(tabId, tour) {
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["src/content/tour.js"] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/tour.js"] });
     await chrome.scripting.executeScript({
       target: { tabId },
       func: (t) => (window.__aeSheinTour ? window.__aeSheinTour.start(t) : null),

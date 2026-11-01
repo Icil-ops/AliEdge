@@ -11,3 +11,13 @@ test("le manifest respecte les limites du Chrome Web Store", () => {
   assert.match(m.version, /^\d+(\.\d+){0,3}$/);
   assert.equal(m.key, undefined, "pas de clé « key » dans le paquet du store");
 });
+
+test("les traductions du nom et de la description respectent les limites du store", () => {
+  for (const l of ["fr", "en"]) {
+    const msg = JSON.parse(readFileSync(`_locales/${l}/messages.json`, "utf8"));
+    assert.ok(msg.extName.message.length <= 75, `${l} : nom trop long`);
+    assert.ok(msg.extDesc.message.length <= 132, `${l} : description trop longue`);
+    assert.ok(msg.captureZone.message.length > 0);
+  }
+  assert.equal(m.default_locale, "fr");
+});
