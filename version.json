@@ -1,7 +1,7 @@
 {
-  "version": "3.4.3",
-  "notes": "Achat malin : historique des prix, même produit moins cher chez d'autres vendeurs, recherche par image (clic droit ou Alt+Maj+S), avis IA de la fiche, codes promo au paiement. Warehouse : tes ventes Vinted à expédier apparaissent dans ton espace. Ton propre compte Vinted n'est jamais publié.",
+  "version": "3.5.0",
+  "notes": "Balade SHEIN : AliEdge parcourt le catalogue pour toi et sort des pistes de niches. Ventes à expédier : confie-les à la warehouse en un clic. Nouveau design épuré et version anglaise. Leboncoin : prix dans l'analyse, fournisseur et warehouse depuis les annonces, aide au dépôt (y compris depuis tes annonces Vinted), réponses toutes prêtes et aide à la négociation, badges produit repéré. Compte gratuit obligatoire.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-10-30",
+  "releaseDate": "2026-11-01",
   "minVersion": "3.0.0"
 }
