@@ -1397,11 +1397,14 @@ async function viewConcurrents() {
   if (!state.me) return `<section class="card pad stack"><h2>Concurrents</h2><p class="muted">Connecte-toi pour suivre les ventes de tes concurrents.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
   const [trackers, sales, diag, lbcOn] = await Promise.all([api("tracker:list").catch(() => []), api("competitor:sales").catch(() => null), api("diagnostic:last").catch(() => null), api("lbc:status").then((r) => r.enabled).catch(() => false)]);
   const lbcRows = lbcOn ? await api("lbc:trackers").catch(() => []) : [];
-  const beebsOn = (await api("beebs:status").catch(() => ({ enabled: false }))).enabled;
-  const beebsRows = beebsOn ? await api("beebs:trackers").catch(() => []) : [];
+  const chRows = [];
+  for (const ch of Object.keys(CHANNELS)) {
+    const on = (await api(`${ch}:status`).catch(() => ({ enabled: false }))).enabled;
+    chRows.push([ch, on ? await api(`${ch}:trackers`).catch(() => []) : [], on]);
+  }
   return `${viewTrackers(trackers)}
     ${viewLbcTrackers(lbcRows, lbcOn)}
-    ${viewBeebsTrackers(beebsRows, beebsOn)}
+    ${chRows.map(([ch, rows, on]) => viewChannelTrackers(ch, rows, on)).join("")}
     <section class="stack" style="margin-top:22px">${salesFeedHtml(sales)}</section>
     <section class="stack" style="margin-top:22px">
       <h2>Analyser une niche</h2>
@@ -1612,62 +1615,65 @@ function viewLbcTrackers(rows, on) {
     </section>`;
 }
 
-/** Concurrents Beebs : suivis dans ce navigateur, relevés quand tu ouvres leur dressing (aucune requête vers Beebs). */
-function viewBeebsTrackers(rows, on) {
+/** Concurrents Beebs / Opla : suivis dans ce navigateur, relevés quand tu ouvres leur boutique (aucune requête vers le site). */
+function viewChannelTrackers(ch, rows, on) {
+  const C = CHANNELS[ch];
   const stale = (t) => !t.last_visit_at || Date.now() - t.last_visit_at > 3 * 864e5;
   const list = (rows || []).map((t) => `
     <div class="tracker">
-      <button class="tracker-head" type="button" data-bbtracker="${esc(t.uid)}" aria-expanded="false">
+      <button class="tracker-head" type="button" data-chtracker="${esc(t.uid)}" data-ch="${ch}" aria-expanded="false">
         <span class="tracker-dot" aria-hidden="true"></span>
-        <span class="tracker-name"><b>${esc(t.label || "Vendeur Beebs")}</b>${stale(t) ? ' <span class="pill warn">à revoir</span>' : ""}<span class="small muted">suivi depuis ${esc(ago(t.added))} · ${t.last_visit_at ? `dressing vu ${esc(ago(t.last_visit_at))}` : "dressing jamais ouvert"}</span></span>
+        <span class="tracker-name"><b>${esc(t.label || `Vendeur ${C.label}`)}</b>${stale(t) ? ' <span class="pill warn">à revoir</span>' : ""}<span class="small muted">suivi depuis ${esc(ago(t.added))} · ${t.last_visit_at ? `${C.shop} vue ${esc(ago(t.last_visit_at))}` : `${C.shop} jamais ouverte`}</span></span>
         <span class="tracker-kpi num"><b>${t.active_count}</b><span class="small muted">en ligne</span></span>
         <span class="tracker-kpi num"><b>${t.gone_30d}</b><span class="small muted">ventes 30 j (estim.)</span></span>
       </button>
-      <div class="tracker-body" id="bbt-${esc(t.uid)}" hidden></div>
+      <div class="tracker-body" id="cht-${ch}-${esc(t.uid).replace(/[^\w-]/g, "_")}" hidden></div>
     </div>`).join("");
   return `
-    <section class="stack" id="beebssection" style="margin-top:22px">
-      <div class="row between"><h2>Concurrents Beebs</h2><span class="small muted">${(rows || []).length} / 30</span></div>
+    <section class="stack" id="${ch}section" style="margin-top:22px">
+      <div class="row between"><h2>Concurrents ${C.label}</h2><span class="small muted">${(rows || []).length} / 30</span></div>
       ${on ? `
-        <p class="small muted">Colle le lien du dressing Beebs d'un concurrent, ou clique sur « + Concurrent » sur Beebs (dressing ou article). Ouvre son dressing de temps en temps : les annonces disparues depuis ta dernière visite sont comptées comme ventes probables.</p>
-        <form id="bbtrackform" class="row" style="gap:8px">
-          <input class="input" id="bbtrackurl" type="url" inputmode="url" placeholder="https://www.beebs.app/fr/dressing/…" aria-label="Lien du dressing Beebs" style="flex:1">
+        <p class="small muted">Colle le lien de la ${C.shop} ${C.label} d'un concurrent, ou clique sur « + Concurrent » sur ${C.label} (sa ${C.shop} ou un de ses articles). Ouvre sa ${C.shop} de temps en temps : les annonces disparues depuis ta dernière visite sont comptées comme ventes probables.</p>
+        <form class="row" data-chform="${ch}" style="gap:8px">
+          <input class="input" type="url" inputmode="url" placeholder="${C.placeholder}" aria-label="Lien de la ${C.shop} ${C.label}" style="flex:1">
           <button class="btn primary" type="submit">Suivre</button>
         </form>
-        <div id="bbtrackerr" role="alert"></div>
-        <div class="trackers">${list || `<p class="small muted">Aucun concurrent Beebs suivi.</p>`}</div>`
-      : `<div class="card pad stack" style="gap:8px"><p class="small muted" style="margin:0">Active Beebs pour suivre aussi tes concurrents Beebs et publier tes annonces Vinted sur Beebs en un clic.</p><button class="btn" type="button" id="beebsenable2">Activer Beebs</button></div>`}
+        <div data-cherr="${ch}" role="alert"></div>
+        <div class="trackers">${list || `<p class="small muted">Aucun concurrent ${C.label} suivi.</p>`}</div>`
+      : `<div class="card pad stack" style="gap:8px"><p class="small muted" style="margin:0">Active ${C.label} pour suivre aussi tes concurrents ${C.label} et publier tes annonces Vinted sur ${C.label} en un clic.</p><button class="btn" type="button" data-chenable2="${ch}">Activer ${C.label}</button></div>`}
     </section>`;
 }
 
-function bindBeebsTrackers() {
-  document.getElementById("beebsenable2")?.addEventListener("click", async () => { if (await enableBeebs()) render(); });
-  document.getElementById("bbtrackform")?.addEventListener("submit", async (e) => {
+function bindChannelTrackers() {
+  document.querySelectorAll("[data-chenable2]").forEach((b) => b.addEventListener("click", async () => { if (await enableChannel(b.dataset.chenable2)) render(); }));
+  document.querySelectorAll("[data-chform]").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const err = document.getElementById("bbtrackerr");
-    const m = document.getElementById("bbtrackurl").value.match(/beebs\.app\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/);
-    if (!m) { err.innerHTML = `<div class="notice warn">Colle le lien d'un dressing Beebs (…/dressing/…).</div>`; return; }
-    try { await api("beebs:track", { uid: m[1] }); toast("Concurrent ajouté : ouvre son dressing pour relever ses annonces"); render(); }
+    const ch = f.dataset.chform, C = CHANNELS[ch];
+    const err = document.querySelector(`[data-cherr="${ch}"]`);
+    const m = f.querySelector("input").value.match(C.shopRe);
+    if (!m) { err.innerHTML = `<div class="notice warn">Colle le lien d'une ${C.shop} ${C.label}.</div>`; return; }
+    let uid = m[1]; try { uid = decodeURIComponent(uid); } catch { /* déjà décodé */ }
+    try { await api(`${ch}:track`, { uid }); toast(`Concurrent ajouté : ouvre sa ${C.shop} pour relever ses annonces`); render(); }
     catch (x) { err.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
-  });
-  document.querySelectorAll("[data-bbtracker]").forEach((b) => b.addEventListener("click", async () => {
-    const uid = b.dataset.bbtracker;
-    const body = document.getElementById(`bbt-${uid}`);
+  }));
+  document.querySelectorAll("[data-chtracker]").forEach((b) => b.addEventListener("click", async () => {
+    const uid = b.dataset.chtracker, ch = b.dataset.ch, C = CHANNELS[ch];
+    const body = b.parentElement.querySelector(".tracker-body");
     const open = b.getAttribute("aria-expanded") === "true";
     b.setAttribute("aria-expanded", String(!open));
     body.hidden = open;
     if (open || body.dataset.loaded) return;
-    const { items = [], gone = [] } = await api("beebs:trackerItems", { uid }).catch(() => ({}));
+    const { items = [], gone = [] } = await api(`${ch}:trackerItems`, { uid }).catch(() => ({}));
     const line = (i, sold) => `<a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}<div><div class="t">${esc(i.title || "Article")}</div><div class="m">${sold ? `<span class="badge-sold">Vente probable</span> ${esc(ago(i.goneAt))}${i.days != null ? ` · en ${esc(String(i.days).replace(".", ","))} j` : ""}` : `en ligne depuis ${esc(ago(i.firstSeen))}`}</div></div><div class="p num">${i.price != null ? eur(Number(i.price)) : ""}</div></a>`;
     body.innerHTML = `<div class="stack" style="gap:10px;margin-top:8px">
-      <div class="row wrap" style="gap:8px"><a class="btn primary small" href="https://www.beebs.app/fr/dressing/${esc(uid)}" target="_blank" rel="noopener">Revoir son dressing</a><button class="btn ghost small" type="button" data-bbuntrack="${esc(uid)}">Arrêter le suivi</button></div>
+      <div class="row wrap" style="gap:8px"><a class="btn primary small" href="${safeUrl(C.shopUrl(uid))}" target="_blank" rel="noopener">Revoir sa ${C.shop}</a><button class="btn ghost small" type="button" data-chuntrack>Arrêter le suivi</button></div>
       <h3 class="small">Ventes probables (${gone.length})</h3>
-      ${gone.length ? `<div class="items">${gone.map((i) => line(i, true)).join("")}</div>` : `<p class="small muted">Elles apparaissent quand des annonces ont disparu entre deux visites de son dressing.</p>`}
+      ${gone.length ? `<div class="items">${gone.map((i) => line(i, true)).join("")}</div>` : `<p class="small muted">Elles apparaissent quand des annonces ont disparu entre deux visites de sa ${C.shop}.</p>`}
       <h3 class="small">En ligne (${items.length})</h3>
-      ${items.length ? `<div class="items">${items.slice(0, 120).map((i) => line(i, false)).join("")}</div>` : `<p class="small muted">Ouvre son dressing avec « Revoir son dressing » pour relever ses annonces.</p>`}
+      ${items.length ? `<div class="items">${items.slice(0, 120).map((i) => line(i, false)).join("")}</div>` : `<p class="small muted">Ouvre sa ${C.shop} avec « Revoir sa ${C.shop} » pour relever ses annonces.</p>`}
     </div>`;
     body.dataset.loaded = "1";
-    body.querySelector("[data-bbuntrack]")?.addEventListener("click", async (ev) => { await api("beebs:untrack", { uid: ev.currentTarget.dataset.bbuntrack }); toast("Concurrent retiré"); render(); });
+    body.querySelector("[data-chuntrack]")?.addEventListener("click", async () => { await api(`${ch}:untrack`, { uid }); toast("Concurrent retiré"); render(); });
   }));
 }
 
@@ -1740,7 +1746,7 @@ function bindSupplierForms(root) {
 
 function bindTrackers() {
   bindLbcTrackers();
-  bindBeebsTrackers();
+  bindChannelTrackers();
   document.getElementById("salesnotify")?.addEventListener("change", (e) => { api("competitor:salesNotify", { on: e.currentTarget.checked }).catch(() => {}); });
   const nout = document.getElementById("nicheout");
   if (nout) bindNicheResults(nout);
@@ -1885,7 +1891,7 @@ function viewCompte(params) {
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Ajouter les produits des recherches fournisseurs</b><br><span class="small muted">Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).</span></span><input type="checkbox" data-set="autoSupplier" ${s.autoSupplier !== false ? "checked" : ""}></label>
-      <label class="switch"><span><b>Beebs</b><br><span class="small muted">Publier tes annonces Vinted sur Beebs en un clic, suivre tes concurrents Beebs, trouver le fournisseur d'un article. Aucune requête en plus vers Beebs.</span></span><input type="checkbox" data-set="beebs" ${s.beebs !== false && state.beebsPerm ? "checked" : ""}></label>
+      ${Object.entries(CHANNELS).map(([ch, C]) => `<label class="switch"><span><b>${C.label}</b><br><span class="small muted">Publier tes annonces Vinted sur ${C.label} en un clic, suivre tes concurrents ${C.label}, trouver le fournisseur d'un article. Aucune requête en plus vers ${C.label}.</span></span><input type="checkbox" data-set="${ch}" ${s[ch] !== false && state.chPerm?.[ch] ? "checked" : ""}></label>`).join("")}
       <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
       <details class="fold" data-fold="replies" style="margin-top:6px"><summary><b>Réponses toutes prêtes (messagerie Leboncoin)</b></summary>
         <div class="stack" style="margin-top:8px">
@@ -1914,22 +1920,32 @@ async function enableLbc() {
   toast("Leboncoin activé");
   return true;
 }
-const BEEBS_PERM = { origins: ["https://www.beebs.app/*", "https://beebs.app/*"] };
-async function enableBeebs() {
+// Canaux de vente en plus (Beebs, Opla) : accès facultatif à chaque site, demandé en un clic.
+const CHANNELS = {
+  beebs: { label: "Beebs", host: "beebs.app", perm: { origins: ["https://www.beebs.app/*", "https://beebs.app/*"] }, shop: "boutique", shopUrl: (u) => `https://www.beebs.app/fr/dressing/${encodeURIComponent(u)}`, shopRe: /beebs\.app\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/, placeholder: "https://www.beebs.app/fr/dressing/…" },
+  opla: { label: "Opla", host: "opla.co", perm: { origins: ["https://www.opla.co/*", "https://opla.co/*"] }, shop: "boutique", shopUrl: (u) => `https://www.opla.co/seller/${encodeURIComponent(u)}`, shopRe: /opla\.co\/(?:[a-z]{2}\/)?seller\/([^/?#\s]{6,160})/, placeholder: "https://www.opla.co/seller/…" },
+};
+const BEEBS_PERM = CHANNELS.beebs.perm;
+async function enableChannel(ch) {
+  const C = CHANNELS[ch];
   let ok = false;
-  try { ok = await chrome.permissions.request(BEEBS_PERM); } catch { ok = false; }
-  if (!ok) { toast("Accès à beebs.app refusé : rien n'a changé."); return false; }
-  await saveSettings({ beebs: true }).catch(() => {});
-  await api("beebs:status").catch(() => {});
-  toast("Beebs activé");
+  try { ok = await chrome.permissions.request(C.perm); } catch { ok = false; }
+  if (!ok) { toast(`Accès à ${C.host} refusé : rien n'a changé.`); return false; }
+  await saveSettings({ [ch]: true }).catch(() => {});
+  await api(`${ch}:status`).catch(() => {});
+  state.chPerm = { ...(state.chPerm || {}), [ch]: true };
+  toast(`${C.label} activé`);
   return true;
 }
+const enableBeebs = () => enableChannel("beebs");
 
 async function loadLbcAsk() {
   const has = await chrome.permissions.contains(LBC_PERM).catch(() => true);
   const later = (await chrome.storage.local.get("ae_lbc_ask_later")).ae_lbc_ask_later || 0;
   state.lbcPerm = has;
-  state.beebsPerm = await chrome.permissions.contains(BEEBS_PERM).catch(() => false);
+  state.chPerm = {};
+  for (const ch of Object.keys(CHANNELS)) state.chPerm[ch] = await chrome.permissions.contains(CHANNELS[ch].perm).catch(() => false);
+  state.beebsPerm = state.chPerm.beebs;
   state.lbcAsk = !has && Date.now() - later > 14 * 864e5; // « Plus tard » : reproposé 14 jours après
 }
 
@@ -1953,7 +1969,7 @@ const DEFAULT_LBC_REPLIES = [
 ];
 
 function bindCompte(params) {
-  document.getElementById("beebsenable")?.addEventListener("click", async () => { if (await enableBeebs()) { state.beebsPerm = true; render(); } });
+  document.querySelectorAll("[data-chenable]").forEach((b) => b.addEventListener("click", async () => { if (await enableChannel(b.dataset.chenable)) render(); }));
   const rep = document.getElementById("lbcreplies");
   if (rep) {
     api("lbc:replies").then((r) => { rep.value = (r && r.length ? r : DEFAULT_LBC_REPLIES).join("\n\n"); }).catch(() => { rep.value = DEFAULT_LBC_REPLIES.join("\n\n"); });
@@ -2013,8 +2029,8 @@ function bindCompte(params) {
   });
   document.querySelectorAll("[data-set]").forEach((el) => el.addEventListener("change", async () => {
     const k = el.dataset.set;
-    if (k === "beebs" && el.checked && !(await chrome.permissions.contains(BEEBS_PERM).catch(() => false))) {
-      if (!(await enableBeebs())) el.checked = false; else state.beebsPerm = true;
+    if (CHANNELS[k] && el.checked && !(await chrome.permissions.contains(CHANNELS[k].perm).catch(() => false))) {
+      if (!(await enableChannel(k))) el.checked = false;
       return;
     }
     if (k === "lbc" && el.checked && !(await chrome.permissions.contains(LBC_PERM).catch(() => false))) {
@@ -2232,37 +2248,42 @@ function bindSales() {
 }
 
 // ───────────────────────── Beebs, canal de vente en plus : reposter ses annonces Vinted en série
-const repost = { state: "idle", items: [], sel: new Set(), error: "", market: "fr" };
+const repost = { state: "idle", items: [], sel: new Set(), error: "", market: "fr", ch: "beebs" };
 function repostHtml() {
   let body;
-  if (repost.state === "idle") body = `<div class="card pad stack"><p class="small muted">Beebs comme canal de vente en plus : choisis tes annonces Vinted, AliEdge les prépare une par une sur Beebs (texte, prix, photos). Tu cliques sur « Mettre en vente » à chaque fois, la suivante s'ouvre toute seule.</p><button class="btn primary block" type="button" id="repostload">Choisir mes annonces Vinted</button></div>`;
+  const L = CHANNELS[repost.ch].label;
+  const seg = `<div class="seg" role="group" aria-label="Canal de vente">${Object.entries(CHANNELS).map(([ch, C]) => `<button type="button" data-rpch="${ch}" aria-pressed="${repost.ch === ch}">${C.label}</button>`).join("")}</div>`;
+  if (repost.state === "idle") body = `<div class="card pad stack"><p class="small muted">Un canal de vente en plus : choisis tes annonces Vinted, AliEdge les prépare une par une sur ${L} (texte, prix, photos). Tu publies chacune d'un clic, la suivante s'ouvre toute seule.</p><button class="btn primary block" type="button" id="repostload">Choisir mes annonces Vinted</button></div>`;
   else if (repost.state === "loading") body = `<div class="skel" style="height:90px"></div>`;
-  else if (repost.state === "error") body = `<div class="notice warn">${esc(repost.error)}</div>${/beebs/i.test(repost.error) ? `<button class="btn" type="button" id="repostenable">Activer Beebs</button>` : ""}`;
+  else if (repost.state === "error") body = `<div class="notice warn">${esc(repost.error)}</div>${repost.needEnable ? `<button class="btn" type="button" id="repostenable">Activer ${L}</button>` : ""}`;
   else if (!repost.items.length) body = `<p class="muted small">Aucune annonce en ligne sur ton compte Vinted.</p>`;
-  else body = `<div class="row between wrap" style="gap:8px"><label class="row small"><input type="checkbox" id="repostall"> Tout sélectionner (hors déjà sur Beebs)</label><span class="small muted">${repost.sel.size} sélectionnée${repost.sel.size > 1 ? "s" : ""}</span></div>
-    <div class="items">${repost.items.map((i) => `<label class="item" style="grid-template-columns:20px 44px 1fr auto;cursor:pointer"><input type="checkbox" data-rp="${i.id}" ${repost.sel.has(i.id) ? "checked" : ""}>${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:56px">` : '<div class="ph" style="width:44px;height:56px"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.posted ? "Déjà sur Beebs" : ""}</div></div><div class="p num">${i.price != null ? eur(i.price) : ""}</div></label>`).join("")}</div>
-    <button class="btn primary block" type="button" id="repostgo" ${repost.sel.size ? "" : "disabled"}>Publier ${repost.sel.size || ""} annonce${repost.sel.size > 1 ? "s" : ""} sur Beebs</button>
-    <p class="small muted">Sois connecté à Beebs. Vérifie chaque annonce avant de la mettre en vente (catégorie, état, taille).</p>`;
-  return `<section class="stack" id="repostbox" style="margin-top:22px"><h2>Publier sur Beebs</h2>${body}</section>`;
+  else body = `<div class="row between wrap" style="gap:8px"><label class="row small"><input type="checkbox" id="repostall"> Tout sélectionner (hors déjà sur ${L})</label><span class="small muted">${repost.sel.size} sélectionnée${repost.sel.size > 1 ? "s" : ""}</span></div>
+    <div class="items">${repost.items.map((i) => `<label class="item" style="grid-template-columns:20px 44px 1fr auto;cursor:pointer"><input type="checkbox" data-rp="${i.id}" ${repost.sel.has(i.id) ? "checked" : ""}>${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:56px">` : '<div class="ph" style="width:44px;height:56px"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.posted ? `Déjà sur ${L}` : ""}</div></div><div class="p num">${i.price != null ? eur(i.price) : ""}</div></label>`).join("")}</div>
+    <button class="btn primary block" type="button" id="repostgo" ${repost.sel.size ? "" : "disabled"}>Publier ${repost.sel.size || ""} annonce${repost.sel.size > 1 ? "s" : ""} sur ${L}</button>
+    <p class="small muted">Sois connecté à ${L}. Vérifie chaque annonce avant de la publier (catégorie, état, taille).</p>`;
+  return `<section class="stack" id="repostbox" style="margin-top:22px"><div class="row between wrap" style="gap:8px"><h2>Reposter sur un autre site</h2>${seg}</div>${body}</section>`;
 }
 function refreshRepost() { const b = document.getElementById("repostbox"); if (!b) return; b.outerHTML = repostHtml(); bindRepost(); }
 function bindRepost() {
   const box = document.getElementById("repostbox");
   if (!box) return;
   const load = async () => {
-    if (!(await api("beebs:status").catch(() => ({ enabled: false }))).enabled) { repost.state = "error"; repost.error = "Active Beebs pour publier tes annonces sur Beebs."; refreshRepost(); return; }
+    const L = CHANNELS[repost.ch].label;
+    repost.needEnable = false;
+    if (!(await api(`${repost.ch}:status`).catch(() => ({ enabled: false }))).enabled) { repost.state = "error"; repost.needEnable = true; repost.error = `Active ${L} pour publier tes annonces sur ${L}.`; refreshRepost(); return; }
     repost.state = "loading"; refreshRepost();
-    try { repost.items = await api("beebs:myItems"); repost.market = repost.items[0]?.market || "fr"; repost.state = "done"; }
+    try { repost.items = await api(`${repost.ch}:myItems`); repost.market = repost.items[0]?.market || "fr"; repost.state = "done"; }
     catch (e) { repost.state = "error"; repost.error = e.message; }
     refreshRepost();
   };
   box.querySelector("#repostload")?.addEventListener("click", load);
-  box.querySelector("#repostenable")?.addEventListener("click", async () => { if (await enableBeebs()) { state.beebsPerm = true; load(); } });
+  box.querySelector("#repostenable")?.addEventListener("click", async () => { if (await enableChannel(repost.ch)) load(); });
+  box.querySelectorAll("[data-rpch]").forEach((b) => b.addEventListener("click", () => { repost.ch = b.dataset.rpch; repost.state = "idle"; repost.items = []; repost.sel = new Set(); refreshRepost(); }));
   box.querySelectorAll("[data-rp]").forEach((c) => c.addEventListener("change", () => { const id = Number(c.dataset.rp); if (c.checked) repost.sel.add(id); else repost.sel.delete(id); refreshRepost(); }));
   box.querySelector("#repostall")?.addEventListener("change", (e) => { repost.sel = new Set(e.target.checked ? repost.items.filter((i) => !i.posted).map((i) => i.id).slice(0, 40) : []); refreshRepost(); });
   box.querySelector("#repostgo")?.addEventListener("click", async (e) => {
     e.currentTarget.disabled = true; e.currentTarget.textContent = "Préparation…";
-    try { await api("beebs:queue", { ids: [...repost.sel], market: repost.market }); toast("Beebs s'ouvre avec ta première annonce"); }
+    try { await api(`${repost.ch}:queue`, { ids: [...repost.sel], market: repost.market }); toast(`${CHANNELS[repost.ch].label} s'ouvre avec ta première annonce`); }
     catch (x) { toast(x.message); refreshRepost(); }
   });
 }
@@ -2515,7 +2536,7 @@ async function render() {
   else if (name === "bienvenue") html = viewBienvenue(params);
   else if (name === "image") html = viewImage();
   else if (name === "balade") html = await viewBalade();
-  else html = (params.get("beebs") && state.me && !state.beebsPerm ? `<div class="notice info row between wrap" style="margin-bottom:12px"><span><b>Active Beebs pour publier ton annonce.</b> Un clic, puis reviens sur ton annonce Vinted et clique à nouveau sur « Publier sur Beebs ».</span><button class="btn primary small" type="button" id="beebsenable">Activer Beebs</button></div>` : "") + viewCompte(params) + langPickerHtml();
+  else html = Object.keys(CHANNELS).filter((ch) => params.get(ch) && state.me && !state.chPerm?.[ch]).map((ch) => `<div class="notice info row between wrap" style="margin-bottom:12px"><span><b>Active ${CHANNELS[ch].label} pour publier ton annonce.</b> Un clic, puis reviens sur ton annonce Vinted et clique à nouveau sur « Publier sur ${CHANNELS[ch].label} ».</span><button class="btn primary small" type="button" data-chenable="${ch}">Activer ${CHANNELS[ch].label}</button></div>`).join("") + viewCompte(params) + langPickerHtml();
   if (seq !== renderSeq) return;
   const [upd, notice] = await Promise.all([api("update:state").catch(() => null), api("remote:message").catch(() => null)]);
   if (seq !== renderSeq) return;

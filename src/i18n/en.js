@@ -378,6 +378,18 @@
     "Ouvre sa page avec « Revoir ses annonces » pour relever ses annonces.": "Open their page with “Review their listings” to record their listings.",
     "Concurrent ajouté : ouvre sa page pour relever ses annonces": "Competitor added: open their page to record their listings", "Concurrent retiré": "Competitor removed",
     "✓ Concurrent suivi": "✓ Competitor tracked", "+ Concurrent": "+ Competitor", "Ajout…": "Adding…", "Retrait…": "Removing…",
+    // ── Canaux de vente en plus (Beebs, Opla : les textes Opla passent par la forme « Beebs », voir tr1)
+    "Colle le lien de la boutique Beebs d'un concurrent, ou clique sur « + Concurrent » sur Beebs (sa boutique ou un de ses articles). Ouvre sa boutique de temps en temps : les annonces disparues depuis ta dernière visite sont comptées comme ventes probables.": "Paste a competitor's Beebs shop link, or click “+ Competitor” on Beebs (their shop or one of their items). Open their shop from time to time: listings gone since your last visit count as probable sales.",
+    "Lien de la boutique Beebs": "Beebs shop link", "Colle le lien d'une boutique Beebs.": "Paste a Beebs shop link.", "Lien de boutique Beebs invalide.": "Invalid Beebs shop link.",
+    "Concurrent ajouté : ouvre sa boutique pour relever ses annonces": "Competitor added: open their shop to record their listings", "Revoir sa boutique": "Review their shop", "boutique jamais ouverte": "shop never opened",
+    "Elles apparaissent quand des annonces ont disparu entre deux visites de sa boutique.": "They appear when listings have disappeared between two visits to their shop.",
+    "Ouvre sa boutique avec « Revoir sa boutique » pour relever ses annonces.": "Open their shop with “Review their shop” to record their listings.",
+    "Ouvre sa boutique de temps en temps : AliEdge repère ce qu'il vend.": "Open their shop from time to time: AliEdge spots what they sell.",
+    "Un canal de vente en plus : choisis tes annonces Vinted, AliEdge les prépare une par une sur Beebs (texte, prix, photos). Tu publies chacune d'un clic, la suivante s'ouvre toute seule.": "An extra sales channel: choose your Vinted listings, AliEdge prepares them one by one on Beebs (text, price, photos). You post each one in a click, and the next one opens by itself.",
+    "Sois connecté à Beebs. Vérifie chaque annonce avant de la publier (catégorie, état, taille).": "Be signed in to Beebs. Check each listing before posting it (category, condition, size).",
+    "Reposter sur un autre site": "Repost on another site", "Canal de vente": "Sales channel",
+    "Vérifie l'annonce, choisis la catégorie, l'état et la taille si Beebs les demande, puis publie-la.": "Check the listing, choose the category, condition and size if Beebs asks, then post it.",
+    "Opla": "Opla", "Accès à opla.co refusé : rien n'a changé.": "Access to opla.co refused: nothing changed.",
     "Envoi possible avec la livraison Leboncoin.": "Envoi possible avec la livraison Leboncoin.",
   };
 
@@ -394,6 +406,7 @@
     [/^Photos \((\d+)\)$/, "Photos ($1)"],
     [/^dressing vu il y a (\d+) (min|h|j)$/, (m, n, u) => `wardrobe viewed ${n} ${u === "j" ? "d" : u} ago`],
     [/^(\d+) sélectionnées?$/, (m, n) => `${n} selected`],
+    [/^boutique vue il y a (\d+) (min|h|j)$/, (m, n, u) => `shop viewed ${n} ${u === "j" ? "d" : u} ago`],
     [/^Publier (\d+) annonces? sur Beebs$/, (m, n) => `Post ${n} listing${n > 1 ? "s" : ""} on Beebs`],
     [/^Annonce AliEdge pour Beebs · (\d+) \/ (\d+)$/, "AliEdge listing for Beebs · $1 / $2"],
     [/^suivi depuis il y a (\d+) (min|h|j)$/, (m, n, u) => `tracked for ${n} ${u === "j" ? "d" : u}`],
@@ -435,6 +448,7 @@
     if (!k) return null;
     if (Object.prototype.hasOwnProperty.call(EN, k)) return EN[k];
     for (const [re, rep] of PATTERNS) if (re.test(k)) return k.replace(re, rep);
+    if (/\bOpla\b/.test(k) && !/\bBeebs\b/.test(k)) { const t = tr(k.replace(/\bOpla\b/g, "Beebs")); if (t != null) return t.replace(/\bBeebs\b/g, "Opla"); }
     // Morceaux séparés par « · » (ex. « il y a 2 min · score 80/100 ») : chacun traduit à part.
     // Plusieurs phrases dans un même texte : chacune traduite à part (toutes doivent l'être).
     const sentences = k.split(/(?<=[.!?]) (?=[A-ZÀ-Ý«])/);
@@ -452,6 +466,8 @@
   function tr1(k) {
     if (Object.prototype.hasOwnProperty.call(EN, k)) return EN[k];
     for (const [re, rep] of PATTERNS) if (re.test(k)) return k.replace(re, rep);
+    // Opla reprend les textes de Beebs (mêmes outils) : on traduit la forme « Beebs » puis on remet Opla.
+    if (/\bOpla\b/.test(k) && !/\bBeebs\b/.test(k)) { const t = tr1(k.replace(/\bOpla\b/g, "Beebs")); if (t != null) return t.replace(/\bBeebs\b/g, "Opla"); }
     return null;
   }
 

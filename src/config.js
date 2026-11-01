@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS = {
   shareLikes: true,          // les annonces mises en favori sur Vinted enrichissent la base commune (sans l'identité du membre)
   showPill: true,            // bouton flottant sur les fiches produit
   autoSupplier: true,        // produits des recherches AliExpress/Temu/Shein ajoutés automatiquement au catalogue
+  opla: true,                // Opla activé (si l'accès à opla.co est accordé)
   beebs: true,               // Beebs activé (si l'accès à beebs.app est accordé)
   lbc: true,                 // Leboncoin activé (lecture des pages ouvertes, boutons sur les annonces)
 };

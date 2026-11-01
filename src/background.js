@@ -30,7 +30,7 @@ async function setSettings(patch) {
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   await syncAlarms(next);
   if ("lbc" in patch) await syncLbcScript().catch(() => {});
-  if ("beebs" in patch) await syncBeebsScript().catch(() => {});
+  for (const ch of ["beebs", "opla"]) if (ch in patch) await syncChannelScript(ch).catch(() => {});
   return next;
 }
 
@@ -119,7 +119,7 @@ async function setup() {
   });
   await syncAlarms();
   syncLbcScript().catch(() => {});
-  syncBeebsScript().catch(() => {});
+  syncChannels().catch(() => {});
   syncOwnSellers().catch(() => {});
   checkForUpdate().catch(() => {});
 }
@@ -1225,143 +1225,40 @@ async function lbcReviewReminder() {
     message: "Ouvre leur page pour relever leurs annonces et repérer leurs ventes.",
   });
 }
-chrome.permissions.onAdded.addListener(() => { syncLbcScript().catch(() => {}); syncBeebsScript().catch(() => {}); });
-chrome.permissions.onRemoved.addListener(() => { syncBeebsScript().catch(() => {}); });
+chrome.permissions.onAdded.addListener(() => { syncLbcScript().catch(() => {}); syncChannels().catch(() => {}); });
+chrome.permissions.onRemoved.addListener(() => { syncChannels().catch(() => {}); });
 
-// ───────────────────────── Beebs (accès facultatif à beebs.app) : outils sur les pages que le membre ouvre
-// (fournisseur, concurrents, aide au dépôt). AUCUNE requête automatique vers Beebs.
-// Les concurrents Beebs sont suivis dans ce navigateur : à chaque visite de leur dressing, les annonces disparues
-// depuis la visite précédente sont comptées comme ventes probables.
-const BEEBS_ORIGINS = ["https://www.beebs.app/*", "https://beebs.app/*"];
-const BEEBS_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/beebs.js"];
-const BEEBS_KEY = "ae_beebs_trackers";
-async function beebsEnabled() {
-  try { if (!(await chrome.permissions.contains({ origins: BEEBS_ORIGINS }))) return false; } catch { return false; }
-  return (await getSettings()).beebs !== false;
+// ───────────────────────── Canaux de vente en plus : Beebs et Opla (accès facultatif à chaque site)
+// Outils sur les pages que le membre ouvre (fournisseur, concurrents, aide au dépôt), et republication de ses
+// annonces Vinted : AliEdge ouvre le formulaire de vente du site et le remplit ; le membre vérifie et publie.
+// AUCUNE requête automatique vers ces sites. Les concurrents sont suivis dans ce navigateur : à chaque visite de
+// leur boutique, les annonces disparues depuis la visite précédente sont comptées comme ventes probables.
+const CHANNELS = {
+  beebs: { label: "Beebs", origins: ["https://www.beebs.app/*", "https://beebs.app/*"], uid: /^[A-Za-z0-9_-]{10,64}$/, sell: "https://www.beebs.app/fr?ae=sell", shop: "boutique" },
+  opla: { label: "Opla", origins: ["https://www.opla.co/*", "https://opla.co/*"], uid: /^[A-Za-z0-9|._%:-]{6,120}$/, sell: "https://www.opla.co/sell/create?ae=sell", shop: "boutique" },
+};
+const XPOST_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/xpost.js"];
+const err = (message, code = "invalid") => Object.assign(new Error(message), { code });
+
+async function channelEnabled(ch) {
+  try { if (!(await chrome.permissions.contains({ origins: CHANNELS[ch].origins }))) return false; } catch { return false; }
+  return (await getSettings())[ch] !== false;
 }
-async function syncBeebsScript() {
-  const on = await beebsEnabled();
-  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["ae-beebs"] }).catch(() => []);
-  if (on && existing.length && (existing[0].js || []).join() !== BEEBS_JS.join()) { await chrome.scripting.unregisterContentScripts({ ids: ["ae-beebs"] }); existing.length = 0; }
-  if (on && !existing.length) await chrome.scripting.registerContentScripts([{ id: "ae-beebs", matches: BEEBS_ORIGINS, js: BEEBS_JS, runAt: "document_idle", persistAcrossSessions: true }]);
-  else if (!on && existing.length) await chrome.scripting.unregisterContentScripts({ ids: ["ae-beebs"] });
+async function syncChannelScript(ch) {
+  const on = await channelEnabled(ch);
+  const id = `ae-${ch}`;
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [id] }).catch(() => []);
+  if (on && existing.length && (existing[0].js || []).join() !== XPOST_JS.join()) { await chrome.scripting.unregisterContentScripts({ ids: [id] }); existing.length = 0; }
+  if (on && !existing.length) await chrome.scripting.registerContentScripts([{ id, matches: CHANNELS[ch].origins, js: XPOST_JS, runAt: "document_idle", persistAcrossSessions: true }]);
+  else if (!on && existing.length) await chrome.scripting.unregisterContentScripts({ ids: [id] });
   return on;
 }
-const BEEBS_UID = /^[A-Za-z0-9_-]{10,64}$/;
-async function beebsTrackers() { return (await chrome.storage.local.get(BEEBS_KEY))[BEEBS_KEY] || {}; }
-async function beebsSave(t) { await chrome.storage.local.set({ [BEEBS_KEY]: t }); }
-function beebsSummary(uid, t) {
-  const now = Date.now();
-  const gone = Object.values(t.gone || {});
-  return {
-    uid, label: t.label || null, added: t.added, last_visit_at: t.lastVisit || null,
-    active_count: Object.keys(t.items || {}).length,
-    gone_30d: gone.filter((g) => now - g.goneAt < 30 * 864e5).length,
-    amount_30d: Math.round(gone.filter((g) => now - g.goneAt < 30 * 864e5).reduce((a, g) => a + (Number(g.price) || 0), 0) * 100) / 100,
-  };
-}
-const beebsHandlers = {
-  "beebs:status": async () => ({ enabled: await syncBeebsScript() }),
-  "beebs:trackers": async () => { const all = await beebsTrackers(); return Object.entries(all).map(([u, t]) => beebsSummary(u, t)).sort((a, b) => (b.last_visit_at || 0) - (a.last_visit_at || 0)); },
-  "beebs:trackedIds": async () => Object.keys(await beebsTrackers()),
-  "beebs:track": async ({ uid, label = null }) => {
-    if (!BEEBS_UID.test(String(uid || ""))) throw Object.assign(new Error("Lien de dressing Beebs invalide."), { code: "invalid" });
-    const all = await beebsTrackers();
-    if (!all[uid] && Object.keys(all).length >= 30) throw Object.assign(new Error("Tu suis déjà 30 concurrents Beebs : retires-en un avant d'en ajouter."), { code: "limit" });
-    all[uid] = { ...(all[uid] || { added: Date.now(), items: {}, gone: {} }), label: label ? String(label).slice(0, 80) : all[uid]?.label || null };
-    await beebsSave(all);
-    return { ok: true };
-  },
-  "beebs:untrack": async ({ uid }) => { const all = await beebsTrackers(); delete all[uid]; await beebsSave(all); return {}; },
-  "beebs:trackerItems": async ({ uid }) => { const t = (await beebsTrackers())[uid]; return t ? { items: Object.values(t.items || {}), gone: Object.values(t.gone || {}).sort((a, b) => b.goneAt - a.goneAt) } : { items: [], gone: [] }; },
-  // Dressing d'un concurrent suivi, ouvert par le membre : on compare avec la visite précédente.
-  "beebs:dressing": async ({ uid, name, total, items = [] }) => {
-    const all = await beebsTrackers();
-    const t = all[uid];
-    if (!t) return { tracked: false };
-    const now = Date.now();
-    const seen = {};
-    for (const i of items.slice(0, 500)) {
-      if (!/^\d{3,15}$/.test(String(i.id || ""))) continue;
-      const prev = t.items?.[i.id];
-      seen[i.id] = { id: String(i.id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo: /^https:\/\//.test(i.photo || "") ? i.photo : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, firstSeen: prev?.firstSeen || now, lastSeen: now };
-    }
-    // Seulement si la page a tout affiché (sinon une annonce non chargée passerait pour vendue).
-    const complete = total == null || Object.keys(seen).length >= Number(total);
-    if (complete && t.lastVisit) {
-      const keys = new Set(Object.values(seen).map((x) => titleKey(x.title)));
-      for (const [id, old] of Object.entries(t.items || {})) {
-        if (seen[id]) continue;
-        // Remise en ligne avec le même titre : republication, pas une vente.
-        if (keys.has(titleKey(old.title))) continue;
-        t.gone = t.gone || {};
-        t.gone[id] = { ...old, goneAt: now, days: Math.round(((now - old.firstSeen) / 864e5) * 10) / 10 };
-      }
-    }
-    t.items = complete ? seen : { ...(t.items || {}), ...seen };
-    t.lastVisit = now;
-    if (name && !t.label) t.label = String(name).slice(0, 80);
-    const goneIds = Object.keys(t.gone || {});
-    if (goneIds.length > 300) goneIds.sort((a, b) => t.gone[a].goneAt - t.gone[b].goneAt).slice(0, goneIds.length - 300).forEach((k) => delete t.gone[k]);
-    all[uid] = t;
-    await beebsSave(all);
-    return { tracked: true, complete };
-  },
-  // Annonce préparée pour Beebs (depuis une annonce Vinted du membre ou depuis l'analyse) : reprise sur beebs.app.
-  "beebs:listing": async () => {
-    const st = await chrome.storage.local.get(["ae_beebs_listing", "ae_beebs_queue"]);
-    const l = st.ae_beebs_listing || null;
-    return l && st.ae_beebs_queue ? { ...l, queue: { index: st.ae_beebs_queue.index, total: st.ae_beebs_queue.ids.length } } : l;
-  },
-  "beebs:saveListing": async ({ listing }) => {
-    if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
-    await chrome.storage.local.set({ ae_beebs_listing: listing ? { ...listing, at: Date.now() } : null });
-    return {};
-  },
-  "beebs:clearListing": async () => { await chrome.storage.local.remove("ae_beebs_listing"); return {}; },
-  // ───── Reposter plusieurs annonces Vinted du membre sur Beebs, l'une après l'autre (le membre clique sur
-  // « Mettre en vente » pour chacune ; AliEdge prépare et remplit la suivante).
-  "beebs:myItems": async () => {
-    const own = (await chrome.storage.local.get(OWN_KEY))[OWN_KEY] || [];
-    if (!own.length) throw Object.assign(new Error("Ouvre Vinted connecté à ton compte : AliEdge le reconnaîtra, puis reviens ici."), { code: "invalid" });
-    const market = MARKETS[own[0].market] ? own[0].market : "fr";
-    const items = await vinted.sellerItems(own[0].id, market, { pages: 3 });
-    const posted = (await chrome.storage.local.get("ae_beebs_posted")).ae_beebs_posted || {};
-    return items.filter((i) => i.status === "active").map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
-  },
-  "beebs:queue": async ({ ids = [], market = "fr" }) => {
-    const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
-    if (!list.length) throw Object.assign(new Error("Choisis au moins une annonce."), { code: "invalid" });
-    await chrome.storage.local.set({ ae_beebs_queue: { ids: list, index: 0, market: MARKETS[market] ? market : "fr" } });
-    const listing = await beebsListingFor(list[0], market);
-    return beebsHandlers["beebs:open"]({ listing });
-  },
-  // Annonce publiée (ou passée) sur Beebs : on prépare la suivante de la file.
-  "beebs:next": async ({ posted = true } = {}) => {
-    const st = await chrome.storage.local.get(["ae_beebs_queue", "ae_beebs_listing", "ae_beebs_posted"]);
-    const q = st.ae_beebs_queue;
-    const cur = st.ae_beebs_listing;
-    if (posted && cur?.vintedId) { const p = st.ae_beebs_posted || {}; p[cur.vintedId] = Date.now(); await chrome.storage.local.set({ ae_beebs_posted: p }); }
-    if (!q || q.index + 1 >= q.ids.length) { await chrome.storage.local.remove(["ae_beebs_queue", "ae_beebs_listing"]); return { done: true }; }
-    q.index += 1;
-    await chrome.storage.local.set({ ae_beebs_queue: q });
-    const listing = await beebsListingFor(q.ids[q.index], q.market);
-    await beebsHandlers["beebs:saveListing"]({ listing });
-    return { done: false, index: q.index, total: q.ids.length };
-  },
-  "beebs:stopQueue": async () => { await chrome.storage.local.remove(["ae_beebs_queue", "ae_beebs_listing"]); return {}; },
-  // « Publier sur Beebs » depuis Vinted : si l'accès à beebs.app manque, le panneau AliEdge le demande en un clic.
-  "beebs:open": async ({ listing }) => {
-    await beebsHandlers["beebs:saveListing"]({ listing });
-    const on = await beebsEnabled();
-    chrome.tabs.create({ url: on ? "https://www.beebs.app/fr?ae=sell" : chrome.runtime.getURL("app/app.html?mode=tab#/compte?beebs=1") });
-    return { enabled: on };
-  },
-};
-/** Annonce Vinted du membre, reprise pour Beebs : titre, description, prix, marque, taille, état, photos. */
-async function beebsListingFor(vintedId, market = "fr") {
+async function syncChannels() { for (const ch of Object.keys(CHANNELS)) await syncChannelScript(ch).catch(() => {}); }
+
+/** Annonce Vinted du membre, reprise pour un autre site : titre, description, prix, marque, taille, état, photos. */
+async function listingFromVinted(vintedId, market = "fr") {
   const it = await vinted.itemRaw(vintedId, market);
-  if (!it) throw Object.assign(new Error("Annonce Vinted introuvable (supprimée ou vendue ?)."), { code: "invalid" });
+  if (!it) throw err("Annonce Vinted introuvable (supprimée ou vendue ?).");
   const photos = (it.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10);
   return {
     vintedId: Number(vintedId), title: String(it.title || "").slice(0, 70), description: String(it.description || "").trim(),
@@ -1369,7 +1266,111 @@ async function beebsListingFor(vintedId, market = "fr") {
     condition: it.status || it.condition || null, photos, from: "vinted",
   };
 }
-const BEEBS_CONTENT_TYPES = ["beebs:next", "beebs:stopQueue", "beebs:trackedIds", "beebs:track", "beebs:untrack", "beebs:dressing", "beebs:listing", "beebs:clearListing", "beebs:open"];
+
+function channelHandlers(ch) {
+  const C = CHANNELS[ch];
+  const K = { trackers: `ae_${ch}_trackers`, listing: `ae_${ch}_listing`, queue: `ae_${ch}_queue`, posted: `ae_${ch}_posted` };
+  const get = async (k) => (await chrome.storage.local.get(k))[k];
+  const trackers = async () => (await get(K.trackers)) || {};
+  const saveTrackers = (t) => chrome.storage.local.set({ [K.trackers]: t });
+  const summary = (uid, t) => {
+    const now = Date.now();
+    const gone = Object.values(t.gone || {}).filter((g) => now - g.goneAt < 30 * 864e5);
+    return { uid, label: t.label || null, added: t.added, last_visit_at: t.lastVisit || null, active_count: Object.keys(t.items || {}).length, gone_30d: gone.length, amount_30d: Math.round(gone.reduce((a, g) => a + (Number(g.price) || 0), 0) * 100) / 100 };
+  };
+  const saveListing = async (listing) => {
+    if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
+    await chrome.storage.local.set({ [K.listing]: listing ? { ...listing, at: Date.now() } : null });
+  };
+  const open = async (listing) => {
+    await saveListing(listing);
+    const on = await channelEnabled(ch);
+    chrome.tabs.create({ url: on ? C.sell : chrome.runtime.getURL(`app/app.html?mode=tab#/compte?${ch}=1`) });
+    return { enabled: on };
+  };
+  return {
+    [`${ch}:status`]: async () => ({ enabled: await syncChannelScript(ch) }),
+    [`${ch}:trackers`]: async () => Object.entries(await trackers()).map(([u, t]) => summary(u, t)).sort((a, b) => (b.last_visit_at || 0) - (a.last_visit_at || 0)),
+    [`${ch}:trackedIds`]: async () => Object.keys(await trackers()),
+    [`${ch}:track`]: async ({ uid, label = null }) => {
+      if (!C.uid.test(String(uid || ""))) throw err(`Lien de ${C.shop} ${C.label} invalide.`);
+      const all = await trackers();
+      if (!all[uid] && Object.keys(all).length >= 30) throw err(`Tu suis déjà 30 concurrents ${C.label} : retires-en un avant d'en ajouter.`, "limit");
+      all[uid] = { ...(all[uid] || { added: Date.now(), items: {}, gone: {} }), label: label ? String(label).slice(0, 80) : all[uid]?.label || null };
+      await saveTrackers(all);
+      return { ok: true };
+    },
+    [`${ch}:untrack`]: async ({ uid }) => { const all = await trackers(); delete all[uid]; await saveTrackers(all); return {}; },
+    [`${ch}:trackerItems`]: async ({ uid }) => { const t = (await trackers())[uid]; return t ? { items: Object.values(t.items || {}), gone: Object.values(t.gone || {}).sort((a, b) => b.goneAt - a.goneAt) } : { items: [], gone: [] }; },
+    // Boutique d'un concurrent suivi, ouverte par le membre : comparaison avec la visite précédente.
+    [`${ch}:shop`]: async ({ uid, name, complete = false, items = [] }) => {
+      const all = await trackers();
+      const t = all[uid];
+      if (!t) return { tracked: false };
+      const now = Date.now();
+      const seen = {};
+      for (const i of items.slice(0, 500)) {
+        const id = String(i.id || "");
+        if (!/^[A-Za-z0-9_-]{3,60}$/.test(id)) continue;
+        const prev = t.items?.[id];
+        seen[id] = { id, title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo: /^https:\/\//.test(i.photo || "") ? i.photo : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, firstSeen: prev?.firstSeen || now, lastSeen: now };
+      }
+      // Seulement si la page a tout affiché (sinon une annonce non chargée passerait pour vendue).
+      if (complete && t.lastVisit) {
+        const keys = new Set(Object.values(seen).map((x) => titleKey(x.title)));
+        for (const [id, old] of Object.entries(t.items || {})) {
+          if (seen[id] || keys.has(titleKey(old.title))) continue; // republication avec le même titre : pas une vente
+          t.gone = t.gone || {};
+          t.gone[id] = { ...old, goneAt: now, days: Math.round(((now - old.firstSeen) / 864e5) * 10) / 10 };
+        }
+      }
+      t.items = complete ? seen : { ...(t.items || {}), ...seen };
+      t.lastVisit = now;
+      if (name && !t.label) t.label = String(name).slice(0, 80);
+      const ids = Object.keys(t.gone || {});
+      if (ids.length > 300) ids.sort((a, b) => t.gone[a].goneAt - t.gone[b].goneAt).slice(0, ids.length - 300).forEach((k) => delete t.gone[k]);
+      all[uid] = t;
+      await saveTrackers(all);
+      return { tracked: true, complete };
+    },
+    // Annonce préparée (une seule, ou la courante d'une série) : reprise sur le formulaire de vente du site.
+    [`${ch}:listing`]: async () => {
+      const [l, q] = [await get(K.listing), await get(K.queue)];
+      return l && q ? { ...l, queue: { index: q.index, total: q.ids.length } } : l || null;
+    },
+    [`${ch}:saveListing`]: async ({ listing }) => { await saveListing(listing); return {}; },
+    [`${ch}:clearListing`]: async () => { await chrome.storage.local.remove(K.listing); return {}; },
+    [`${ch}:open`]: async ({ listing }) => open(listing),
+    // Série : plusieurs annonces Vinted du membre, l'une après l'autre.
+    [`${ch}:myItems`]: async () => {
+      const own = (await get(OWN_KEY)) || [];
+      if (!own.length) throw err("Ouvre Vinted connecté à ton compte : AliEdge le reconnaîtra, puis reviens ici.");
+      const market = MARKETS[own[0].market] ? own[0].market : "fr";
+      const items = await vinted.sellerItems(own[0].id, market, { pages: 3 });
+      const posted = (await get(K.posted)) || {};
+      return items.filter((i) => i.status === "active").map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
+    },
+    [`${ch}:queue`]: async ({ ids = [], market = "fr" }) => {
+      const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
+      if (!list.length) throw err("Choisis au moins une annonce.");
+      const mk = MARKETS[market] ? market : "fr";
+      await chrome.storage.local.set({ [K.queue]: { ids: list, index: 0, market: mk } });
+      return open(await listingFromVinted(list[0], mk));
+    },
+    [`${ch}:next`]: async ({ posted = true } = {}) => {
+      const [q, cur] = [await get(K.queue), await get(K.listing)];
+      if (posted && cur?.vintedId) { const p = (await get(K.posted)) || {}; p[cur.vintedId] = Date.now(); await chrome.storage.local.set({ [K.posted]: p }); }
+      if (!q || q.index + 1 >= q.ids.length) { await chrome.storage.local.remove([K.queue, K.listing]); return { done: true }; }
+      q.index += 1;
+      await chrome.storage.local.set({ [K.queue]: q });
+      await saveListing(await listingFromVinted(q.ids[q.index], q.market));
+      return { done: false, index: q.index, total: q.ids.length, sell: C.sell };
+    },
+    [`${ch}:stopQueue`]: async () => { await chrome.storage.local.remove([K.queue, K.listing]); return {}; },
+  };
+}
+const channelHandlerMap = Object.assign({}, ...Object.keys(CHANNELS).map(channelHandlers));
+const CHANNEL_CONTENT_TYPES = Object.keys(CHANNELS).flatMap((ch) => ["trackedIds", "track", "untrack", "shop", "listing", "clearListing", "open", "next", "stopQueue"].map((x) => `${ch}:${x}`));
 chrome.permissions.onRemoved.addListener(() => { syncLbcScript().catch(() => {}); });
 
 const lbcSeen = new Map();
@@ -1695,7 +1696,7 @@ async function pageCoupons() {
 
 const handlers = {
   ...tourHandlers,
-  ...beebsHandlers,
+  ...channelHandlerMap,
   "sales:pending": async () => { const market = (await getSettings()).market || "fr"; return pendingSalesWithSupplier(MARKETS[market] ? market : "fr"); },
   "sales:link": async (msg) => linkSale(msg),
   "sales:unlink": async (msg) => unlinkSale(msg),
@@ -1939,7 +1940,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...BEEBS_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

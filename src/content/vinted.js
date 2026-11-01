@@ -1,5 +1,5 @@
 // Page d'une annonce Vinted : « Trouver le fournisseur » + statut de l'annonce pour le catalogue.
-// Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » et « Publier sur Beebs » (texte, prix et
+// Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » et « Publier sur Beebs / Opla » (texte, prix et
 // photos repris dans l'assistant de dépôt de chaque site ; le membre vérifie et publie lui-même).
 (() => {
   if (window.__aliedgeVinted) return;
@@ -105,14 +105,19 @@
     a.innerHTML = 'Publier aussi sur Leboncoin<span aria-hidden="true">↗</span>';
     a.addEventListener("click", () => { chrome.runtime.sendMessage({ type: "lbc:saveListing", listing }).catch(() => {}); });
     // « Publier sur Beebs » : AliEdge ouvre Beebs, ouvre le formulaire de vente et remplit l'annonce (photos comprises).
-    const bb = document.createElement("a");
-    bb.href = "#"; bb.dataset.beebs = "1";
-    bb.innerHTML = 'Publier sur Beebs<span aria-hidden="true">↗</span>';
-    bb.addEventListener("click", (e) => {
-      e.preventDefault();
-      chrome.runtime.sendMessage({ type: "beebs:open", listing: { ...listing, brand: raw.brand_title || raw.brand || null, size: raw.size_title || raw.size || null, condition: raw.status || raw.condition || null } }).catch(() => {});
-    });
-    mountedMenu.append(sep, a, bb);
+    // Même chose pour Opla.
+    const extra = { brand: raw.brand_title || raw.brand || null, size: raw.size_title || raw.size || null, condition: raw.status || raw.condition || null };
+    const chBtn = (ch, label) => {
+      const b = document.createElement("a");
+      b.href = "#"; b.dataset[ch] = "1";
+      b.innerHTML = `Publier sur ${label}<span aria-hidden="true">↗</span>`;
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        chrome.runtime.sendMessage({ type: `${ch}:open`, listing: { ...listing, ...extra } }).catch(() => {});
+      });
+      return b;
+    };
+    mountedMenu.append(sep, a, chBtn("beebs", "Beebs"), chBtn("opla", "Opla"));
   }
 
   // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.

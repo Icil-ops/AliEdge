@@ -198,6 +198,8 @@
   "optional_host_permissions": [
     "https://www.leboncoin.fr/*",
     "https://www.beebs.app/*",
-    "https://beebs.app/*"
+    "https://beebs.app/*",
+    "https://www.opla.co/*",
+    "https://opla.co/*"
   ]
 }

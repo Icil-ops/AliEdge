@@ -1,12 +1,33 @@
-// Sur Beebs (si activé, accès facultatif à beebs.app) : outils AliEdge sur les pages que le membre ouvre.
-// AUCUNE requête vers Beebs : on lit seulement ce que la page affiche.
+// Canaux de vente en plus — Beebs et Opla (si activés, accès facultatif à chaque site) : outils AliEdge sur les
+// pages que le membre ouvre. AUCUNE requête vers ces sites : on lit seulement ce que la page affiche.
 // - Article : « Trouver le fournisseur » (Google Lens, AliExpress, Temu, Shein) et « + Concurrent » pour son vendeur.
-// - Dressing : « + Concurrent » ; dressing d'un concurrent suivi relevé (annonces disparues = ventes probables).
-// - Dépôt : l'annonce préparée dans AliEdge (depuis une annonce Vinted du membre) est remplie d'un clic,
-//   photos comprises. Le membre vérifie et clique lui-même sur « Mettre en vente ».
+// - Boutique : « + Concurrent » ; boutique d'un concurrent suivi relevée (annonces disparues = ventes probables).
+// - Vente : l'annonce préparée dans AliEdge (annonce Vinted du membre) est remplie automatiquement, photos
+//   comprises ; le membre vérifie et clique lui-même sur le bouton de mise en vente. En série, la suivante s'ouvre.
 (() => {
-  if (window.__aliedgeBeebs) return;
-  window.__aliedgeBeebs = true;
+  if (window.__aliedgeXpost) return;
+  window.__aliedgeXpost = true;
+  const SITES = {
+    beebs: {
+      host: /(^|\.)beebs\.app$/, label: "Beebs", shop: "boutique", home: "/fr",
+      product: /^\/[a-z]{2}\/p\/(\d{3,15})/, shopPage: /^\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/,
+      sellerLink: 'a[href*="/dressing/"]', sellerId: /\/dressing\/([A-Za-z0-9_-]{10,64})/,
+      itemLink: 'a[href*="/p/"]', itemId: /\/p\/(\d{3,15})/,
+      total: () => { const n = Number((document.body.innerText || "").match(/Annonces\s*\((\d+)\)/i)?.[1]); return Number.isFinite(n) ? n : null; },
+      sellPage: () => false, sellUrl: "/fr?ae=sell",
+    },
+    opla: {
+      host: /(^|\.)opla\.co$/, label: "Opla", shop: "boutique", home: "/",
+      product: /^\/(?:[a-z]{2}\/)?product\/(art_[a-f0-9]{16,40})/, shopPage: /^\/(?:[a-z]{2}\/)?seller\/([^/?#]{6,160})/,
+      sellerLink: 'a[href*="/seller/"]', sellerId: /\/seller\/([^/?#]{6,160})/,
+      itemLink: 'a[href*="/product/art_"]', itemId: /\/product\/(art_[a-f0-9]{16,40})/,
+      total: () => null, sellPage: () => /^\/(?:[a-z]{2}\/)?sell\/create/.test(location.pathname), sellUrl: "/sell/create?ae=sell",
+    },
+  };
+  const CH = Object.keys(SITES).find((k) => SITES[k].host.test(location.hostname));
+  if (!CH) return;
+  const S = SITES[CH];
+  const dec = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
   const send = async (msg) => { try { return await chrome.runtime.sendMessage(msg); } catch { return null; } };
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
@@ -81,9 +102,9 @@
   }
 
 
-  const productId = () => location.pathname.match(/^\/[a-z]{2}\/p\/(\d{3,15})/)?.[1] || null;
-  const dressingId = () => location.pathname.match(/^\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/)?.[1] || null;
-  const uidFrom = (href) => String(href || "").match(/\/dressing\/([A-Za-z0-9_-]{10,64})/)?.[1] || null;
+  const productId = () => location.pathname.match(S.product)?.[1] || null;
+  const dressingId = () => { const m = location.pathname.match(S.shopPage)?.[1]; return m ? dec(m) : null; };
+  const uidFrom = (href) => { const m = String(href || "").match(S.sellerId)?.[1]; return m ? dec(m) : null; };
   let tracked = new Set();
 
   // ───────── Article : fournisseur + vendeur
@@ -95,7 +116,7 @@
     const title = clean(ld?.name || document.querySelector("h1")?.textContent);
     if (!title) return null;
     const img = Array.isArray(ld?.image) ? ld.image[0] : ld?.image;
-    const seller = document.querySelector('a[href*="/dressing/"]');
+    const seller = document.querySelector(S.sellerLink);
     return { title, photo: /^https:\/\//.test(String(img || "")) ? String(img) : null, sellerUid: uidFrom(seller?.getAttribute("href")), sellerName: clean(seller?.textContent).slice(0, 80) || null };
   }
   function supplierLinks(p) {
@@ -113,8 +134,8 @@
       ${p.sellerUid ? `<hr><button class="b ${on ? "" : "p"} wide" type="button" data-track>${on ? "✓ Concurrent suivi" : "+ Concurrent"}${p.sellerName ? ` · ${esc(p.sellerName)}` : ""}</button><p class="msg" data-tmsg></p>` : ""}`;
     ui.panel.querySelector("[data-track]")?.addEventListener("click", async (e) => {
       const b = e.currentTarget, isOn = tracked.has(p.sellerUid);
-      const r = await send({ type: isOn ? "beebs:untrack" : "beebs:track", uid: p.sellerUid, label: p.sellerName });
-      if (r?.ok) { if (isOn) tracked.delete(p.sellerUid); else tracked.add(p.sellerUid); b.textContent = tracked.has(p.sellerUid) ? "✓ Concurrent suivi" : "+ Concurrent"; b.classList.toggle("p", !tracked.has(p.sellerUid)); ui.panel.querySelector("[data-tmsg]").textContent = tracked.has(p.sellerUid) ? "Ouvre son dressing de temps en temps : AliEdge repère ce qu'il vend." : ""; }
+      const r = await send({ type: isOn ? `${CH}:untrack` : `${CH}:track`, uid: p.sellerUid, label: p.sellerName });
+      if (r?.ok) { if (isOn) tracked.delete(p.sellerUid); else tracked.add(p.sellerUid); b.textContent = tracked.has(p.sellerUid) ? "✓ Concurrent suivi" : "+ Concurrent"; b.classList.toggle("p", !tracked.has(p.sellerUid)); ui.panel.querySelector("[data-tmsg]").textContent = tracked.has(p.sellerUid) ? `Ouvre sa ${S.shop} de temps en temps : AliEdge repère ce qu'il vend.` : ""; }
       else ui.panel.querySelector("[data-tmsg]").textContent = r?.error || "Ouvre AliEdge et réessaie.";
     });
   }
@@ -122,21 +143,25 @@
   // ───────── Dressing : bouton « + Concurrent » et relevé des annonces d'un concurrent suivi
   function readDressing() {
     const items = new Map();
-    for (const a of document.querySelectorAll('a[href*="/p/"]')) {
-      const id = a.getAttribute("href").match(/\/p\/(\d{3,15})/)?.[1];
+    for (const a of document.querySelectorAll(S.itemLink)) {
+      const id = a.getAttribute("href").match(S.itemId)?.[1];
       if (!id || items.has(id)) continue;
       const text = clean(a.innerText);
       const price = (() => { const m = text.match(/(\d{1,5})\s*€\s*(\d{2})?/); return m ? Number(`${m[1]}.${m[2] || "00"}`) : null; })();
       const img = a.querySelector("img");
       items.set(id, { id, title: clean(img?.alt) || text.split(" ").slice(-4).join(" "), price, photo: img?.currentSrc || img?.src || null, url: new URL(a.getAttribute("href"), location.href).href });
     }
-    const total = Number((document.body.innerText || "").match(/Annonces\s*\((\d+)\)/i)?.[1]);
-    return { items: [...items.values()], total: Number.isFinite(total) ? total : null };
+    const list = [...items.values()];
+    const total = S.total();
+    // Tout est affiché : le nombre annoncé est atteint, ou (sans nombre) la page est descendue jusqu'en bas.
+    const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 300;
+    const complete = total != null ? list.length >= total : (atBottom || list.length < 12);
+    return { items: list, total, complete };
   }
   function mountDressingButton(uid) {
     const h = document.querySelector("h1") || [...document.querySelectorAll("p, span, div")].find((e) => e.children.length === 0 && /^[A-ZÀ-Ý].{1,40}\.$/.test(clean(e.textContent)));
     if (!h || document.querySelector(".aliedge-beebs-competitor")) return;
-    const name = clean(document.title.replace(/^Dressing de\s*/i, "")) || clean(h.textContent);
+    const name = clean(document.title.replace(/^Dressing de\s*/i, "").replace(/\s+sur Opla.*$/i, "")) || clean(h.textContent).replace(/^Boutique de\s*/i, "");
     const host = document.createElement("span");
     host.className = "aliedge-beebs-competitor";
     host.style.cssText = "display:inline-flex;margin-left:8px;vertical-align:middle";
@@ -148,7 +173,7 @@
     btn.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       const on = tracked.has(uid);
-      const r = await send({ type: on ? "beebs:untrack" : "beebs:track", uid, label: name });
+      const r = await send({ type: on ? `${CH}:untrack` : `${CH}:track`, uid, label: name });
       if (r?.ok) { if (on) tracked.delete(uid); else { tracked.add(uid); reportDressing(uid); } paint(); }
     });
     h.insertAdjacentElement(h.tagName === "H1" ? "beforeend" : "afterend", host);
@@ -157,10 +182,10 @@
   function reportDressing(uid) {
     if (!tracked.has(uid)) return;
     const d = readDressing();
-    const key = `${uid}:${d.items.length}`;
+    const key = `${uid}:${d.items.length}:${d.complete}`;
     if (!d.items.length || key === lastReport) return;
     lastReport = key;
-    send({ type: "beebs:dressing", uid, name: clean(document.title.replace(/^Dressing de\s*/i, "")), total: d.total, items: d.items });
+    send({ type: `${CH}:shop`, uid, name: clean(document.title.replace(/^Dressing de\s*/i, "").replace(/\s+sur Opla.*$/i, "")), complete: d.complete, items: d.items });
   }
 
   // ───────── Dépôt d'une annonce : annonce préparée dans AliEdge, remplie d'un clic
@@ -174,7 +199,7 @@
     if (kind === "brand") return all.find((el) => el.tagName === "INPUT" && /marque|brand/.test(label(el)));
     return null;
   }
-  const isSellForm = () => !!document.querySelector('input[type="file"]') && !!field("body");
+  const isSellForm = () => S.sellPage() || (!!document.querySelector('input[type="file"]') && !!field("body"));
   let submittedAt = 0;
   async function mountSell(l) {
     if (document.getElementById("aliedge-beebs-sell")) return;
@@ -185,23 +210,23 @@
     const vals = { title: l.title, body: l.description, price: l.price ? String(Math.round(l.price)) : "", brand: l.brand || "" };
     const f = (k, label, v) => v ? `<div class="f"><b>${esc(label)}</b><div>${esc(v)}</div><button class="b" type="button" data-copy="${k}">Copier</button></div>` : "";
     const q = l.queue;
-    panel.innerHTML = `<h4>Annonce AliEdge pour Beebs${q ? ` · ${q.index + 1} / ${q.total}` : ""}</h4>
+    panel.innerHTML = `<h4>Annonce AliEdge pour ${S.label}${q ? ` · ${q.index + 1} / ${q.total}` : ""}</h4>
       ${f("title", "Titre", vals.title)}${f("body", "Description", vals.body)}${f("price", "Prix", vals.price && `${vals.price} €`)}${f("brand", "Marque", vals.brand)}
       ${[l.condition && `État : ${l.condition}`, l.size && `Taille : ${l.size}`, l.category && `Catégorie : ${l.category}`].filter(Boolean).map((t) => `<p class="msg">${esc(t)}</p>`).join("")}
       ${(l.photos || []).length ? `<div class="f"><b>Photos (${l.photos.length})</b><div class="thumbs">${l.photos.slice(0, 10).map((u) => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join("")}</div></div>` : ""}
       <button class="b p wide" type="button" data-fill>Tout remplir</button>
-      <p class="msg" data-msg>Vérifie l'annonce, choisis la catégorie, l'état et la taille si Beebs les demande, puis clique sur « Mettre en vente ».</p>
+      <p class="msg" data-msg>Vérifie l'annonce, choisis la catégorie, l'état et la taille si ${S.label} les demande, puis publie-la.</p>
       ${q ? `<button class="b p wide" type="button" data-next>Publiée : annonce suivante</button><div class="bar" style="margin:4px"><button class="chip" type="button" data-skip>Passer celle-ci</button><button class="chip" type="button" data-stop>Arrêter</button></div>`
         : `<button class="b wide" type="button" data-done>Annonce publiée : effacer de l'aide</button>`}`;
     const goNext = async (posted) => {
-      const r = await send({ type: posted ? "beebs:next" : "beebs:next", posted });
+      const r = await send({ type: `${CH}:next`, posted });
       const d = r?.ok ? r.data : null;
       ui.host.remove();
-      if (d && !d.done) location.href = `${location.origin}/fr?ae=sell`;
+      if (d && !d.done) location.href = `${location.origin}${S.sellUrl}`;
     };
     panel.querySelector("[data-next]")?.addEventListener("click", () => goNext(true));
     panel.querySelector("[data-skip]")?.addEventListener("click", () => goNext(false));
-    panel.querySelector("[data-stop]")?.addEventListener("click", async () => { await send({ type: "beebs:stopQueue" }); ui.host.remove(); });
+    panel.querySelector("[data-stop]")?.addEventListener("click", async () => { await send({ type: `${CH}:stopQueue` }); ui.host.remove(); });
     // Le membre clique sur le bouton de mise en vente de Beebs : quand le formulaire disparaît, on passe à la suivante.
     if (q) {
       document.addEventListener("click", (e) => {
@@ -225,10 +250,10 @@
       const ph = await addPhotos(l.photos || []);
       b.textContent = "Tout remplir";
       msg.textContent = n || ph
-        ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète la catégorie, l'état et la taille si besoin, puis clique sur « Mettre en vente ».`
+        ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète la catégorie, l'état et la taille si besoin, puis publie l'annonce.`
         : "Les champs ne sont pas encore affichés sur cette étape : utilise les boutons « Copier ».";
     });
-    panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: "beebs:clearListing" }); ui.host.remove(); });
+    panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: `${CH}:clearListing` }); ui.host.remove(); });
     // Remplissage automatique dès que le formulaire est là : il ne reste qu'à vérifier et cliquer sur « Mettre en vente ».
     setTimeout(() => panel.querySelector("[data-fill]")?.click(), 900);
   }
@@ -239,22 +264,26 @@
   }
 
   async function run() {
-    const r = await send({ type: "beebs:listing" });
+    const r = await send({ type: `${CH}:listing` });
     const l = r?.ok ? r.data : null;
     const fresh = l && Date.now() - (l.at || 0) < 2 * 3600_000;
-    if (fresh && new URLSearchParams(location.search).get("ae") === "sell") { history.replaceState(null, "", location.pathname); setTimeout(openSell, 1200); }
+    if (fresh && new URLSearchParams(location.search).get("ae") === "sell") { history.replaceState(null, "", location.pathname); if (!S.sellPage()) setTimeout(openSell, 1200); }
     if (fresh && isSellForm()) mountSell(l);
     const pid = productId(), uid = dressingId();
     if (pid) { const p = readProduct(); if (p) mountProduct(p); }
     if (uid) { mountDressingButton(uid); reportDressing(uid); }
   }
-  send({ type: "beebs:trackedIds" }).then((r) => { if (r?.ok) tracked = new Set(r.data || []); setTimeout(run, 1200); });
+  // Boutique d'un concurrent suivi : relevée aussi quand le membre arrive en bas de la page (tout est chargé).
+  let scrollT = null;
+  window.addEventListener("scroll", () => { if (scrollT) return; scrollT = setTimeout(() => { scrollT = null; const u = dressingId(); if (u) reportDressing(u); }, 800); }, { passive: true });
+  send({ type: `${CH}:trackedIds` }).then((r) => { if (r?.ok) tracked = new Set(r.data || []); setTimeout(run, 1200); });
   let last = location.pathname, timer = null;
   new MutationObserver(() => {
     if (timer) return;
     timer = setTimeout(() => {
       timer = null;
       if (location.pathname !== last) { last = location.pathname; document.getElementById("aliedge-beebs-tools")?.remove(); lastReport = ""; }
+      if (dressingId()) reportDressing(dressingId());
       run();
     }, 1500);
   }).observe(document.documentElement, { childList: true, subtree: true });

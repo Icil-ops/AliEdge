@@ -115,6 +115,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
 });
 
 const radarUrls = [];
+let oplaStock = [["art_a1b2c3d4e5f6a7b8c9d0", "Sweat Nike gris", 25], ["art_b1b2c3d4e5f6a7b8c9d0", "Jean Levi's 501", 30]];
 let beebsStock = [[34000001, "Robe crochet fille", 12], [34000002, "Gilet bébé laine", 9]];
 await ctx.route("**/*", async (route) => {
   const req = route.request();
@@ -141,6 +142,15 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/fr/dressing/")) return html(`<title>Dressing de CELINE D</title></head><body>${head}<h1>CELINE D.</h1><p>Annonces (${beebsStock.length})</p>${beebsStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
     if (url.pathname.startsWith("/fr/vendre")) return html(`<title>Vendre | Beebs</title></head><body>${head}<h1>Mettre un article en vente</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title" placeholder="Titre"></label><label>Description <textarea name="description"></textarea></label><label>Prix <input name="price" placeholder="Prix"></label><button type="button">Mettre en vente</button></body></html>`);
     return html(`<title>Beebs</title></head><body>${head}<h1>Seconde main des familles</h1></body></html>`);
+  }
+  if (/(^|\.)opla\.co$/.test(h)) {
+    const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><head><meta charset="utf-8">${body}` });
+    const head = '<header><a href="/sell/create">Vendre</a></header>';
+    const card = (id, t, p) => `<a href="/product/${id}" style="display:inline-block;width:150px"><img alt="${t}" src="https://cdn.opla.co/${id}.jpg" style="width:150px;height:150px"><span>${t}</span><span>${p},00 €</span></a>`;
+    if (url.pathname.startsWith("/product/")) return html(`<title>Sweat | Opla</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Sweat Nike gris taille M", image: "https://cdn.opla.co/a.jpg", offers: { price: "25.00" } })}</script></head><body>${head}<h1>Sweat Nike gris taille M</h1><a href="/seller/google-oauth2%7C1234567890">Marc V.</a></body></html>`);
+    if (url.pathname.startsWith("/seller/")) return html(`<title>Marc V. sur Opla</title></head><body>${head}<h1>Marc V.</h1>${oplaStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
+    if (url.pathname.startsWith("/sell/create")) return html(`<title>Vendre | Opla</title></head><body>${head}<h1>Vendre un article</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title"></label><label>Description <textarea name="description"></textarea></label><label>Marque <input name="brand"></label><label>Prix <input name="price"></label><button type="button">Publier</button></body></html>`);
+    return html(`<title>Opla</title></head><body>${head}<h1>Opla</h1></body></html>`);
   }
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
@@ -866,6 +876,35 @@ if (process.env.STORE_SHOTS) {
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:stopQueue" }));
   await qTab?.close();
   await bb.close();
+}
+
+// Opla : mêmes outils que Beebs (article, boutique d'un concurrent, « Publier sur Opla » qui remplit /sell/create).
+{
+  const op = await ctx.newPage();
+  await op.setViewportSize({ width: 1280, height: 800 });
+  await op.goto("https://www.opla.co/product/art_c1b2c3d4e5f6a7b8c9d0");
+  await op.waitForSelector("#aliedge-beebs-tools", { timeout: 9000 }).catch(() => {});
+  const onItem = await op.locator("#aliedge-beebs-tools").count();
+  const uid = "google-oauth2|1234567890";
+  await page.evaluate((u) => chrome.runtime.sendMessage({ type: "opla:track", uid: u, label: "Marc V." }), uid);
+  await op.goto("https://www.opla.co/seller/google-oauth2%7C1234567890");
+  await op.waitForTimeout(4000);
+  oplaStock = [oplaStock[0]];
+  await op.reload();
+  await op.waitForTimeout(4500);
+  const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:trackers" })))?.data?.[0] || {};
+  const onShop = await op.locator(".aliedge-beebs-competitor").count();
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", photos: ["https://cdn.opla.co/a.jpg"] } }));
+  let sellTab = null;
+  for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /opla\.co\/sell\/create/.test(p.url())); }
+  if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
+  await sellTab?.waitForFunction(() => document.querySelector('input[name="title"]')?.value, null, { timeout: 8000 }).catch(() => {});
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector("textarea").value, p: document.querySelector('input[name="price"]').value, b: document.querySelector('input[name="brand"]').value })) : {};
+  const beebsIds = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackedIds" })))?.data || [];
+  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit le formulaire, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.b === "Nike" && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing" }));
+  await sellTab?.close();
+  await op.close();
 }
 
 // Version anglaise : panneau traduit, éléments ajoutés sur les sites traduits, texte des sites jamais touché.
