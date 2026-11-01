@@ -323,6 +323,13 @@
     "https://www.vinted.fr/member/123456-pseudo": "https://www.vinted.fr/member/123456-username",
 
     // ── Leboncoin
+    "Quand publier sur Leboncoin": "When to post on Leboncoin", "Réponses toutes prêtes (messagerie Leboncoin)": "Ready-made replies (Leboncoin messages)",
+    "Une réponse par paragraphe (ligne vide entre deux). {prix} est remplacé par la contre-offre conseillée. AliEdge insère le texte, c'est toi qui envoies.": "One reply per paragraph (blank line between two). {prix} is replaced by the suggested counter-offer. AliEdge inserts the text, you send it.",
+    "Enregistrer les réponses": "Save replies", "Réponses enregistrées": "Replies saved", "Offre reçue": "Offer received", "Montant de l'offre": "Offer amount",
+    "Pas encore assez de ventes Leboncoin repérées pour en tirer une tendance. Elles s'accumulent au fil des pages ouvertes par les membres.": "Not enough Leboncoin sales spotted yet to show a trend. They build up as members open pages.",
+    "Relie le produit fournisseur à cette annonce pour voir ta marge.": "Link the supplier product to this listing to see your margin.",
+    "Ajouter les photos à l'annonce": "Add the photos to the listing", "Ajout des photos…": "Adding photos…", "Vendre aussi ailleurs": "Sell elsewhere too", "Publier aussi sur Leboncoin": "Also post on Leboncoin",
+    "Produit repéré dans le catalogue AliEdge": "Product spotted in the AliEdge catalog", "offre correcte": "fair offer",
     "Active Leboncoin en un clic.": "Turn on Leboncoin in one click.", "Plus tard": "Later", "Leboncoin activé": "Leboncoin turned on",
     "Ventes Leboncoin dans tes analyses, fournisseur et warehouse depuis les annonces, aide au dépôt. AliEdge lit seulement les pages que tu ouvres.": "Leboncoin sales in your analyses, supplier and warehouse from listings, posting help. AliEdge only reads the pages you open.",
     "Accès à leboncoin.fr refusé : rien n'a changé.": "Access to leboncoin.fr refused: nothing changed.",
@@ -353,6 +360,10 @@
     [/^(\d+) ventes? repérées?(?: \(dont (\d+) confirmées?\))? · prix médian (.+?)(?: · (plus cher|moins cher) que Vinted de (.+))?$/, (m, n, c, p, d, v) => `${n} sale${n > 1 ? "s" : ""} spotted${c ? ` (${c} confirmed)` : ""} · median price ${p}${d ? ` · ${d === "plus cher" ? "higher" : "lower"} than Vinted by ${v}` : ""}`],
     [/^(\d+) champs? remplis?\. (.*)$/, (m, n, rest) => `${n} field${n > 1 ? "s" : ""} filled. ${tr1(rest) ?? rest}`],
     [/^Catégorie : (.+)$/, "Category: $1"],
+    [/^Estimation d'après (\d+) ventes Leboncoin repérées \(les ventes en moins de 7 jours comptent double\)\.$/, "Estimate based on $1 spotted Leboncoin sales (sales in under 7 days count double)."],
+    [/^Meilleur moment pour publier : (lun|mar|mer|jeu|ven|sam|dim)\. entre (\d+) h et (\d+) h \(d'après (\d+) ventes repérées, estimation\)\.$/, (m, d, a, b, n) => `Best time to post: ${DAYS[d]} between ${a}:00 and ${b}:00 (based on ${n} spotted sales, estimate).`],
+    [/^(\d+) photos? ajoutées?$/, (m, n) => `${n} photo${n > 1 ? "s" : ""} added`],
+    [/^Photos \((\d+)\)$/, "Photos ($1)"],
     [/^suivi depuis il y a (\d+) (min|h|j)$/, (m, n, u) => `tracked for ${n} ${u === "j" ? "d" : u}`],
     [/^vérifié il y a (\d+) (min|h|j)$/, (m, n, u) => `checked ${n} ${u === "j" ? "d" : u} ago`],
     [/^page vue il y a (\d+) (min|h|j)$/, (m, n, u) => `page viewed ${n} ${u === "j" ? "d" : u} ago`],
@@ -393,6 +404,12 @@
     if (Object.prototype.hasOwnProperty.call(EN, k)) return EN[k];
     for (const [re, rep] of PATTERNS) if (re.test(k)) return k.replace(re, rep);
     // Morceaux séparés par « · » (ex. « il y a 2 min · score 80/100 ») : chacun traduit à part.
+    // Plusieurs phrases dans un même texte : chacune traduite à part (toutes doivent l'être).
+    const sentences = k.split(/(?<=[.!?]) (?=[A-ZÀ-Ý«])/);
+    if (sentences.length > 1) {
+      const parts = sentences.map((x) => tr1(x));
+      if (parts.every((x) => x != null)) return parts.join(" ");
+    }
     if (k.includes(" · ")) {
       let any = false;
       const out = k.split(" · ").map((part) => { const t = tr1(part); if (t != null) { any = true; return t; } return part; }).join(" · ");

@@ -135,13 +135,14 @@ await ctx.route("**/*", async (route) => {
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
     const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><body>${body}</body>` });
+    if (url.pathname.startsWith("/messages")) return html(`<main><a href="https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005">Sac à bandoulière noir vintage y2k</a><div class="thread"><p>Bonjour, vous feriez 20 € ?</p></div><form><textarea name="message" placeholder="Écrire un message"></textarea><button type="button">Envoyer</button></form></main>`);
     if (url.pathname.startsWith("/deposer-une-annonce")) return html(`<main><h1>Déposer une annonce</h1><label>Titre <input name="subject"></label><label>Description <textarea name="body"></textarea></label><label>Prix <input name="price"></label></main>`);
     // Carte d'annonce telle que Leboncoin l'affiche (relevé sur une vraie page enregistrée).
     const card = (id, title, price, cp, ville) => `<li><article aria-label="${title}"><div data-qa-id="aditem_container"><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/accessoires_bagagerie/${id}"><span title="Voir l’annonce: ${title}"></span></a><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/${id}.jpg?rule=ad-small"><p>${title}</p><span>${price} €</span><p>Prix: ${price} €.</p><div>dès ${price + 1},90 €</div><span>Livraison dès</span><p aria-hidden="true">Accessoires &amp; Bagagerie</p><p>Catégorie : Accessoires &amp; Bagagerie.</p><p aria-hidden="true">${ville} ${cp}</p><p>Située à ${ville} ${cp}.</p><p>10/10/2026</p><p>Date de dépôt : 10/10/2026.</p></div></article></li>`;
     if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000003")) return html("<main><h1>Cette annonce n'est plus disponible</h1></main>");
     if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000005")) return html(`<main><div data-qa-id="adview_title"><h1>Sac à bandoulière noir vintage y2k</h1></div><div data-qa-id="adview_price">27 €</div><div data-qa-id="adview_delivery_container">Livraison</div><p>Arras 62000</p><div data-qa-id="adview_profile_part"><a href="https://www.leboncoin.fr/profile/31a5e0aa-0000-4000-8000-000000000001/offers"></a><a href="https://www.leboncoin.fr/profile/31a5e0aa-0000-4000-8000-000000000001/offers">Bohem-Paris</a></div></main><script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org/", "@type": "Product", category: "Accessoires & Bagagerie", name: "Sac à bandoulière noir vintage y2k", image: "https://img.leboncoin.fr/api/v1/lbcpb1/images/78/a2.jpg?rule=ad-image", offers: { "@type": "Offer", price: 27, priceCurrency: "EUR", availability: "http://schema.org/InStock" } })}</script>`);
     if (url.pathname.startsWith("/profile/20f25f94-11be-4ddd-9fe0-20891b9db732")) return html(`<main><h1>Asm4ever</h1><p>Annonces (2)</p><ul>${card(2900000005, "Sac à bandoulière noir vintage y2k", 27, "62000", "Arras")}${card(2900000006, "Sac seau tressé", 22, "62000", "Arras")}</ul></main>`);
-    return html(`<main><h2>Résultats de recherche : 354 annonces</h2><ul>${card(2900000001, "Lampe de chevet LED tactile", 18, "13001", "Marseille")}${card(2900000002, "Plaid XXL doux", 25, "59000", "Lille")}</ul></main>`);
+    return html(`<main><h2>Résultats de recherche : 354 annonces</h2><ul>${card(2900000001, "Lampe de chevet LED tactile", 18, "13001", "Marseille")}${card(2900000002, "Plaid XXL doux", 25, "59000", "Lille")}${card(2900000007, "Sac bandoulière cuir femme noir", 22, "75011", "Paris")}</ul></main>`);
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
     if (url.pathname.startsWith("/api/v2/catalog/items") && url.searchParams.get("order") === "newest_first") {
@@ -791,7 +792,18 @@ if (process.env.STORE_SHOTS) {
   await lbc.waitForSelector("#aliedge-lbc-deposit", { timeout: 8000 }).catch(() => {});
   const onDeposit = await lbc.locator("#aliedge-lbc-deposit").count();
   const st = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:status" }));
-  check("Leboncoin activé par défaut : outils sur l'annonce et assistant de dépôt", onAd === 1 && onDeposit === 1 && st?.data?.enabled === true && info?.data?.title === "Sac bandoulière cuir noir", JSON.stringify({ onAd, onDeposit, enabled: st?.data?.enabled }));
+  // Messagerie : réponses toutes prêtes et aide à la négociation au-dessus de la zone de message.
+  await lbc.goto("https://www.leboncoin.fr/messages/abc123");
+  await lbc.waitForSelector("#aliedge-lbc-replies", { timeout: 9000 }).catch(() => {});
+  const onMessages = await lbc.locator("#aliedge-lbc-replies").count();
+  const offer = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:offer", title: "Sac bandoulière cuir noir", offer: 20 }));
+  // Recherche : badge sur le produit déjà repéré dans le catalogue AliEdge.
+  await lbc.goto("https://www.leboncoin.fr/recherche?text=sac");
+  await lbc.waitForSelector(".aliedge-lbc-badge", { timeout: 9000 }).catch(() => {});
+  const badges = await lbc.locator(".aliedge-lbc-badge").count();
+  const best = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:bestTimes" }));
+  check("Leboncoin : réponses toutes prêtes, aide à la négociation, badge produit repéré, moments de publication", onMessages === 1 && offer?.ok && badges === 1 && best?.data?.grid?.length === 7, JSON.stringify({ onMessages, badges, offer: offer?.data, n: best?.data?.n }));
+  check("Leboncoin activé : outils sur l'annonce et assistant de dépôt", onAd === 1 && onDeposit === 1 && st?.data?.enabled === true && info?.data?.title === "Sac bandoulière cuir noir", JSON.stringify({ onAd, onDeposit, enabled: st?.data?.enabled }));
   await lbc.close();
 }
 

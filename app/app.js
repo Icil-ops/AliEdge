@@ -988,8 +988,15 @@ async function loadSalesFeed(append = false) {
     </div>`;
   box.innerHTML = `${head(`<span class="small muted">${sf.total} vente${sf.total > 1 ? "s" : ""}</span>`)}
     <p class="small muted" style="margin:0">${lbc ? "Leboncoin ne publie pas ses ventes : « Vendu » quand Leboncoin l'affiche, « estimation » quand l'annonce a disparu moins de 30 jours après sa mise en ligne." : "Chaque annonce vue vendue par la communauté, même quand le fournisseur n'est pas encore identifié."} Trouve le fournisseur et relie-le : il rejoint le catalogue pour tout le monde.</p>
+    ${lbc ? `<details class="card pad fold" id="lbcbest"><summary><b>Quand publier sur Leboncoin</b></summary><div id="lbcbestbody" style="margin-top:10px"><div class="skel" style="height:80px"></div></div></details>` : ""}
     <div class="items">${sf.rows.map(line).join("")}</div>
     ${sf.rows.length < sf.total ? `<button id="salesmore" class="btn block" type="button">Voir plus de ventes</button>` : ""}`;
+  document.getElementById("lbcbest")?.addEventListener("toggle", async (e) => {
+    if (!e.target.open || e.target.dataset.loaded) return;
+    e.target.dataset.loaded = "1";
+    const d = await api("lbc:bestTimes", { search: state.catalog.filters.search || null }).catch(() => null);
+    document.getElementById("lbcbestbody").innerHTML = lbcBestHtml(d);
+  });
   bindSupplierForms(box);
   bindHead();
   document.getElementById("salesmore")?.addEventListener("click", () => loadSalesFeed(true));
@@ -1046,6 +1053,19 @@ async function loadTrends() {
         ${DOW.map((dname, i) => `<span class="dd">${dname}</span>${Array.from({ length: 8 }, (_, b) => { const v = cells[`${i + 1}-${b}`] || 0; return `<span class="hc" style="opacity:${v ? 0.18 + 0.82 * (v / maxCell) : 0.06}" title="${dname} ${b * 3}h-${b * 3 + 3}h : ${v} vente(s)"></span>`; }).join("")}`).join("")}
       </div>
       ${best ? `<p class="small muted">Meilleur créneau observé : ${DOW[Number(best[0].split("-")[0]) - 1]} entre ${Number(best[0].split("-")[1]) * 3} h et ${Number(best[0].split("-")[1]) * 3 + 3} h.</p>` : ""}` : ""}`;
+}
+
+/** Heures de dépôt estimées des annonces Leboncoin vendues (date de vente moins délai de vente). */
+function lbcBestHtml(d) {
+  if (!d || d.n < 10) return `<p class="small muted">Pas encore assez de ventes Leboncoin repérées pour en tirer une tendance. Elles s'accumulent au fil des pages ouvertes par les membres.</p>`;
+  const max = Math.max(1, ...d.grid.flat());
+  let best = null;
+  d.grid.forEach((row, i) => row.forEach((v, b) => { if (!best || v > best.v) best = { v, i, b }; }));
+  return `<div class="heat" role="img" aria-label="Heures de dépôt des annonces Leboncoin vendues">
+      <span></span>${["0h", "3h", "6h", "9h", "12h", "15h", "18h", "21h"].map((h) => `<span class="hh">${h}</span>`).join("")}
+      ${DOW.map((dname, i) => `<span class="dd">${dname}</span>${d.grid[i].map((v, b) => `<span class="hc" style="opacity:${v ? 0.18 + 0.82 * (v / max) : 0.06}" title="${dname} ${b * 3}h-${b * 3 + 3}h : ${v} vente(s)"></span>`).join("")}`).join("")}
+    </div>
+    <p class="small muted">${best?.v ? `Meilleur créneau observé : ${DOW[best.i]} entre ${best.b * 3} h et ${best.b * 3 + 3} h. ` : ""}Estimation d'après ${d.n} ventes Leboncoin repérées (les ventes en moins de 7 jours comptent double).</p>`;
 }
 
 let searchTimer = null;
@@ -1798,6 +1818,13 @@ function viewCompte(params) {
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
+      <details class="fold" data-fold="replies" style="margin-top:6px"><summary><b>Réponses toutes prêtes (messagerie Leboncoin)</b></summary>
+        <div class="stack" style="margin-top:8px">
+          <p class="small muted">Une réponse par paragraphe (ligne vide entre deux). {prix} est remplacé par la contre-offre conseillée. AliEdge insère le texte, c'est toi qui envoies.</p>
+          <textarea id="lbcreplies" class="input" rows="7"></textarea>
+          <button class="btn small" type="button" id="lbcrepliessave">Enregistrer les réponses</button>
+        </div>
+      </details>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">
@@ -1836,7 +1863,25 @@ function langPickerHtml() {
     </select></label>`;
 }
 
+const DEFAULT_LBC_REPLIES = [
+  "Bonjour, oui l'article est toujours disponible 😊",
+  "Bonjour, je peux l'envoyer avec la livraison Leboncoin : tu peux faire la demande d'achat directement depuis l'annonce.",
+  "Merci pour ta proposition ! Je peux descendre à {prix} €, c'est mon dernier prix.",
+  "Merci pour ton achat ! L'envoi est en préparation, je te tiens au courant.",
+  "Bonjour, désolé, l'article n'est plus disponible.",
+];
+
 function bindCompte(params) {
+  const rep = document.getElementById("lbcreplies");
+  if (rep) {
+    api("lbc:replies").then((r) => { rep.value = (r && r.length ? r : DEFAULT_LBC_REPLIES).join("\n\n"); }).catch(() => { rep.value = DEFAULT_LBC_REPLIES.join("\n\n"); });
+    rep.setAttribute("data-no-i18n", "");
+    document.getElementById("lbcrepliessave")?.addEventListener("click", async () => {
+      const list = rep.value.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+      await api("lbc:setReplies", { replies: list });
+      toast("Réponses enregistrées");
+    });
+  }
   document.getElementById("langpick")?.addEventListener("change", async (e) => {
     await chrome.storage.local.set({ ae_lang: e.target.value });
     location.reload();

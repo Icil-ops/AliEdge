@@ -3,10 +3,10 @@ import { DEFAULT_SETTINGS, MARKETS, SITE_URL } from "./config.js";
 import * as sb from "./lib/supabase.js";
 import * as vinted from "./lib/vinted.js";
 import { analyse, toEur, parsePrice, round2 } from "./lib/pricing.js";
-import { buildQuery, guessCategory } from "./lib/text.js";
+import { buildQuery, guessCategory, LBC_CATS } from "./lib/text.js";
 import { extractProduct, detectPlatform, sourceIdFromUrl, canonicalUrl } from "./lib/extract.js";
 import { tourHandlers, TOUR_CONTENT_TYPES } from "./tour.js";
-import { matchSale, titleKey } from "./lib/match.js";
+import { matchSale, titleKey, similarity } from "./lib/match.js";
 const STOP_CODES = new Set(["blocked", "rate_limited", "paused", "budget", "busy"]);
 
 const HISTORY_KEY = "ae_history";
@@ -1144,6 +1144,51 @@ async function syncLbcScript() {
   }
   return on;
 }
+// ───────── Badges « produit dropshipping » sur les résultats Leboncoin : comparaison locale avec les produits
+// les plus vendus du catalogue AliEdge (copie gardée 6 h). Aucune requête vers Leboncoin.
+let lbcCatalog = { at: 0, rows: [] };
+async function catalogForBadges() {
+  if (Date.now() - lbcCatalog.at < 6 * 3600_000 && lbcCatalog.rows.length) return lbcCatalog.rows;
+  const rows = await sb.rpc("aliedge_catalog", { _search: null, _platform: null, _category: null, _sort: "sold", _min_sold: 0, _limit: 300, _offset: 0 }).catch(() => []);
+  lbcCatalog = { at: Date.now(), rows: (rows || []).filter((r) => !r.locked && r.title) };
+  return lbcCatalog.rows;
+}
+async function lbcBadges({ titles = [] }) {
+  if (!(await sb.getSession().catch(() => null))) return [];
+  const rows = await catalogForBadges();
+  if (!rows.length) return [];
+  return titles.slice(0, 80).map((t) => {
+    let best = null;
+    for (const r of rows) { const sc = similarity(t, r.title); if (sc >= 0.6 && (!best || sc > best.sc)) best = { sc, r }; }
+    if (!best) return null;
+    const r = best.r;
+    return { platform: r.platform, price: r.price, vinted: r.median_sold_price ?? r.median_active_price ?? null, margin: r.est_margin ?? null, sold30: r.sold_30d ?? null, product_id: r.product_id };
+  });
+}
+
+// ───────── Meilleurs moments pour publier sur Leboncoin : heure de dépôt estimée des annonces vendues repérées
+// (date de vente moins délai de vente), sur les ventes de la base commune.
+async function lbcBestTimes({ search = null } = {}) {
+  const rows = [];
+  for (let off = 0; off < 200; off += 20) {
+    const page = await sb.rpc("aliedge_lbc_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: off, _dropship: false }).catch(() => []);
+    rows.push(...(page || []));
+    if (!page || page.length < 20) break;
+  }
+  const grid = Array.from({ length: 7 }, () => Array(8).fill(0));
+  let n = 0;
+  for (const r of rows) {
+    if (!r.sold_at || r.days_to_sell == null) continue;
+    const t = new Date(new Date(r.sold_at).getTime() - Number(r.days_to_sell) * 864e5);
+    if (Number.isNaN(t.getTime())) continue;
+    // Les ventes rapides (moins de 7 jours) disent le mieux quel moment de dépôt fonctionne.
+    const w = Number(r.days_to_sell) <= 7 ? 2 : 1;
+    grid[(t.getDay() + 6) % 7][Math.floor(t.getHours() / 3)] += w;
+    n++;
+  }
+  return { n, grid };
+}
+
 /** Une fois par semaine : les concurrents Leboncoin dont la page n'a pas été ouverte depuis 3 jours. */
 async function lbcReviewReminder() {
   if (!(await lbcEnabled())) return;
@@ -1504,9 +1549,27 @@ const handlers = {
   "lbc:status": async () => ({ enabled: await syncLbcScript() }),
   "lbc:feed": async ({ search = null, offset = 0, dropship = true } = {}) => sb.rpc("aliedge_lbc_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0), _dropship: dropship !== false }),
   "lbc:link": async (msg) => lbcLinkItem(msg),
+  "lbc:badges": async (msg) => lbcBadges(msg),
+  "lbc:bestTimes": async (msg) => lbcBestTimes(msg),
+  "lbc:replies": async () => (await chrome.storage.local.get("ae_lbc_replies")).ae_lbc_replies || null,
+  "lbc:setReplies": async ({ replies }) => { await chrome.storage.local.set({ ae_lbc_replies: Array.isArray(replies) ? replies.map((r) => String(r).slice(0, 600)).filter(Boolean).slice(0, 12) : null }); return {}; },
+  "lbc:offer": async ({ title, offer }) => {
+    // Marge si le membre accepte l'offre : produit fournisseur relié (ou suggéré) + 2 € de warehouse + coût par vente.
+    const [links, cands, st] = await Promise.all([saleLinks(), supplierCandidates(), getSettings()]);
+    const m = title ? matchSale({ title }, links, cands) : null;
+    const cost = (m?.price ?? null) == null ? null : Number(m.price) + 2 + (Number(st.costPerSale) || 0);
+    const o = Number(offer);
+    return { supplier: m ? { title: m.title, price: m.price, sure: m.sure } : null, cost, margin: cost != null && o > 0 ? Math.round((o - cost) * 100) / 100 : null, floor: cost != null ? Math.ceil(cost + 5) : null };
+  },
+  "vinted:isOwn": async ({ sellerId }) => ({ own: (await ownSellerIds()).has(Number(sellerId)) }),
   // Dernière annonce rédigée (texte Leboncoin) : reprise par l'assistant de dépôt sur leboncoin.fr.
   "lbc:listing": async () => (await chrome.storage.local.get("ae_lbc_listing")).ae_lbc_listing || null,
-  "lbc:saveListing": async ({ listing }) => { await chrome.storage.local.set({ ae_lbc_listing: listing ? { ...listing, at: Date.now() } : null }); return {}; },
+  "lbc:saveListing": async ({ listing }) => {
+    if (listing && !listing.category) listing.category = (LBC_CATS.find(([re]) => re.test(listing.title || "")) || [null, null])[1];
+    if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
+    await chrome.storage.local.set({ ae_lbc_listing: listing ? { ...listing, at: Date.now() } : null });
+    return {};
+  },
   // Produit fournisseur relié à une annonce (titre) : pour « Confier à la warehouse » depuis Leboncoin.
   "lbc:itemInfo": async ({ title }) => { const [links, cands] = await Promise.all([saleLinks(), supplierCandidates()]); const m = matchSale({ title }, links, cands); return m ? { url: m.url, title: m.title, price: m.price, platform: m.platform, sure: m.sure } : null; },
   "lbc:profile": async (msg) => reportLbcProfile(msg),
@@ -1690,7 +1753,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "lbc:link", "lbc:listing", "lbc:itemInfo", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

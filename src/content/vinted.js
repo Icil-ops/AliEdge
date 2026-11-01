@@ -1,4 +1,6 @@
 // Page d'une annonce Vinted : « Trouver le fournisseur » + statut de l'annonce pour le catalogue.
+// Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » (texte, prix et photos repris dans
+// l'assistant de dépôt Leboncoin ; le membre relit et publie lui-même).
 (() => {
   if (window.__aliedgeVinted) return;
   window.__aliedgeVinted = true;
@@ -82,6 +84,27 @@
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") menu.hidden = true; });
     document.documentElement.appendChild(host);
+    mountedMenu = menu;
+  }
+  let mountedMenu = null;
+
+  async function crossPost(item, raw) {
+    const sellerId = Number(raw?.user_id ?? raw?.user?.id);
+    if (!sellerId || !mountedMenu) return;
+    let own = false;
+    try { const r = await chrome.runtime.sendMessage({ type: "vinted:isOwn", sellerId }); own = !!r?.data?.own; } catch { return; }
+    if (!own || mountedMenu.querySelector("[data-lbc]")) return;
+    const photos = (raw.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10);
+    const price = Number(raw.price?.amount ?? raw.price ?? item.price) || null;
+    const listing = { title: String(raw.title || item.title).slice(0, 70), description: String(raw.description || "").trim(), price, category: null, photos, from: "vinted" };
+    const sep = document.createElement("p");
+    sep.textContent = "Vendre aussi ailleurs";
+    const a = document.createElement("a");
+    a.href = "https://www.leboncoin.fr/deposer-une-annonce";
+    a.target = "_blank"; a.rel = "noopener"; a.dataset.lbc = "1";
+    a.innerHTML = 'Publier aussi sur Leboncoin<span aria-hidden="true">↗</span>';
+    a.addEventListener("click", () => { chrome.runtime.sendMessage({ type: "lbc:saveListing", listing }).catch(() => {}); });
+    mountedMenu.append(sep, a);
   }
 
   // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.
@@ -100,6 +123,7 @@
     if (!item) return;
     mount(item);
     const raw = await details(item.vinted_id);
+    crossPost(item, raw).catch(() => {});
     try {
       if (raw) chrome.runtime.sendMessage({ type: "vinted:item", item, raw });
       else if (item.status || item.price != null) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, status: item.status || "active" } });
