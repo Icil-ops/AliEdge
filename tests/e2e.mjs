@@ -836,6 +836,23 @@ if (process.env.STORE_SHOTS) {
   await page.evaluate(() => chrome.storage.local.set({ ae_lang: "fr" }));
 }
 
+// Leboncoin facultatif : sans l'accès à leboncoin.fr, le panneau le propose d'office (un clic).
+// (La copie de test a l'accès d'office : on simule ici un membre qui ne l'a pas encore accordé.)
+{
+  const p2 = await ctx.newPage();
+  await p2.addInitScript(() => { try { chrome.permissions.contains = async () => false; } catch { /* rien */ } });
+  await p2.evaluate(() => 0).catch(() => {});
+  await p2.goto(app("/analyse"));
+  await p2.evaluate(() => chrome.storage.local.remove("ae_lbc_ask_later"));
+  await p2.reload(); await p2.waitForTimeout(1500);
+  const shown = await p2.locator('[data-lbcask="on"]').count();
+  await p2.click('[data-lbcask="later"]').catch(() => {});
+  await p2.waitForTimeout(500);
+  const hidden = (await p2.locator('[data-lbcask="on"]').count()) === 0;
+  check("Leboncoin proposé d'office quand l'accès manque, « Plus tard » le masque", shown === 1 && hidden, JSON.stringify({ shown, hidden }));
+  await p2.close();
+}
+
 await ctx.close();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} vérifications OK · captures : ${shots}`);

@@ -1124,8 +1124,8 @@ async function reportCards({ items }) {
   return { added: n };
 }
 
-// ───────────────────────── Leboncoin (activé par défaut, désactivable dans Compte) : lecture des pages que le
-// membre ouvre, boutons sur les annonces. AUCUNE requête automatique vers Leboncoin.
+// ───────────────────────── Leboncoin (accès facultatif à leboncoin.fr, proposé d'office dans le panneau ; coupable
+// dans Compte) : lecture des pages que le membre ouvre, boutons sur les annonces. AUCUNE requête automatique vers Leboncoin.
 const LBC_ORIGINS = ["https://www.leboncoin.fr/*"];
 const LBC_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/harvest-lbc.js", "src/content/lbc-competitors.js", "src/content/lbc-tools.js"];
 async function lbcEnabled() {

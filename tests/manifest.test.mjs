@@ -21,3 +21,8 @@ test("les traductions du nom et de la description respectent les limites du stor
   }
   assert.equal(m.default_locale, "fr");
 });
+
+test("Leboncoin reste une permission facultative (une permission obligatoire désactiverait AliEdge à la mise à jour)", () => {
+  assert.ok(!m.host_permissions.some((h) => h.includes("leboncoin")));
+  assert.deepEqual(m.optional_host_permissions, ["https://www.leboncoin.fr/*"]);
+});

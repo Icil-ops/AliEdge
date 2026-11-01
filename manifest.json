@@ -57,8 +57,7 @@
     "https://www.vinted.at/*",
     "https://www.vinted.pl/*",
     "https://www.vinted.co.uk/*",
-    "https://qwjsryjrkwbfibavqici.supabase.co/*",
-    "https://www.leboncoin.fr/*"
+    "https://qwjsryjrkwbfibavqici.supabase.co/*"
   ],
   "content_scripts": [
     {
@@ -194,5 +193,8 @@
       "description": "__MSG_captureZone__"
     }
   },
-  "default_locale": "fr"
+  "default_locale": "fr",
+  "optional_host_permissions": [
+    "https://www.leboncoin.fr/*"
+  ]
 }

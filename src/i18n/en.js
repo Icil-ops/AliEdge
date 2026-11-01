@@ -323,6 +323,9 @@
     "https://www.vinted.fr/member/123456-pseudo": "https://www.vinted.fr/member/123456-username",
 
     // ── Leboncoin
+    "Active Leboncoin en un clic.": "Turn on Leboncoin in one click.", "Plus tard": "Later", "Leboncoin activé": "Leboncoin turned on",
+    "Ventes Leboncoin dans tes analyses, fournisseur et warehouse depuis les annonces, aide au dépôt. AliEdge lit seulement les pages que tu ouvres.": "Leboncoin sales in your analyses, supplier and warehouse from listings, posting help. AliEdge only reads the pages you open.",
+    "Accès à leboncoin.fr refusé : rien n'a changé.": "Access to leboncoin.fr refused: nothing changed.",
     "Sur Leboncoin": "On Leboncoin", "Voir sur Leboncoin": "See on Leboncoin", "Pas encore de vente Leboncoin repérée pour cette recherche.": "No Leboncoin sale spotted yet for this search.",
     "Déposer sur Leboncoin": "Post on Leboncoin", "Annonce": "Listing",
     "Sur la page de dépôt, le bouton « Annonce AliEdge » remplit le titre, la description et le prix. Tu relis et tu publies toi-même.": "On the posting page, the “AliEdge listing” button fills in the title, description and price. You review and publish it yourself.",

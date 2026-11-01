@@ -955,9 +955,7 @@ async function loadSalesFeed(append = false) {
       </div>`;
     bindHead();
     document.getElementById("lbcenable")?.addEventListener("click", async () => {
-      let ok = false;
-      try { ok = await chrome.permissions.request({ origins: ["https://www.leboncoin.fr/*"] }); } catch { ok = false; }
-      if (ok) await saveSettings({ lbc: true }).catch(() => {});
+      const ok = await enableLbc();
       if (ok) { sf.lbcOn = (await api("lbc:status").catch(() => ({ enabled: true }))).enabled; toast("Leboncoin activé : ouvre une recherche sur leboncoin.fr"); sf.key = null; loadSalesFeed(); }
       else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
     });
@@ -1592,9 +1590,7 @@ function viewLbcTrackers(rows, on) {
 function bindLbcTrackers() {
   if (route().params.get("lbc") === "review") document.getElementById("lbcsection")?.scrollIntoView({ block: "start" });
   document.getElementById("lbcenable2")?.addEventListener("click", async () => {
-    let ok = false;
-    try { ok = await chrome.permissions.request({ origins: ["https://www.leboncoin.fr/*"] }); } catch { ok = false; }
-    if (ok) await saveSettings({ lbc: true }).catch(() => {});
+    const ok = await enableLbc();
     if (ok) { await api("lbc:status").catch(() => {}); toast("Leboncoin activé"); render(); } else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
   });
   document.getElementById("lbctrackform")?.addEventListener("submit", async (e) => {
@@ -1801,13 +1797,32 @@ function viewCompte(params) {
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
-      <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false ? "checked" : ""}></label>
+      <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">
       <span class="small muted">AliEdge ${esc(chrome.runtime.getManifest().version)} · by Ivan Bara · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Confidentialité</a></span>
       <button id="signout" class="btn ghost" type="button">Se déconnecter</button>
     </div>`;
+}
+
+// ───────── Leboncoin : accès facultatif à leboncoin.fr, proposé d'office à l'ouverture du panneau (un clic).
+// (Une permission obligatoire désactiverait AliEdge chez tous les membres à la mise à jour.)
+const LBC_PERM = { origins: ["https://www.leboncoin.fr/*"] };
+async function enableLbc() {
+  let ok = false;
+  try { ok = await chrome.permissions.request(LBC_PERM); } catch { ok = false; }
+  if (!ok) { toast("Accès à leboncoin.fr refusé : rien n'a changé."); return false; }
+  await saveSettings({ lbc: true }).catch(() => {});
+  await api("lbc:status").catch(() => {});
+  toast("Leboncoin activé");
+  return true;
+}
+async function loadLbcAsk() {
+  const has = await chrome.permissions.contains(LBC_PERM).catch(() => true);
+  const later = (await chrome.storage.local.get("ae_lbc_ask_later")).ae_lbc_ask_later || 0;
+  state.lbcPerm = has;
+  state.lbcAsk = !has && Date.now() - later > 14 * 864e5; // « Plus tard » : reproposé 14 jours après
 }
 
 // Langue du panneau : automatique (langue de Chrome), français ou anglais.
@@ -1869,8 +1884,13 @@ function bindCompte(params) {
     try { await api("auth:recover", { email }); err.innerHTML = `<p class="notice ok">Email envoyé : suis le lien pour choisir un nouveau mot de passe.</p>`; }
     catch (e) { err.innerHTML = `<p class="notice err">${esc(e.message)}</p>`; }
   });
-  document.querySelectorAll("[data-set]").forEach((el) => el.addEventListener("change", () => {
+  document.querySelectorAll("[data-set]").forEach((el) => el.addEventListener("change", async () => {
     const k = el.dataset.set;
+    if (k === "lbc" && el.checked && !(await chrome.permissions.contains(LBC_PERM).catch(() => false))) {
+      if (!(await enableLbc())) el.checked = false;
+      else { state.lbcAsk = false; }
+      return;
+    }
     const v = el.type === "checkbox" ? el.checked : k === "costPerSale" ? parseFloat(el.value.replace(",", ".")) || 0 : el.value;
     saveSettings({ [k]: v }).then(() => toast("Réglage enregistré"));
   }));
@@ -2335,7 +2355,10 @@ async function render() {
       ? `<div class="update-banner" role="status"><span class="notes" title="Afficher tout"><b>AliEdge ${esc(upd.whatsnew.version)} est installé.</b> ${esc(upd.whatsnew.notes || "Découvre les nouveautés dans les onglets.")}</span><button class="close" type="button" data-update="seen" aria-label="Fermer les nouveautés">✕</button></div>`
       : "");
   const keepFocus = document.activeElement?.id;
-  $view.innerHTML = `${banner}<div class="view">${html}</div>`;
+  const lbcAsk = state.lbcAsk && name !== "bienvenue" ? `<div class="update-banner lbc-ask" role="status"><span><b>Active Leboncoin en un clic.</b> Ventes Leboncoin dans tes analyses, fournisseur et warehouse depuis les annonces, aide au dépôt. AliEdge lit seulement les pages que tu ouvres.</span><span class="row" style="gap:6px"><button class="btn primary small" type="button" data-lbcask="on">Activer Leboncoin</button><button class="btn ghost small" type="button" data-lbcask="later">Plus tard</button></span></div>` : "";
+  $view.innerHTML = `${banner}${lbcAsk}<div class="view">${html}</div>`;
+  $view.querySelector('[data-lbcask="on"]')?.addEventListener("click", async () => { if (await enableLbc()) { state.lbcAsk = false; render(); } });
+  $view.querySelector('[data-lbcask="later"]')?.addEventListener("click", async () => { state.lbcAsk = false; await chrome.storage.local.set({ ae_lbc_ask_later: Date.now() }); render(); });
   $view.querySelector('[data-update="apply"]')?.addEventListener("click", (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = "Installation…"; api("update:apply").catch(() => {}); });
   $view.querySelector(".update-banner .notes")?.addEventListener("click", (e) => e.currentTarget.classList.toggle("open"));
   $view.querySelector('[data-update="seen"]')?.addEventListener("click", async (e) => { const box = e.currentTarget.closest(".update-banner"); await api("update:seen").catch(() => {}); box?.remove(); });
@@ -2411,7 +2434,7 @@ async function takePending() {
 (async function init() {
   langPref = (await chrome.storage.local.get("ae_lang")).ae_lang || "auto";
   document.documentElement.lang = (await globalThis.AE_I18N?.start([document.body])) || "fr";
-  await Promise.all([loadAuth(), loadOnboarded()]);
+  await Promise.all([loadAuth(), loadOnboarded(), loadLbcAsk()]);
   lastRoute = route().name;
   render();
   if (!isTab) await loadProduct();
