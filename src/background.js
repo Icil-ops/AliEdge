@@ -118,6 +118,7 @@ async function setup() {
   });
   await syncAlarms();
   syncLbcScript().catch(() => {});
+  syncOwnSellers().catch(() => {});
   checkForUpdate().catch(() => {});
 }
 
@@ -1030,7 +1031,7 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "remote") { refreshRemote().then(() => reportHealth()).then(() => vinted.inBackground(resolveSeeds)).catch(() => {}); }
-  if (a.name === "community") { flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
+  if (a.name === "community") { syncOwnSellers().catch(() => {}); flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
   if (a.name === "seeds") vinted.inBackground(resolveSeeds).catch(() => {});
@@ -1053,10 +1054,31 @@ async function addOwnSeller(id, market = "fr", login = null) {
   if (!Number.isSafeInteger(id) || id <= 0) return;
   const r = await chrome.storage.local.get(OWN_KEY);
   const list = (r[OWN_KEY] || []).filter((x) => Number(x.id) !== id);
-  list.unshift({ id, market, login: login ? String(login).slice(0, 60) : null, at: Date.now() });
+  const prev = (r[OWN_KEY] || []).find((x) => Number(x.id) === id);
+  list.unshift({ id, market, login: login ? String(login).slice(0, 60) : null, at: Date.now(), registered_at: prev?.registered_at || 0 });
   await chrome.storage.local.set({ [OWN_KEY]: list.slice(0, 5) });
   ownCache = null;
-  if (await sb.getSession()) await sb.rpc("aliedge_register_own_seller", { _seller_id: id, _market: MARKETS[market] ? market : "fr" }).catch(() => {});
+  await syncOwnSellers();
+}
+/**
+ * Déclare au serveur les comptes Vinted du membre (leurs annonces sont alors retirées de la base commune et
+ * n'y entrent plus). Avant, un compte reconnu alors que le membre n'était pas connecté à AliEdge n'était jamais
+ * déclaré : on rattrape ici, à la connexion, au démarrage et toutes les 30 min, et on redéclare chaque jour.
+ */
+async function syncOwnSellers() {
+  if (!(await sb.getSession().catch(() => null))) return;
+  const r = await chrome.storage.local.get(OWN_KEY);
+  const list = r[OWN_KEY] || [];
+  let changed = false;
+  for (const x of list) {
+    if (Date.now() - (x.registered_at || 0) < 24 * 3600_000) continue;
+    try {
+      await sb.rpc("aliedge_register_own_seller", { _seller_id: Number(x.id), _market: MARKETS[x.market] ? x.market : "fr" });
+      x.registered_at = Date.now();
+      changed = true;
+    } catch (e) { noteError("own:register", e); }
+  }
+  if (changed) await chrome.storage.local.set({ [OWN_KEY]: list });
 }
 async function dropOwn(items) {
   const own = await ownSellerIds();
@@ -1516,13 +1538,13 @@ const handlers = {
   "sales:unlink": async (msg) => unlinkSale(msg),
   "sales:candidates": async () => supplierCandidates(),
   "auth:state": async () => ({ me: await me(true), settings: await getSettings() }),
-  "auth:signIn": async ({ email, password }) => { await sb.signIn(email, password); return { me: await me(true) }; },
+  "auth:signIn": async ({ email, password }) => { await sb.signIn(email, password); syncOwnSellers().catch(() => {}); return { me: await me(true) }; },
   "auth:signUp": async ({ email, password, marketing }) => {
     const r = await sb.signUp(email, password, marketing);
     return { confirm: r.confirm, me: r.session ? await me(true) : null };
   },
   "auth:recover": async ({ email }) => { await sb.recover(email); return {}; },
-  "auth:google": async () => { await sb.signInWithGoogle(); return { me: await me(true) }; },
+  "auth:google": async () => { await sb.signInWithGoogle(); syncOwnSellers().catch(() => {}); return { me: await me(true) }; },
   "auth:signOut": async () => { await sb.signOut(); meCache = { at: 0, value: null }; return {}; },
   "settings:set": async ({ patch }) => ({ settings: await setSettings(patch) }),
   "product:current": async () => currentProduct(),
