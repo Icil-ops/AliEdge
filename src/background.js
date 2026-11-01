@@ -29,6 +29,7 @@ async function setSettings(patch) {
   next.costPerSale = Math.max(0, Math.min(50, Number(next.costPerSale) || 0));
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   await syncAlarms(next);
+  if ("lbc" in patch) await syncLbcScript().catch(() => {});
   return next;
 }
 
@@ -38,6 +39,7 @@ async function syncAlarms(settings) {
   chrome.alarms.create("community", { periodInMinutes: 30, delayInMinutes: 3 });
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
   chrome.alarms.create("remote", { periodInMinutes: 360, delayInMinutes: 1 });
+  chrome.alarms.create("lbc-review", { periodInMinutes: 7 * 24 * 60, delayInMinutes: 24 * 60 });
   await syncRadarAlarm();
 }
 
@@ -933,6 +935,7 @@ const eur0 = (n) => `${Number(n).toFixed(2).replace(".", ",")} €`;
 
 chrome.notifications.onClicked.addListener(async (id) => {
   if (id === "ae-update-ready") { chrome.notifications.clear(id); chrome.runtime.reload(); return; }
+  if (id === "ae-lbc-review") { chrome.notifications.clear(id); chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/concurrents?lbc=review") }); return; }
   if (id === "ae-pick") { chrome.notifications.clear(id); chrome.tabs.create({ url: chrome.runtime.getURL("app/app.html?mode=tab#/catalogue") }); return; }
   if (id === "ae-updated") {
     chrome.notifications.clear(id);
@@ -1032,6 +1035,7 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
   if (a.name === "seeds") vinted.inBackground(resolveSeeds).catch(() => {});
   if (a.name === "watch") refreshWatches();
+  if (a.name === "lbc-review") lbcReviewReminder().catch(() => {});
 });
 
 // ───────────────────────── Compte Vinted personnel du membre : jamais publié dans la base commune.
@@ -1120,21 +1124,37 @@ async function reportCards({ items }) {
   return { added: n };
 }
 
-// ───────────────────────── Leboncoin (facultatif) : lecture des annonces affichées, sans aucune requête vers Leboncoin
+// ───────────────────────── Leboncoin (activé par défaut, désactivable dans Compte) : lecture des pages que le
+// membre ouvre, boutons sur les annonces. AUCUNE requête automatique vers Leboncoin.
 const LBC_ORIGINS = ["https://www.leboncoin.fr/*"];
-async function lbcEnabled() { try { return await chrome.permissions.contains({ origins: LBC_ORIGINS }); } catch { return false; } }
-/** Le script Leboncoin n'est installé que si le membre a accordé l'accès à leboncoin.fr (permission facultative). */
+const LBC_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/harvest-lbc.js", "src/content/lbc-competitors.js", "src/content/lbc-tools.js"];
+async function lbcEnabled() {
+  try { if (!(await chrome.permissions.contains({ origins: LBC_ORIGINS }))) return false; } catch { return false; }
+  return (await getSettings()).lbc !== false;
+}
 async function syncLbcScript() {
   const on = await lbcEnabled();
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ["ae-lbc"] }).catch(() => []);
-  // Version précédente enregistrée avec moins de scripts : on la remplace.
-  if (on && existing.length && existing[0].js?.length !== 2) { await chrome.scripting.unregisterContentScripts({ ids: ["ae-lbc"] }); existing.length = 0; }
+  // Version précédente enregistrée avec d'autres scripts : on la remplace.
+  if (on && existing.length && (existing[0].js || []).join() !== LBC_JS.join()) { await chrome.scripting.unregisterContentScripts({ ids: ["ae-lbc"] }); existing.length = 0; }
   if (on && !existing.length) {
-    await chrome.scripting.registerContentScripts([{ id: "ae-lbc", matches: LBC_ORIGINS, js: ["src/content/harvest-lbc.js", "src/content/lbc-competitors.js"], runAt: "document_idle", persistAcrossSessions: true }]);
+    await chrome.scripting.registerContentScripts([{ id: "ae-lbc", matches: LBC_ORIGINS, js: LBC_JS, runAt: "document_idle", persistAcrossSessions: true }]);
   } else if (!on && existing.length) {
     await chrome.scripting.unregisterContentScripts({ ids: ["ae-lbc"] });
   }
   return on;
+}
+/** Une fois par semaine : les concurrents Leboncoin dont la page n'a pas été ouverte depuis 3 jours. */
+async function lbcReviewReminder() {
+  if (!(await lbcEnabled())) return;
+  const rows = await sb.rpc("aliedge_lbc_trackers").catch(() => []);
+  const stale = (rows || []).filter((r) => !r.last_visit_at || Date.now() - new Date(r.last_visit_at).getTime() > 3 * 864e5);
+  if (!stale.length) return;
+  chrome.notifications.create("ae-lbc-review", {
+    type: "basic", iconUrl: "icons/icon128.png", priority: 0,
+    title: `${stale.length} concurrent${stale.length > 1 ? "s" : ""} Leboncoin à revoir`,
+    message: "Ouvre leur page pour relever leurs annonces et repérer leurs ventes.",
+  });
 }
 chrome.permissions.onAdded.addListener(() => { syncLbcScript().catch(() => {}); });
 chrome.permissions.onRemoved.addListener(() => { syncLbcScript().catch(() => {}); });
@@ -1484,6 +1504,11 @@ const handlers = {
   "lbc:status": async () => ({ enabled: await syncLbcScript() }),
   "lbc:feed": async ({ search = null, offset = 0, dropship = true } = {}) => sb.rpc("aliedge_lbc_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0), _dropship: dropship !== false }),
   "lbc:link": async (msg) => lbcLinkItem(msg),
+  // Dernière annonce rédigée (texte Leboncoin) : reprise par l'assistant de dépôt sur leboncoin.fr.
+  "lbc:listing": async () => (await chrome.storage.local.get("ae_lbc_listing")).ae_lbc_listing || null,
+  "lbc:saveListing": async ({ listing }) => { await chrome.storage.local.set({ ae_lbc_listing: listing ? { ...listing, at: Date.now() } : null }); return {}; },
+  // Produit fournisseur relié à une annonce (titre) : pour « Confier à la warehouse » depuis Leboncoin.
+  "lbc:itemInfo": async ({ title }) => { const [links, cands] = await Promise.all([saleLinks(), supplierCandidates()]); const m = matchSale({ title }, links, cands); return m ? { url: m.url, title: m.title, price: m.price, platform: m.platform, sure: m.sure } : null; },
   "lbc:profile": async (msg) => reportLbcProfile(msg),
   "lbc:trackedIds": async () => lbcTrackedIds(),
   "lbc:track": async (msg) => lbcTrack(msg),
@@ -1665,7 +1690,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "lbc:link", "lbc:listing", "lbc:itemInfo", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

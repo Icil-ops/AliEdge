@@ -164,3 +164,14 @@ test("lien de recherche Vinted → paramètres du Radar", async () => {
   assert.equal(parseSearchUrl("pas un lien"), null);
   assert.equal(parseSearchUrl("https://www.vinted.fr/catalog?brand_ids[]=abc"), null);
 });
+
+import { lbcListing } from "../src/lib/text.js";
+test("annonce Leboncoin : titre court, sans hashtags, catégorie Leboncoin", () => {
+  const l = lbcListing({ title: "Sac bandoulière cuir noir femme petit format élégant pour soirée et quotidien chic", description: "Joli sac neuf.\n\n#sac #cuir", category: "Femmes > Sacs > Sacs à bandoulière", condition: "Neuf sans étiquette", size: "Taille unique", colors: ["Noir"], price: 19 });
+  assert.ok(l.title.length <= 70);
+  assert.ok(!/#/.test(l.description));
+  assert.equal(l.category, "Accessoires & Bagagerie");
+  assert.match(l.description, /État : Neuf sans étiquette/);
+  assert.match(l.description, /livraison Leboncoin/);
+  assert.equal(l.price, 19);
+});

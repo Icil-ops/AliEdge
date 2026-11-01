@@ -89,3 +89,25 @@ export function draftListing(product, price) {
   if (price) lines.push("", `Prix : ${price.toFixed(2).replace(".", ",")} €`);
   return { title, description: lines.join("\n") };
 }
+
+/** Version Leboncoin d'une annonce rédigée par Barapics : titre court, pas de hashtags, catégorie Leboncoin. */
+export const LBC_CATS = [
+  [/chaussure|basket|sneaker|botte|sandale|escarpin/i, "Chaussures"],
+  [/sac|valise|bagage|portefeuille|ceinture|lunette|chapeau|casquette|écharpe|foulard|accessoire/i, "Accessoires & Bagagerie"],
+  [/montre|bijou|collier|bracelet|bague|boucle/i, "Montres & Bijoux"],
+  [/bébé|puériculture/i, "Équipement bébé"],
+  [/jouet|jeu|peluche|figurine/i, "Jeux & Jouets"],
+  [/déco|lampe|coussin|bougie|vase|cadre|maison/i, "Décoration"],
+  [/vêtement|robe|jupe|pantalon|jean|pull|sweat|t-shirt|tee|chemise|veste|manteau|top|short|legging|haut/i, "Vêtements"],
+];
+export function lbcListing(l) {
+  const clean = (t) => String(t || "").replace(/#[\p{L}\d_]+/gu, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  let title = clean(l.title).replace(/\s+/g, " ");
+  if (title.length > 70) title = title.slice(0, 70).replace(/\s+\S*$/, "");
+  const src = `${l.category || ""} ${l.title || ""}`;
+  const category = (LBC_CATS.find(([re]) => re.test(src)) || [null, l.category || ""])[1];
+  const details = [l.condition && `État : ${l.condition}`, l.size && l.size !== "Taille unique" && `Taille : ${l.size}`, l.colors?.length && `Couleur : ${l.colors.join(", ")}`, l.material && `Matière : ${l.material}`].filter(Boolean).join("\n");
+  const description = [clean(l.description), details, "Envoi possible avec la livraison Leboncoin."].filter(Boolean).join("\n\n");
+  return { title, description, price: l.price, category };
+}
+

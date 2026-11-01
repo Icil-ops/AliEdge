@@ -321,11 +321,35 @@
     "Prix :": "Price:", "Et": "And",
     "https://www.vinted.fr/member/123456-ton-pseudo": "https://www.vinted.fr/member/123456-your-username",
     "https://www.vinted.fr/member/123456-pseudo": "https://www.vinted.fr/member/123456-username",
+
+    // ── Leboncoin
+    "Sur Leboncoin": "On Leboncoin", "Voir sur Leboncoin": "See on Leboncoin", "Pas encore de vente Leboncoin repérée pour cette recherche.": "No Leboncoin sale spotted yet for this search.",
+    "Déposer sur Leboncoin": "Post on Leboncoin", "Annonce": "Listing",
+    "Sur la page de dépôt, le bouton « Annonce AliEdge » remplit le titre, la description et le prix. Tu relis et tu publies toi-même.": "On the posting page, the “AliEdge listing” button fills in the title, description and price. You review and publish it yourself.",
+    "Annonce AliEdge": "AliEdge listing", "Remplir les champs de la page": "Fill in the page fields",
+    "Relis tout avant de publier : c'est toi qui publies l'annonce.": "Review everything before publishing: you're the one who publishes the listing.",
+    "Champs pas encore affichés sur cette étape : utilise les boutons « Copier ».": "Fields not shown yet at this step: use the “Copy” buttons.",
+    "Dans AliEdge, analyse un produit puis clique sur « Annonce » et choisis « Leboncoin » : l'annonce apparaîtra ici, prête à copier.": "In AliEdge, analyze a product, click “Listing” and choose “Leboncoin”: the listing will appear here, ready to copy.",
+    "AliEdge": "AliEdge", "Produit relié : il rejoint le catalogue commun.": "Product linked: it joins the shared catalog.",
+    "Tu as vendu cet article ? La warehouse l'achète, l'emballe et l'expédie à ta place.": "Sold this item? The warehouse buys, packs and ships it for you.",
+    "Republiée": "Reposted", "Vendu (confirmé)": "Sold (confirmed)", "Vente probable": "Probable sale", "à revoir": "to review", "Ventes probables": "Probable sales",
+    "Revoir ses annonces": "Review their listings", "Suivre": "Track", "Activer Leboncoin": "Turn on Leboncoin", "Vendeur Leboncoin": "Leboncoin seller", "page jamais ouverte": "page never opened",
+    "Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.": "AliEdge tools on Leboncoin (supplier, warehouse, posting help, competitors) and sales spotted on the pages you open. No extra requests to Leboncoin.",
+    "Ouvre leur page pour relever leurs annonces et repérer leurs ventes.": "Open their page to record their listings and spot their sales.",
+    "Elles apparaissent quand des annonces ont disparu entre deux visites de sa page.": "They appear when listings have disappeared between two visits to their page.",
+    "Ouvre sa page avec « Revoir ses annonces » pour relever ses annonces.": "Open their page with “Review their listings” to record their listings.",
+    "Concurrent ajouté : ouvre sa page pour relever ses annonces": "Competitor added: open their page to record their listings", "Concurrent retiré": "Competitor removed",
+    "✓ Concurrent suivi": "✓ Competitor tracked", "+ Concurrent": "+ Competitor", "Ajout…": "Adding…", "Retrait…": "Removing…",
+    "Envoi possible avec la livraison Leboncoin.": "Envoi possible avec la livraison Leboncoin.",
   };
 
   // Textes avec des nombres ou des noms : remplacés par motif.
   const DAYS = { lun: "Mon", mar: "Tue", mer: "Wed", jeu: "Thu", ven: "Fri", sam: "Sat", dim: "Sun" };
   const PATTERNS = [
+    [/^(\d+) concurrents? Leboncoin à revoir$/, (m, n) => `${n} Leboncoin competitor${n > 1 ? "s" : ""} to review`],
+    [/^(\d+) ventes? repérées?(?: \(dont (\d+) confirmées?\))? · prix médian (.+?)(?: · (plus cher|moins cher) que Vinted de (.+))?$/, (m, n, c, p, d, v) => `${n} sale${n > 1 ? "s" : ""} spotted${c ? ` (${c} confirmed)` : ""} · median price ${p}${d ? ` · ${d === "plus cher" ? "higher" : "lower"} than Vinted by ${v}` : ""}`],
+    [/^(\d+) champs? remplis?\. (.*)$/, (m, n, rest) => `${n} field${n > 1 ? "s" : ""} filled. ${tr1(rest) ?? rest}`],
+    [/^Catégorie : (.+)$/, "Category: $1"],
     [/^suivi depuis il y a (\d+) (min|h|j)$/, (m, n, u) => `tracked for ${n} ${u === "j" ? "d" : u}`],
     [/^vérifié il y a (\d+) (min|h|j)$/, (m, n, u) => `checked ${n} ${u === "j" ? "d" : u} ago`],
     [/^page vue il y a (\d+) (min|h|j)$/, (m, n, u) => `page viewed ${n} ${u === "j" ? "d" : u} ago`],

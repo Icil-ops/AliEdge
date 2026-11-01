@@ -1,7 +1,8 @@
 // AliEdge — panneau latéral et plein écran.
 import { MARKETS, BUY_URL, BARAPICS_URL, SKOOL_URL, PRIVACY_URL, WAREHOUSE_URL } from "../src/config.js";
 import { VERDICT_LABEL, histogram } from "../src/lib/pricing.js";
-import { draftListing, buildQuery } from "../src/lib/text.js";
+import { draftListing, buildQuery, lbcListing } from "../src/lib/text.js";
+import { titleKey } from "../src/lib/match.js";
 
 const $view = document.getElementById("view");
 const $plan = document.getElementById("plan");
@@ -754,6 +755,7 @@ function viewResult(entry) {
       <div class="histo" aria-hidden="true">${hist.map((b, i) => `<div class="bar ${r.sell >= b.from && r.sell <= b.to ? "hit" : ""}" style="height:${Math.max(4, (b.count / maxCount) * 100)}%;animation-delay:${i * 30}ms" title="${eur(b.from)} – ${eur(b.to)} : ${b.count}"></div>`).join("")}</div>
       <div class="histo-axis num"><span>${eur(hist[0].from)}</span><span>${eur(hist[hist.length - 1].to)}</span></div>
     </div>` : ""}
+    <div id="lbcbox"></div>
     <div class="grid3">
       <button class="btn" type="button" data-act="watch" data-key="${esc(watchKey)}">${ICON.eye}Suivre</button>
       <button class="btn" type="button" data-act="copy" title="Titre, description, catégorie et prix conseillé, prêts à copier">${ICON.copy}Annonce</button>
@@ -948,13 +950,14 @@ async function loadSalesFeed(append = false) {
     box.innerHTML = `${head()}
       <div class="card pad stack" style="gap:8px">
         <b>Active Leboncoin dans AliEdge</b>
-        <p class="small muted" style="margin:0">AliEdge lira les annonces Leboncoin que tu affiches (recherches, annonces) pour repérer celles qui se vendent. Aucune requête en plus vers Leboncoin, rien n'est publié ni envoyé à ta place, et ton compte n'est jamais partagé. Chrome va te demander l'accès à leboncoin.fr.</p>
+        <p class="small muted" style="margin:0">AliEdge lira les annonces Leboncoin que tu affiches (recherches, annonces) pour repérer celles qui se vendent. Aucune requête en plus vers Leboncoin, rien n'est publié ni envoyé à ta place, et ton compte n'est jamais partagé.</p>
         <button class="btn primary" type="button" id="lbcenable">Activer Leboncoin</button>
       </div>`;
     bindHead();
     document.getElementById("lbcenable")?.addEventListener("click", async () => {
       let ok = false;
       try { ok = await chrome.permissions.request({ origins: ["https://www.leboncoin.fr/*"] }); } catch { ok = false; }
+      if (ok) await saveSettings({ lbc: true }).catch(() => {});
       if (ok) { sf.lbcOn = (await api("lbc:status").catch(() => ({ enabled: true }))).enabled; toast("Leboncoin activé : ouvre une recherche sur leboncoin.fr"); sf.key = null; loadSalesFeed(); }
       else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
     });
@@ -1279,8 +1282,8 @@ async function openListing(entry) {
   d.className = "drawer listing";
   d.setAttribute("role", "dialog");
   d.setAttribute("aria-modal", "true");
-  d.setAttribute("aria-label", "Annonce Vinted");
-  d.innerHTML = `<div class="stack"><div class="row between"><h3>${ICON.copy} Annonce Vinted</h3><button class="btn ghost" type="button" data-close aria-label="Fermer">✕</button></div><div id="lbody"><div class="skel" style="height:90px"></div><p class="small muted">Rédaction à partir des photos et des prix Vinted constatés…</p></div></div>`;
+  d.setAttribute("aria-label", "Annonce");
+  d.innerHTML = `<div class="stack"><div class="row between"><h3>${ICON.copy} Annonce</h3><button class="btn ghost" type="button" data-close aria-label="Fermer">✕</button></div><div id="lbody"><div class="skel" style="height:90px"></div><p class="small muted">Rédaction à partir des photos et des prix Vinted constatés…</p></div></div>`;
   document.body.append(bg, d);
   const close = () => closeDrawer();
   bg.addEventListener("click", close);
@@ -1299,13 +1302,30 @@ async function openListing(entry) {
     // L'annonce créée ici est reliée à ce produit : à la vente, la warehouse saura quoi acheter.
     if (l.title && product.url) api("sales:link", { title: l.title, supplier: { url: product.url, title: product.title, price: product.priceEur, image: product.image, platform: product.platform } }).catch(() => {});
     const tags = (l.hashtags || []).map((h) => `#${h}`).join(" ");
-    d.querySelector("#lbody").innerHTML = `
+    const lb = lbcListing(l);
+    api("lbc:saveListing", { listing: lb }).catch(() => {}); // repris par l'assistant de dépôt sur leboncoin.fr
+    const lbcHtml = `
+      <div class="ticket"><div><div class="k">Prix conseillé</div><div class="big num pos">${eur(lb.price)}</div></div></div>
+      ${field("Titre", lb.title)}
+      ${field("Description", lb.description, true)}
+      <div class="grid2">${field("Catégorie", lb.category)}${field("État", l.condition)}</div>
+      <a class="btn primary block" href="https://www.leboncoin.fr/deposer-une-annonce" target="_blank" rel="noopener">Déposer sur Leboncoin</a>
+      <p class="small muted">Sur la page de dépôt, le bouton « Annonce AliEdge » remplit le titre, la description et le prix. Tu relis et tu publies toi-même.</p>`;
+    d.querySelector("h3").insertAdjacentHTML("afterend", `<div class="seg" role="group" aria-label="Plateforme"><button type="button" data-lplat="vinted" aria-pressed="true">Vinted</button><button type="button" data-lplat="lbc" aria-pressed="false">Leboncoin</button></div>`);
+    const vintedHtml = () => `
       <div class="ticket"><div><div class="k">Prix conseillé</div><div class="big num pos">${eur(l.price)}</div>
       ${l.margin != null ? `<div class="sub">Marge ${eur(l.margin, true)} sur un achat à ${eur(l.supplierPrice)}</div>` : ""}
       ${l.priceReason ? `<div class="sub" style="margin-top:4px">${esc(l.priceReason)}</div>` : ""}</div></div>
       ${field("Titre", l.title)}
       ${field("Description", `${l.description}${tags ? `\n\n${tags}` : ""}`, true)}
       <div class="grid2">${field("Catégorie", l.category)}${field("Marque", l.brand)}${field("État", l.condition)}${field("Taille", l.size)}${field("Couleur", (l.colors || []).join(", "))}${field("Colis", l.parcel)}</div>`;
+    const showPlat = (plat) => {
+      d.querySelector("#lbody").innerHTML = plat === "lbc" ? lbcHtml : vintedHtml();
+      d.querySelectorAll("[data-lplat]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lplat === plat)));
+      bind();
+    };
+    d.querySelectorAll("[data-lplat]").forEach((b) => b.addEventListener("click", () => showPlat(b.dataset.lplat)));
+    showPlat(d.dataset.plat || "vinted");
   } catch (e) {
     d.querySelector("#lbody").innerHTML = `<div class="notice info">${esc(e.message)} Voici une version simple :</div>` + field("Titre", fallback.title) + field("Description", fallback.description, true);
   }
@@ -1548,14 +1568,14 @@ function viewLbcTrackers(rows, on) {
     <div class="tracker">
       <button class="tracker-head" type="button" data-lbctracker="${esc(t.seller_uuid)}" aria-expanded="false">
         <span class="tracker-dot" aria-hidden="true"></span>
-        <span class="tracker-name"><b>${esc(t.label || "Vendeur Leboncoin")}</b><span class="small muted">suivi depuis ${esc(ago(new Date(t.created_at).getTime()))} · ${t.last_visit_at ? `page vue ${esc(ago(new Date(t.last_visit_at).getTime()))}` : "page jamais ouverte"}</span></span>
+        <span class="tracker-name"><b>${esc(t.label || "Vendeur Leboncoin")}</b>${!t.last_visit_at || Date.now() - new Date(t.last_visit_at).getTime() > 3 * 864e5 ? ' <span class="pill warn">à revoir</span>' : ""}<span class="small muted">suivi depuis ${esc(ago(new Date(t.created_at).getTime()))} · ${t.last_visit_at ? `page vue ${esc(ago(new Date(t.last_visit_at).getTime()))}` : "page jamais ouverte"}</span></span>
         <span class="tracker-kpi num"><b>${t.active_count}</b><span class="small muted">en ligne</span></span>
         <span class="tracker-kpi num"><b>${t.gone_30d}</b><span class="small muted">ventes 30 j (estim.)</span></span>
       </button>
       <div class="tracker-body" id="lbt-${esc(t.seller_uuid)}" hidden></div>
     </div>`).join("");
   return `
-    <section class="stack" style="margin-top:22px">
+    <section class="stack" id="lbcsection" style="margin-top:22px">
       <div class="row between"><h2>Concurrents Leboncoin</h2><span class="small muted">${(rows || []).length} / 30</span></div>
       ${on ? `
         <p class="small muted">Colle le lien du profil Leboncoin d'un concurrent, ou clique sur « + Concurrent » à côté de son nom sur Leboncoin. Ouvre sa page de temps en temps (bouton « Revoir ses annonces ») : les annonces disparues depuis ta dernière visite sont comptées comme ventes probables. AliEdge n'envoie aucune requête à Leboncoin à ta place.</p>
@@ -1570,9 +1590,11 @@ function viewLbcTrackers(rows, on) {
 }
 
 function bindLbcTrackers() {
+  if (route().params.get("lbc") === "review") document.getElementById("lbcsection")?.scrollIntoView({ block: "start" });
   document.getElementById("lbcenable2")?.addEventListener("click", async () => {
     let ok = false;
     try { ok = await chrome.permissions.request({ origins: ["https://www.leboncoin.fr/*"] }); } catch { ok = false; }
+    if (ok) await saveSettings({ lbc: true }).catch(() => {});
     if (ok) { await api("lbc:status").catch(() => {}); toast("Leboncoin activé"); render(); } else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
   });
   document.getElementById("lbctrackform")?.addEventListener("submit", async (e) => {
@@ -1593,13 +1615,17 @@ function bindLbcTrackers() {
     if (open || body.dataset.loaded) return;
     body.innerHTML = `<div class="skel" style="height:90px;margin-top:8px"></div>`;
     const items = await api("lbc:trackerItems", { seller }).catch(() => []);
-    const gone = items.filter((i) => i.status !== "active"), active = items.filter((i) => i.status === "active");
-    const line = (i) => `<div class="sale-row"><a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.status === "active" ? `en ligne depuis ${esc(ago(new Date(i.first_seen_at).getTime()))}` : `<span class="badge-sold">${i.status === "sold" ? "Vendu" : "Vendu (estimation)"}</span> ${esc(ago(new Date(i.gone_at).getTime()))}${i.days_to_sell != null ? ` · en ${esc(String(i.days_to_sell).replace(".", ","))} j` : ""}`}</div></div><div class="p num">${i.price != null ? eur(Number(i.price)) : ""}</div></a>${i.status !== "active" ? supplierHtml(i) : ""}</div>`;
+    const active = items.filter((i) => i.status === "active");
+    // Annonce disparue puis remise en ligne avec le même titre : republication, pas une vente.
+    const activeKeys = new Set(active.map((i) => titleKey(i.title)));
+    const gone = items.filter((i) => i.status !== "active").map((i) => ({ ...i, republished: i.status !== "sold" && activeKeys.has(titleKey(i.title)) }));
+    const sold = gone.filter((i) => !i.republished);
+    const line = (i) => `<div class="sale-row"><a class="item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:44px 1fr auto">${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.status === "active" ? `en ligne depuis ${esc(ago(new Date(i.first_seen_at).getTime()))}` : `<span class="badge-sold" ${i.republished ? 'style="opacity:.55"' : ""}>${i.republished ? "Republiée" : i.status === "sold" ? "Vendu (confirmé)" : "Vente probable"}</span> ${esc(ago(new Date(i.gone_at).getTime()))}${i.days_to_sell != null ? ` · en ${esc(String(i.days_to_sell).replace(".", ","))} j` : ""}`}</div></div><div class="p num">${i.price != null ? eur(Number(i.price)) : ""}</div></a>${i.status !== "active" ? supplierHtml(i) : ""}</div>`;
     body.innerHTML = `
       <div class="stack" style="gap:10px;margin-top:8px">
         <div class="row wrap" style="gap:8px"><a class="btn primary small" href="https://www.leboncoin.fr/profile/${esc(seller)}/offers" target="_blank" rel="noopener">Revoir ses annonces</a><button class="btn ghost small" type="button" data-lbcuntrack="${esc(seller)}">Arrêter le suivi</button></div>
-        <h3 class="small">Ventes probables (${gone.length})</h3>
-        ${gone.length ? `<div class="items">${gone.map(line).join("")}</div>` : `<p class="small muted">Elles apparaissent quand des annonces ont disparu entre deux visites de sa page.</p>`}
+        <h3 class="small">Ventes probables (${sold.length})</h3>
+        ${gone.length ? `<div class="items">${[...sold, ...gone.filter((i) => i.republished)].map(line).join("")}</div>` : `<p class="small muted">Elles apparaissent quand des annonces ont disparu entre deux visites de sa page.</p>`}
         <h3 class="small">En ligne (${active.length})</h3>
         ${active.length ? `<div class="items">${active.slice(0, 120).map(line).join("")}</div>` : `<p class="small muted">Ouvre sa page avec « Revoir ses annonces » pour relever ses annonces.</p>`}
       </div>`;
@@ -1775,6 +1801,7 @@ function viewCompte(params) {
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
+      <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">
@@ -1937,6 +1964,27 @@ function bindBienvenue(params) {
       e.currentTarget.disabled = false;
     }
   });
+}
+
+// ───────────────────────── Leboncoin dans l'analyse : ventes Leboncoin repérées par la communauté pour la même recherche
+// (base commune AliEdge : aucune requête vers Leboncoin).
+async function fillLbcBox() {
+  const box = document.getElementById("lbcbox");
+  const e = state.entry;
+  if (!box || !e?.query || !state.me) return;
+  const st = await api("lbc:status").catch(() => ({ enabled: false }));
+  if (!st.enabled) { box.remove(); return; }
+  const rows = await api("lbc:feed", { search: e.query.slice(0, 80), dropship: false }).catch(() => []);
+  const prices = rows.map((r) => Number(r.price)).filter((n) => n > 0).sort((a, b) => a - b);
+  const med = prices.length ? prices[Math.floor(prices.length / 2)] : null;
+  const sure = rows.filter((r) => r.certainty === "sold").length;
+  const search = `https://www.leboncoin.fr/recherche?text=${encodeURIComponent(e.query)}`;
+  const diff = med != null && e.result?.sell ? med - e.result.sell : null;
+  box.innerHTML = `<div class="card pad row between wrap" style="gap:8px">
+    <div><b>Sur Leboncoin</b><div class="small muted">${rows.length
+      ? `${rows.length} vente${rows.length > 1 ? "s" : ""} repérée${rows.length > 1 ? "s" : ""}${sure ? ` (dont ${sure} confirmée${sure > 1 ? "s" : ""})` : ""} · prix médian ${eur(med)}${diff != null && Math.abs(diff) >= 1 ? ` · ${diff > 0 ? "plus cher" : "moins cher"} que Vinted de ${eur(Math.abs(diff))}` : ""}`
+      : "Pas encore de vente Leboncoin repérée pour cette recherche."}</div></div>
+    <a class="btn small" href="${safeUrl(search)}" target="_blank" rel="noopener">Voir sur Leboncoin</a></div>`;
 }
 
 // ───────────────────────── Ventes à expédier → warehouse
@@ -2295,7 +2343,7 @@ async function render() {
     const el = document.getElementById(keepFocus);
     if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); }
   }
-  if (name === "analyse") { bindAnalyse(); renderSteps(); fillTourCard(); }
+  if (name === "analyse") { bindAnalyse(); renderSteps(); fillTourCard(); fillLbcBox(); }
   else if (name === "catalogue") bindCatalogue();
   else if (name === "suivis") bindSuivis();
   else if (name === "concurrents") bindTrackers();

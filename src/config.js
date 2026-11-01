@@ -32,4 +32,5 @@ export const DEFAULT_SETTINGS = {
   shareAnalyses: true,       // chaque analyse enrichit le catalogue communautaire
   shareLikes: true,          // les annonces mises en favori sur Vinted enrichissent la base commune (sans l'identité du membre)
   showPill: true,            // bouton flottant sur les fiches produit
+  lbc: true,                 // Leboncoin activé (lecture des pages ouvertes, boutons sur les annonces)
 };

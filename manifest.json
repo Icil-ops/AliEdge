@@ -57,7 +57,8 @@
     "https://www.vinted.at/*",
     "https://www.vinted.pl/*",
     "https://www.vinted.co.uk/*",
-    "https://qwjsryjrkwbfibavqici.supabase.co/*"
+    "https://qwjsryjrkwbfibavqici.supabase.co/*",
+    "https://www.leboncoin.fr/*"
   ],
   "content_scripts": [
     {
@@ -185,9 +186,6 @@
       "https://www.ivanbara.com/*"
     ]
   },
-  "optional_host_permissions": [
-    "https://www.leboncoin.fr/*"
-  ],
   "commands": {
     "capture-zone": {
       "suggested_key": {

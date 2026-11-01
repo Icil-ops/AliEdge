@@ -135,6 +135,7 @@ await ctx.route("**/*", async (route) => {
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
     const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><body>${body}</body>` });
+    if (url.pathname.startsWith("/deposer-une-annonce")) return html(`<main><h1>Déposer une annonce</h1><label>Titre <input name="subject"></label><label>Description <textarea name="body"></textarea></label><label>Prix <input name="price"></label></main>`);
     // Carte d'annonce telle que Leboncoin l'affiche (relevé sur une vraie page enregistrée).
     const card = (id, title, price, cp, ville) => `<li><article aria-label="${title}"><div data-qa-id="aditem_container"><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/accessoires_bagagerie/${id}"><span title="Voir l’annonce: ${title}"></span></a><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/${id}.jpg?rule=ad-small"><p>${title}</p><span>${price} €</span><p>Prix: ${price} €.</p><div>dès ${price + 1},90 €</div><span>Livraison dès</span><p aria-hidden="true">Accessoires &amp; Bagagerie</p><p>Catégorie : Accessoires &amp; Bagagerie.</p><p aria-hidden="true">${ville} ${cp}</p><p>Située à ${ville} ${cp}.</p><p>10/10/2026</p><p>Date de dépôt : 10/10/2026.</p></div></article></li>`;
     if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000003")) return html("<main><h1>Cette annonce n'est plus disponible</h1></main>");
@@ -320,6 +321,8 @@ if (!hasProduct) await panel.fill("#query", "sac bandouliere cuir");
 await panel.click("#go");
 await panel.waitForSelector(".ticket, .notice.err", { timeout: 30000 });
 await panel.waitForTimeout(1200);
+await panel.waitForFunction(() => /Sur Leboncoin/.test(document.getElementById("lbcbox")?.textContent || ""), null, { timeout: 8000 }).catch(() => {});
+check("analyse : ventes Leboncoin de la même recherche affichées (activé par défaut)", /1 vente repérée · prix médian 18,00/.test(await panel.locator("#lbcbox").innerText().catch(() => "")), (await panel.locator("#lbcbox").innerText().catch(() => "")).replace(/\s+/g, " "));
 await panel.screenshot({ path: `${shots}/5-resultat.png`, fullPage: true });
 const margin = await panel.locator(".ticket .big").textContent().catch(() => null);
 check("analyse : marge calculée", !!margin && /€/.test(margin), margin ?? (await panel.locator(".notice").first().textContent()));
@@ -773,6 +776,23 @@ if (process.env.STORE_SHOTS) {
   check("Balade SHEIN : rapport « pistes de niches » dans le panneau", /Pistes de niches/.test(txt) && /crochet/i.test(txt) && nicheBtn > 0, `${nicheBtn} pistes`);
   await page.screenshot({ path: `${shots}/balade.png`, fullPage: true });
   await sh.close();
+}
+
+// Leboncoin : outils sur une annonce (fournisseur, warehouse) et assistant de dépôt (annonce rédigée dans AliEdge).
+{
+  const lbc = await ctx.newPage();
+  await lbc.setViewportSize({ width: 1280, height: 800 });
+  await lbc.goto("https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005");
+  await lbc.waitForSelector("#aliedge-lbc-tools", { timeout: 8000 }).catch(() => {});
+  const onAd = await lbc.locator("#aliedge-lbc-tools").count();
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:saveListing", listing: { title: "Sac bandoulière cuir noir", description: "Joli sac neuf.", price: 19, category: "Accessoires & Bagagerie" } }));
+  const info = await lbc.evaluate(() => 1).then(() => page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:listing" })));
+  await lbc.goto("https://www.leboncoin.fr/deposer-une-annonce");
+  await lbc.waitForSelector("#aliedge-lbc-deposit", { timeout: 8000 }).catch(() => {});
+  const onDeposit = await lbc.locator("#aliedge-lbc-deposit").count();
+  const st = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:status" }));
+  check("Leboncoin activé par défaut : outils sur l'annonce et assistant de dépôt", onAd === 1 && onDeposit === 1 && st?.data?.enabled === true && info?.data?.title === "Sac bandoulière cuir noir", JSON.stringify({ onAd, onDeposit, enabled: st?.data?.enabled }));
+  await lbc.close();
 }
 
 // Version anglaise : panneau traduit, éléments ajoutés sur les sites traduits, texte des sites jamais touché.
