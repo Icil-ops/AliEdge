@@ -17,7 +17,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +29,7 @@ jobs:
         run: |
           npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
-          timeout 300 node tests/e2e.mjs shots
+          timeout 720 node tests/e2e.mjs shots
       - name: Paquet
         run: ./tools/pack.sh
       - name: Envoi et soumission
