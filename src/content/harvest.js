@@ -23,6 +23,11 @@
       const parts = t.split(/,\s+/);
       const card = a.closest('[data-testid*="grid-item"], [class*="feed-grid__item"], [class*="ItemBox"], li, article') || a.parentElement;
       const img = card?.querySelector("img");
+      // Vendeur affiché sur la carte (lien vers son profil) : il complète le suivi des concurrents et permet
+      // d'écarter les comptes des membres AliEdge. Rien n'est demandé à Vinted : on lit le lien déjà affiché.
+      const sellerHref = card?.querySelector('a[href*="/member/"]')?.getAttribute("href") || "";
+      const ownPage = location.pathname.match(/^\/member\/(\d{3,15})(?:-|\/|$)/)?.[1];
+      const sellerId = Number(sellerHref.match(/\/member\/(\d{3,15})(?:-|\/|$)/)?.[1] || (ownPage && !isFavourites() ? ownPage : 0)) || null;
       // « Vendu » : seulement un badge dont le texte entier est le mot (jamais un mot du titre).
       const sold = !!card && [...card.querySelectorAll("span, div, p")].some((el) => el.children.length === 0 && /^(vendu|sold|verkauft|vendido|venduto|verkocht|sprzedane)$/i.test((el.textContent || "").trim()));
       seen.add(id);
@@ -32,7 +37,7 @@
         condition: field(parts, /^(état|condition|zustand|estado|stato|staat)\s*:\s*/i), price: num(t), currency: "EUR",
         photo_url: img?.getAttribute("src") || img?.getAttribute("data-src") || null,
         url: new URL(a.getAttribute("href"), location.href).href.split("?")[0],
-        status: sold ? "sold" : "active", liked: isFavourites(),
+        status: sold ? "sold" : "active", liked: isFavourites(), ...(sellerId ? { seller_id: sellerId } : {}),
       });
       if (out.length >= 96) break;
     }

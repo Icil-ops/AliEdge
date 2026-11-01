@@ -1305,6 +1305,22 @@ function readProductCards() {
   return [...out.values()].slice(0, 120);
 }
 
+/** Produits affichés par une recherche fournisseur (réglage autoSupplier) : ajoutés au catalogue commun, sans recherche Vinted. */
+const autoSeen = new Map();
+async function autoSeenProducts({ items }) {
+  const st = await getSettings();
+  if (st.autoSupplier === false || !st.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
+  const now = Date.now();
+  const fresh = items.filter((c) => ["aliexpress", "temu", "shein"].includes(c?.platform) && /^\d{3,25}$/.test(String(c.source_id || "")) && /^https:\/\//.test(c.url || "")
+    && now - (autoSeen.get(`${c.platform}:${c.source_id}`) || 0) > 24 * 3600_000).slice(0, 60);
+  if (!fresh.length) return { added: 0 };
+  fresh.forEach((c) => autoSeen.set(`${c.platform}:${c.source_id}`, now));
+  while (autoSeen.size > 5000) autoSeen.delete(autoSeen.keys().next().value);
+  let added = 0;
+  for (let i = 0; i < fresh.length; i += 20) added += Number(await sb.rpc("aliedge_seen_products", { _products: fresh.slice(i, i + 20) }).catch(() => 0)) || 0;
+  return { added };
+}
+
 async function importPage() {
   if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi pour ajouter des produits au catalogue.", 401, "auth");
   // Onglet de la page fournisseur : l'onglet actif de la fenêtre (le panneau latéral n'est pas un onglet).
@@ -1571,6 +1587,7 @@ const handlers = {
   "lbc:status": async () => ({ enabled: await syncLbcScript() }),
   "lbc:feed": async ({ search = null, offset = 0, dropship = true } = {}) => sb.rpc("aliedge_lbc_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0), _dropship: dropship !== false }),
   "lbc:link": async (msg) => lbcLinkItem(msg),
+  "catalog:autoSeen": async (msg) => autoSeenProducts(msg),
   "lbc:badges": async (msg) => lbcBadges(msg),
   "lbc:bestTimes": async (msg) => lbcBestTimes(msg),
   "lbc:replies": async () => (await chrome.storage.local.get("ae_lbc_replies")).ae_lbc_replies || null,
@@ -1775,7 +1792,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

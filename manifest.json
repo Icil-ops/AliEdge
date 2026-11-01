@@ -89,7 +89,8 @@
         "src/i18n/en.js",
         "src/content/i18n-start.js",
         "src/content/search.js",
-        "src/content/coupons.js"
+        "src/content/coupons.js",
+        "src/content/harvest-supplier.js"
       ],
       "run_at": "document_idle"
     },

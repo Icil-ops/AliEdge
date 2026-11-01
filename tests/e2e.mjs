@@ -163,7 +163,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/inbox")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Messages | Vinted</title><main><h2><a href=\"/member/9090-gd02840\">gd02840</a></h2><p>Ta vente est finalisée.</p><a href=\"/member/9090-gd02840/feedback\">Évaluer</a></main>" });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
-    if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
+    if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/member/88${it.id}-vendeuse">vendeuse</a><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
   if (/(^|\.)shein\.com$/.test(h)) {
@@ -229,6 +229,9 @@ await page.waitForTimeout(800);
 await page.screenshot({ path: `${shots}/1-compte.png`, fullPage: true });
 const email = page.locator('input[type="email"]').first();
 check("formulaire de connexion affiché", (await email.count()) > 0);
+await page.goto(app("/catalogue")); await page.waitForTimeout(1200);
+check("compte obligatoire : sans compte, AliEdge s'ouvre sur la création de compte", /#\/compte\?mode=signup&gate=1/.test(page.url()) && /Crée ton compte gratuit pour utiliser AliEdge/.test(await page.locator("#view").innerText()), page.url());
+await page.goto(app("/compte")); await page.waitForTimeout(600);
 if (await email.count()) {
   await page.locator("main button", { hasText: "Se connecter" }).first().click();
   await page.waitForTimeout(200);
@@ -428,6 +431,11 @@ await page.screenshot({ path: `${shots}/7-catalogue-large.png`, fullPage: true }
 const listing = await ctx.newPage();
 await listing.goto("https://fr.aliexpress.com/w/wholesale-sac.html");
 await listing.bringToFront();
+{
+  const n0 = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
+  await listing.waitForTimeout(7000);
+  check("recherche AliExpress : produits affichés ajoutés automatiquement au catalogue (réglage activé par défaut)", calls.filter((c) => c.endsWith("aliedge_seen_products")).length > n0);
+}
 const before = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
 const imported = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importPage" }));
 check("catalogue : produits d'une page de résultats ajoutés", imported?.ok && imported.data.found === 5 && calls.filter((c) => c.endsWith("aliedge_seen_products")).length > before, JSON.stringify(imported));
@@ -578,6 +586,7 @@ rpc.aliedge_me.admin = false;
   await cat.waitForTimeout(2500);
   check("survol d'une annonce : vendeur ajouté aux concurrents sans ouvrir l'annonce", calls.filter((c) => c.endsWith("aliedge_tracker_add")).length > before && cat.url().includes("/catalog"));
   await cat.waitForTimeout(3500);
+  check("annonces affichées : vendeur lu sur la carte (lien de son profil), sans requête", reportBodies.some((b) => /"seller_id":88\d+/.test(b)), (reportBodies.find((b) => b.includes("seller_id")) || "").slice(0, 160));
   check("annonces affichées par Vinted ajoutées à la base sans requête en plus", reportBodies.some((b) => b.includes('"vinted_id":9001') && b.includes('"brand":"Zara"') && b.includes('"status":"active"')), reportBodies.slice(-1)[0]?.slice(0, 160));
   await cat.screenshot({ path: `${shots}/9b-catalogue-vinted.png` });
   await cat.close();

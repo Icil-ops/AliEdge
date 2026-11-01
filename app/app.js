@@ -267,6 +267,7 @@ async function loadAuth() {
   } catch (e) {
     state.me = null;
   }
+  state.authReady = true;
   renderPlan();
   api("community:stats").then((c) => { state.community = c; if (route().name === "compte") render(); }).catch(() => {});
 }
@@ -1758,6 +1759,7 @@ function viewCompte(params) {
   if (!state.me) {
     const mode = params.get("mode") === "signin" ? "signin" : "signup";
     return `
+      ${params.get("gate") && !welcome ? `<div class="notice info" style="max-width:440px;margin:0 auto 12px"><b>Crée ton compte gratuit pour utiliser AliEdge.</b> C'est 10 secondes, sans carte bancaire. Avec Google, c'est un clic.</div>` : ""}
       ${welcome ? `<div class="notice ok" style="margin-bottom:12px">AliEdge est installé. Épingle-le dans la barre de Chrome (icône puzzle), puis crée ton compte gratuit. Chaque analyse que tu lances enrichit le catalogue de toute la communauté.</div>` : ""}
       <section class="card pad stack" style="max-width:440px;margin:0 auto">
         <div class="seg" role="tablist">
@@ -1817,6 +1819,7 @@ function viewCompte(params) {
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
+      <label class="switch"><span><b>Ajouter les produits des recherches fournisseurs</b><br><span class="small muted">Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).</span></span><input type="checkbox" data-set="autoSupplier" ${s.autoSupplier !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
       <details class="fold" data-fold="replies" style="margin-top:6px"><summary><b>Réponses toutes prêtes (messagerie Leboncoin)</b></summary>
         <div class="stack" style="margin-top:8px">
@@ -2376,6 +2379,9 @@ let renderSeq = 0;
 async function render() {
   const seq = ++renderSeq;
   let { name, params } = route();
+  // Compte obligatoire : sans compte connecté, AliEdge s'ouvre sur la création de compte (gratuite).
+  if (!state.authReady && name !== "compte") { $view.innerHTML = `<div class="view"><div class="skel" style="height:120px"></div></div>`; return; }
+  if (!state.me && name !== "compte") { location.hash = "#/compte?mode=signup&gate=1"; return; }
   // Premier lancement, compte connecté : prise en main avant tout le reste.
   if (state.me && !onboarded && name !== "bienvenue" && name !== "compte") { location.hash = "#/bienvenue"; return; }
   document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" ? "analyse" : name}`));

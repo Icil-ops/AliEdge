@@ -322,6 +322,11 @@
     "https://www.vinted.fr/member/123456-ton-pseudo": "https://www.vinted.fr/member/123456-your-username",
     "https://www.vinted.fr/member/123456-pseudo": "https://www.vinted.fr/member/123456-username",
 
+    // ── Compte obligatoire, catalogue automatique
+    "Crée ton compte gratuit pour utiliser AliEdge.": "Create your free account to use AliEdge.", "C'est 10 secondes, sans carte bancaire. Avec Google, c'est un clic.": "It takes 10 seconds, no credit card. With Google, it's one click.",
+    "Ajouter les produits des recherches fournisseurs": "Add products from supplier searches",
+    "Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).": "Products shown in your AliExpress, Temu and Shein searches join the shared catalog (no extra requests to these sites).",
+    "Réglage enregistré": "Setting saved",
     // ── Leboncoin
     "Quand publier sur Leboncoin": "When to post on Leboncoin", "Réponses toutes prêtes (messagerie Leboncoin)": "Ready-made replies (Leboncoin messages)",
     "Une réponse par paragraphe (ligne vide entre deux). {prix} est remplacé par la contre-offre conseillée. AliEdge insère le texte, c'est toi qui envoies.": "One reply per paragraph (blank line between two). {prix} is replaced by the suggested counter-offer. AliEdge inserts the text, you send it.",
