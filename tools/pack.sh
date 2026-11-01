@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 version=$(node -p "require('./manifest.json').version")
 rm -rf dist/pkg && mkdir -p dist/pkg
-cp -r manifest.json icons src app dist/pkg/
+cp -r manifest.json icons src app _locales dist/pkg/
 node -e "const f='dist/pkg/manifest.json';const m=require('./'+f);delete m.key;delete m.update_url;require('fs').writeFileSync(f,JSON.stringify(m,null,2))"
 (cd dist/pkg && zip -qr "../aliedge-$version.zip" .)
 rm -rf dist/pkg

@@ -26,3 +26,8 @@ test("Leboncoin reste une permission facultative (une permission obligatoire dé
   assert.ok(!m.host_permissions.some((h) => h.includes("leboncoin")));
   assert.deepEqual(m.optional_host_permissions, ["https://www.leboncoin.fr/*"]);
 });
+
+test("le paquet du store contient tout ce que le manifest utilise (traductions comprises)", () => {
+  const pack = readFileSync("tools/pack.sh", "utf8");
+  assert.match(pack, /_locales/, "tools/pack.sh doit copier _locales (nom et description traduits)");
+});
