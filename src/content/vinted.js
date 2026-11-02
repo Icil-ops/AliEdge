@@ -35,7 +35,16 @@
       if (/\b(vendu|sold|verkauft|vendido|venduto|verkocht|sprzedane)\b/i.test(badge)) status = "sold";
     }
     title = String(title || "").replace(/\s*\|\s*Vinted.*$/i, "").trim();
-    return { vinted_id: id, market: marketOf(location.hostname), title, price, photo_url: photo, url: location.href.split("?")[0], status };
+    // Livres : l'ISBN affiché sur la page (rubrique des détails ou description), sans aucune requête.
+    let isbn = null;
+    try {
+      const rows = [...document.querySelectorAll('[data-testid*="isbn" i], [itemprop="isbn"], [class*="details-list"] div, [class*="item-attributes"] div')];
+      const lab = rows.find((el) => /isbn/i.test(el.getAttribute?.("data-testid") || "") || /^\s*ISBN/i.test(el.textContent || ""));
+      const txt = (lab ? lab.textContent : "") + " " + (document.querySelector('[itemprop="description"], [data-testid*="description"]')?.textContent || "");
+      const m = txt.match(/(?:97[89][\s-]?)?\d{1,5}[\s-]?\d{1,7}[\s-]?\d{1,7}[\s-]?[\dX]/gi) || [];
+      for (const c of m) { const d = c.replace(/[^0-9X]/gi, ""); if (d.length === 10 || d.length === 13) { isbn = d; break; } }
+    } catch { /* page inattendue */ }
+    return { vinted_id: id, market: marketOf(location.hostname), title, price, photo_url: photo, url: location.href.split("?")[0], status, ...(isbn ? { isbn } : {}) };
   }
 
   function sourcingLinks(item) {

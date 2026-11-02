@@ -221,6 +221,40 @@ function listedAt(it, photo) {
   return Number.isFinite(iso) ? Math.round(iso / 1000) : null;
 }
 
+/** ISBN valide (10 ou 13 chiffres, clé de contrôle vérifiée), normalisé en ISBN-13. Sinon null. */
+export function cleanIsbn(v) {
+  const d = String(v ?? "").toUpperCase().replace(/[^0-9X]/g, "");
+  if (d.length === 13 && /^97[89]\d{10}$/.test(d)) {
+    const sum = [...d.slice(0, 12)].reduce((a, c, i) => a + Number(c) * (i % 2 ? 3 : 1), 0);
+    return (10 - (sum % 10)) % 10 === Number(d[12]) ? d : null;
+  }
+  if (d.length === 10 && /^\d{9}[\dX]$/.test(d)) {
+    const sum = [...d].reduce((a, c, i) => a + (c === "X" ? 10 : Number(c)) * (10 - i), 0);
+    if (sum % 11) return null;
+    const core = `978${d.slice(0, 9)}`;
+    const s13 = [...core].reduce((a, c, i) => a + Number(c) * (i % 2 ? 3 : 1), 0);
+    return core + ((10 - (s13 % 10)) % 10);
+  }
+  return null;
+}
+
+/** ISBN d'un livre, lu dans les données déjà chargées (champ dédié, attributs, titre ou description). Aucune requête. */
+export function isbnOf(it) {
+  if (!it || typeof it !== "object") return null;
+  const direct = cleanIsbn(it.isbn ?? it.book_isbn ?? it.item_isbn);
+  if (direct) return direct;
+  for (const list of [it.item_attributes, it.attributes, it.item_box?.attributes]) {
+    for (const a of Array.isArray(list) ? list : []) {
+      const code = String(a?.code ?? a?.title ?? a?.name ?? "");
+      if (/isbn/i.test(code)) { const v = cleanIsbn(a?.value ?? a?.data?.value ?? (Array.isArray(a?.data) ? a.data[0]?.value : null)); if (v) return v; }
+    }
+  }
+  const text = `${it.title || ""} ${it.description || ""}`;
+  const m = text.match(/(?:ISBN(?:-1[03])?\s*:?\s*)?((?:97[89][\s-]?)?\d{1,5}[\s-]?\d{1,7}[\s-]?\d{1,7}[\s-]?[\dX])\b/gi) || [];
+  for (const cand of m) { const v = cleanIsbn(cand.replace(/^ISBN(?:-1[03])?\s*:?\s*/i, "")); if (v) return v; }
+  return null;
+}
+
 export function normaliseItem(it, market) {
   const photo = it.photo || (Array.isArray(it.photos) ? it.photos[0] : null);
   const thumb = photo?.thumbnails?.find?.((t) => t.type === "thumb310x430")?.url;
@@ -244,6 +278,7 @@ export function normaliseItem(it, market) {
     views: Number.isFinite(it.view_count) ? it.view_count : null,
     // Mise en ligne : horodatage de la première photo (secondes), à défaut la date de création.
     listed_at: listedAt(it, photo),
+    isbn: isbnOf(it),
   };
 }
 

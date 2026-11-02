@@ -1,6 +1,6 @@
 {
-  "version": "3.6.0",
-  "notes": "Reposter tes annonces Vinted sur Beebs, Opla, Leboncoin et Facebook Marketplace (photos, catégorie, état, taille remplis), Reposter partout, publication automatique facultative sur Beebs et Opla, fiche d'une vente avec fournisseurs probables, catalogue alimenté au défilement (Vinted, Leboncoin, AliExpress, Temu, Shein).",
+  "version": "3.6.1",
+  "notes": "Reposter tes annonces Vinted sur Beebs, Opla, Leboncoin et Facebook Marketplace (photos, catégorie, état, taille remplis), Reposter partout, publication automatique facultative sur Beebs et Opla, fiche d'une vente avec fournisseurs probables, catalogue alimenté au défilement (Vinted, Leboncoin, AliExpress, Temu, Shein). Plus discret pour ton compte Vinted : moins de vérifications en arrière-plan. ISBN des livres relevé automatiquement.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-02",
   "minVersion": "3.0.0"

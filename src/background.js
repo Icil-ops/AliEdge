@@ -509,6 +509,7 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
     vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition,
     price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active",
     ...(i.listed_at ? { listed_at: i.listed_at } : {}),
+    ...(i.isbn ? { isbn: i.isbn } : {}),
   });
   if (settings.shareAnalyses) {
     const mine = await dropOwn(found);
@@ -665,14 +666,21 @@ async function communityCheck() {
   if (!(await sb.getSession())) return;
   // 1) Par vendeur : un dressing lu = toutes ses annonces suivies revérifiées d'un coup.
   let sellers = [];
-  try { sellers = await sb.rpc("aliedge_sellers_to_check", { _limit: 4 }); } catch { /* fonction absente : on passe aux annonces */ }
+  // Prudence pour le compte du membre : 1 page de vendeur par passage (toutes les 30 min), 20 par jour au plus
+  // hors concurrents suivis, et jamais d'annonce ouverte une par une.
+  const day = new Date().toISOString().slice(0, 10);
+  const { ae_seller_pages: sp = {} } = await chrome.storage.local.get("ae_seller_pages");
+  const usedToday = sp.day === day ? sp.n : 0;
+  try { sellers = await sb.rpc("aliedge_sellers_to_check", { _limit: 2 }); } catch { /* fonction absente */ }
+  sellers = (sellers || []).filter((x) => x.pending === -1 || usedToday < 20).slice(0, 1);
   const { ae_fullscan: full = {} } = await chrome.storage.local.get("ae_fullscan");
   for (const { seller_id, market, pending } of (sellers || []).filter((x) => remote.trackers_enabled !== "off" || x.pending !== -1)) {
     try {
       // Concurrent suivi : dressing complet (toutes les pages) toutes les 3 h, première page entre-temps.
       const key = `${market}:${seller_id}`;
       const deep = pending === -1 && Date.now() - (full[key] || 0) > 3 * 3600_000;
-      const items = await vinted.sellerItems(seller_id, market, { pages: deep ? 10 : 1 });
+      const items = await vinted.sellerItems(seller_id, market, { pages: deep ? 4 : 1 });
+      if (pending !== -1) await chrome.storage.local.set({ ae_seller_pages: { day, n: usedToday + 1 } });
       if (deep) { full[key] = Date.now(); await chrome.storage.local.set({ ae_fullscan: Object.fromEntries(Object.entries(full).slice(-200)) }); }
       if (items.length) await reportWardrobe(seller_id, market, items);
     } catch (e) {
@@ -681,20 +689,7 @@ async function communityCheck() {
     await new Promise((r) => setTimeout(r, 3000 + Math.random() * 4000));
   }
   await checkCompetitorSales().catch(() => {});
-  // 2) Annonces sans vendeur connu : une par une.
-  let batch = [];
-  try { batch = await sb.rpc("aliedge_items_to_check", { _limit: 6 }); } catch { return; }
-  const report = [];
-  for (const { vinted_id, market } of batch || []) {
-    try {
-      const status = await vinted.itemStatus(vinted_id, market);
-      if (status) report.push({ vinted_id, market, status });
-    } catch (e) {
-      if (STOP_CODES.has(e.code)) break;
-    }
-    await new Promise((r) => setTimeout(r, 2500 + Math.random() * 3500));
-  }
-  if (report.length) await sb.rpc("aliedge_report_items", { _items: report }).catch(() => {});
+  // 2) Plus de vérification annonce par annonce : trop de requêtes pour le compte du membre.
   // 3) Rafraîchissement : quelques produits du catalogue relancés sur Vinted pour trouver les nouvelles annonces.
   await refreshProducts();
   await flushSeen();
@@ -702,7 +697,7 @@ async function communityCheck() {
 
 async function refreshProducts() {
   let rows = [];
-  try { rows = await sb.rpc("aliedge_products_to_refresh", { _limit: 4 }); } catch { return; }
+  try { rows = await sb.rpc("aliedge_products_to_refresh", { _limit: 1 }); } catch { return; }
   const market = (await getSettings()).market || "fr";
   for (const p of rows || []) {
     try {
@@ -1091,7 +1086,7 @@ async function reportWardrobe(sellerId, market, items) {
   if ((await ownSellerIds()).has(Number(sellerId))) return {};
   return sb.rpc("aliedge_report_wardrobe", {
     _seller_id: Number(sellerId), _market: market,
-    _items: items.slice(0, 1000).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, brand: i.brand, size: i.size, photo_url: i.photo_url, url: i.url, favourites: i.favourites, listed_at: i.listed_at })),
+    _items: items.slice(0, 1000).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, brand: i.brand, size: i.size, photo_url: i.photo_url, url: i.url, favourites: i.favourites, listed_at: i.listed_at, ...(i.isbn ? { isbn: i.isbn } : {}) })),
   });
 }
 
@@ -1117,10 +1112,10 @@ async function reportVintedItem(item, raw = null) {
   if (raw && Number(raw.id) === Number(item.vinted_id)) {
     // Détails complets lus sur la page : vendeur, marque, taille, favoris, date de mise en ligne.
     const n = vinted.normaliseItem(raw, item.market);
-    item = { ...n, url: item.url || n.url, status: vinted.statusFromJson(raw), visited: true };
+    item = { ...n, url: item.url || n.url, status: vinted.statusFromJson(raw), visited: true, isbn: n.isbn || vinted.cleanIsbn(item.isbn) };
   } else {
     if (!item.status) return;
-    item = { ...item, visited: true };
+    item = { ...item, visited: true, isbn: vinted.cleanIsbn(item.isbn) };
   }
   if (item.seller_id && (await ownSellerIds()).has(Number(item.seller_id))) return;
   const last = reported.get(item.vinted_id);
