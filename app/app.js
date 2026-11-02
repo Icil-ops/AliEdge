@@ -5,6 +5,20 @@ import { draftListing, buildQuery, lbcListing } from "../src/lib/text.js";
 import { titleKey } from "../src/lib/match.js";
 
 const $view = document.getElementById("view");
+// Photo cassée ou absente (lien Vinted expiré) : vignette neutre au lieu de l'icône cassée.
+const IMG_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg>';
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || img.dataset.off) return;
+  img.dataset.off = "1";
+  const d = document.createElement("div");
+  d.className = `img-off ${img.className || ""}`;
+  d.innerHTML = IMG_OFF;
+  const r = img.getBoundingClientRect();
+  if (r.width && r.height) { d.style.width = `${r.width}px`; d.style.height = `${r.height}px`; }
+  d.style.borderRadius = getComputedStyle(img).borderRadius;
+  img.replaceWith(d);
+}, true);
 const $plan = document.getElementById("plan");
 const isTab = new URLSearchParams(location.search).get("mode") === "tab";
 if (isTab) document.body.classList.add("mode-tab");
@@ -994,7 +1008,9 @@ async function loadSalesFeed(append = false) {
     bindHead();
     return;
   }
-  const badge = (r) => lbc ? (r.certainty === "sold" ? `<span class="badge-sold">Vendu</span>` : `<span class="badge-sold" title="L'annonce a disparu moins de 30 jours après sa mise en ligne">Vendu (estimation)</span>`) : `<span class="badge-sold">Vendu</span>`;
+  const badge = (r) => r.certainty && r.certainty !== "sold"
+    ? `<span class="badge-sold" title="${lbc ? "L'annonce a disparu moins de 30 jours après sa mise en ligne" : "L'annonce n'apparaît plus dans les recherches alors que les autres annonces du même produit si"}">Vendu (estimation)</span>`
+    : `<span class="badge-sold">Vendu</span>`;
   const extra = (r) => lbc ? `${r.department ? ` · ${esc(r.department)}` : ""}${r.shipping ? " · livraison" : ""}` : r.brand ? ` · ${esc(r.brand)}` : "";
   const line = (r) => `
     <div class="sale-row">
@@ -1035,7 +1051,7 @@ async function openSaleSheet(r, lbc) {
   const site = lbc ? "Leboncoin" : "Vinted";
   const rows = [
     ["Prix", r.price != null ? eur(Number(r.price)) : "—"],
-    ["Vendu", `${esc(ago(new Date(r.sold_at).getTime()))}${lbc && r.certainty !== "sold" ? " (estimation)" : ""}`],
+    ["Vendu", `${esc(ago(new Date(r.sold_at).getTime()))}${r.certainty && r.certainty !== "sold" ? " (estimation)" : ""}`],
     ["Parti en", r.days_to_sell != null ? `${esc(String(r.days_to_sell).replace(".", ","))} j` : "délai inconnu"],
     ...(lbc ? [["Département", esc(r.department || "—")], ["Livraison", r.shipping ? "oui" : "non"]] : [["Marque", esc(r.brand || "—")], ["Taille", esc(r.size || "—")]]),
   ];
@@ -1195,6 +1211,24 @@ async function importStatus() {
   const fold = box.closest("details"); if (fold) fold.open = true; // import en cours : on le montre
 }
 
+/** Indicateurs d'un produit : taux de vente, saturation, délai, prix qui fait vendre, tendance. */
+const TREND = { up: ["En hausse", "gain"], down: ["En baisse", "loss"], flat: ["Stable", ""], unknown: ["Pas encore assez de ventes", ""] };
+function indicatorsHtml(st) {
+  const small = (st.sample || 0) < 5;
+  const sat = st.saturation == null ? "—" : `${String(st.saturation).replace(".", ",")} annonce${st.saturation >= 2 ? "s" : ""} / vente`;
+  const satLevel = st.saturation == null ? "" : st.saturation <= 3 ? "gain" : st.saturation >= 10 ? "loss" : "";
+  const t = TREND[st.trend] || TREND.unknown;
+  return `<h3>Indicateurs</h3>
+    <div class="stats">
+      <div class="stat"><div class="k">Taux de vente (30 j)</div><div class="v num">${st.sell_through == null ? "—" : `${st.sell_through} %`}</div></div>
+      <div class="stat"><div class="k">Saturation</div><div class="v num ${satLevel === "gain" ? "pos" : satLevel === "loss" ? "neg" : ""}" style="font-size:15px">${sat}</div></div>
+      <div class="stat"><div class="k">Délai de vente médian</div><div class="v num">${st.median_days == null ? "—" : `${String(st.median_days).replace(".", ",")} j`}</div></div>
+      <div class="stat"><div class="k">Prix qui fait vendre</div><div class="v num">${eur(st.median_sold_price)}</div></div>
+    </div>
+    <p class="small muted" style="margin-top:6px"><span class="pill ${t[1]}">${t[0]}</span> ${st.sold_30d || 0} vendu${st.sold_30d > 1 ? "s" : ""} ce mois-ci contre ${st.sold_prev_30d || 0} le mois d'avant${st.probable_30d ? ` · ${st.probable_30d} vente${st.probable_30d > 1 ? "s" : ""} probable${st.probable_30d > 1 ? "s" : ""} (annonce disparue des recherches)` : ""}${st.median_active_price != null ? ` · prix demandé en ligne ${eur(st.median_active_price)}` : ""}${st.fav_per_day != null ? ` · ${String(st.fav_per_day).replace(".", ",")} favori/jour` : ""}.</p>
+    ${small ? `<p class="small muted">Estimation sur peu de ventes : à confirmer avec l'analyse.</p>` : ""}`;
+}
+
 async function openProduct(row) {
   if (!row) return;
   if (row.locked) { window.open(BUY_URL, "_blank", "noopener"); return; }
@@ -1221,6 +1255,7 @@ async function openProduct(row) {
         <button class="btn" type="button" data-save>${ICON.eye}Enregistrer</button>
       </div>
       <p class="small muted">Ouvre la fiche puis clique sur « Analyser sur Vinted » pour le calcul complet avec ton prix.</p>
+      <div id="dstats"></div>
       <div id="dhistory"></div>
       <h3>Annonces Vinted</h3>
       <div class="items" id="ditems"><div class="skel" style="height:72px"></div><div class="skel" style="height:72px"></div></div>
@@ -1233,6 +1268,11 @@ async function openProduct(row) {
   d.querySelector("[data-save]").addEventListener("click", async () => {
     try { await api("saved:add", { productId: row.product_id }); toast("Produit enregistré dans Suivis"); } catch (e) { toast(e.message); }
   });
+  api("catalog:stats", { ids: [row.product_id] }).then((rows) => {
+    const box = d.querySelector("#dstats");
+    const st = (rows || [])[0];
+    if (box && st) box.innerHTML = indicatorsHtml(st);
+  }).catch(() => {});
   api("product:history", { productId: row.product_id }).then((h) => {
     const box = d.querySelector("#dhistory");
     if (!box || !h) return;

@@ -570,3 +570,10 @@ dialog.salesheet::backdrop{background:rgba(18,16,25,.55)}
 .salesheet .sup .t{font-size:13px;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .salesheet .close{position:absolute;top:10px;right:10px}
 @media (max-width:620px){.salesheet .sh{grid-template-columns:1fr}.salesheet .sh-l{border-right:0;border-bottom:1px solid var(--line)}.salesheet .sh-l img{aspect-ratio:16/10}}
+
+/* ── Indicateurs produit */
+.stat .v.pos { color: var(--gain); }
+.stat .v.neg { color: var(--loss); }
+
+.img-off { display: grid; place-items: center; flex: none; background: var(--soft); color: var(--muted); min-width: 32px; min-height: 32px; }
+.img-off svg { width: 40%; max-width: 40px; height: auto; opacity: .7; }

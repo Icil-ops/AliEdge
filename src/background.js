@@ -1082,8 +1082,18 @@ async function dropOwn(items) {
   return own.size ? items.filter((i) => !own.has(Number(i?.seller_id))) : items;
 }
 
+// Ventes repérées : leurs photos sont copiées tout de suite par le serveur (les liens Vinted expirent).
+const photoSaved = new Set();
+function saveSoldPhotos(items) {
+  const ids = (items || []).filter((i) => i?.status === "sold" && Number(i.vinted_id) > 0 && !photoSaved.has(Number(i.vinted_id))).map((i) => Number(i.vinted_id)).slice(0, 40);
+  if (!ids.length) return;
+  ids.forEach((id) => photoSaved.add(id));
+  barapics({ action: "savephotos", ids }).catch(() => {});
+}
+
 async function reportWardrobe(sellerId, market, items) {
   if ((await ownSellerIds()).has(Number(sellerId))) return {};
+  saveSoldPhotos(items);
   return sb.rpc("aliedge_report_wardrobe", {
     _seller_id: Number(sellerId), _market: market,
     _items: items.slice(0, 1000).map((i) => ({ vinted_id: i.vinted_id, status: i.status, price: i.price, title: i.title, brand: i.brand, size: i.size, photo_url: i.photo_url, url: i.url, favourites: i.favourites, listed_at: i.listed_at, ...(i.isbn ? { isbn: i.isbn } : {}) })),
@@ -1124,6 +1134,7 @@ async function reportVintedItem(item, raw = null) {
   reported.set(item.vinted_id, Date.now());
   if (reported.size > 500) reported.delete(reported.keys().next().value);
   await sb.rpc("aliedge_report_items", { _items: [item] }).catch(() => {});
+  saveSoldPhotos([item]);
 }
 
 
@@ -1140,6 +1151,7 @@ async function reportCards({ items }) {
   // Favoris (« liked ») : marqués comme consultés pour que leurs ventes soient revérifiées chaque jour.
   const payload = fresh.map(({ liked, ...i }) => ({ ...i, ...(liked && settings.shareLikes !== false ? { visited: true } : {}) }));
   const n = await sb.rpc("aliedge_report_items", { _items: payload }).catch(() => 0);
+  saveSoldPhotos(payload);
   return { added: n };
 }
 
@@ -1493,9 +1505,10 @@ async function autoSeenProducts({ items }) {
   if (st.autoSupplier === false || !st.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
   const now = Date.now();
   const fresh = items.filter((c) => ["aliexpress", "temu", "shein"].includes(c?.platform) && /^\d{3,25}$/.test(String(c.source_id || "")) && /^https:\/\//.test(c.url || "")
-    && now - (autoSeen.get(`${c.platform}:${c.source_id}`) || 0) > 24 * 3600_000).slice(0, 60);
+    && now - (autoSeen.get(`${c.platform}:${c.source_id}:${c.image_url ? 1 : 0}`) || 0) > 24 * 3600_000).slice(0, 60);
   if (!fresh.length) return { added: 0 };
-  fresh.forEach((c) => autoSeen.set(`${c.platform}:${c.source_id}`, now));
+  // Une fiche revue avec sa photo (chargée entre-temps) est renvoyée pour compléter le catalogue.
+  fresh.forEach((c) => autoSeen.set(`${c.platform}:${c.source_id}:${c.image_url ? 1 : 0}`, now));
   while (autoSeen.size > 5000) autoSeen.delete(autoSeen.keys().next().value);
   let added = 0;
   for (let i = 0; i < fresh.length; i += 20) added += Number(await sb.rpc("aliedge_seen_products", { _products: fresh.slice(i, i + 20) }).catch(() => 0)) || 0;
@@ -1946,6 +1959,7 @@ const handlers = {
   "radar:limit": async () => ({ max: await radarLimit() }),
   "trends": async ({ days = 30 }) => sb.rpc("aliedge_market_trends", { _days: days }),
   "product:history": async ({ productId }) => sb.rpc("aliedge_product_history", { _product_id: productId }),
+  "catalog:stats": async ({ ids = [] }) => sb.rpc("aliedge_product_stats", { _ids: (ids || []).map(String).slice(0, 50) }),
   "pending:take": async () => {
     const r = await chrome.storage.session.get("ae_pending");
     await chrome.storage.session.remove("ae_pending");

@@ -11,6 +11,25 @@
     ["shein", /^https:\/\/[a-z.]*shein\.[a-z.]+\/[^?#]*-p-(\d+)(?:-cat-\d+)?\.html/i],
   ];
   const sent = new Set();
+  const noImage = new Map(); // produits envoyés sans photo (image pas encore chargée) : renvoyés quand elle apparaît
+  // Photo réelle de la carte : les sites chargent les images au défilement (data-src, srcset, fond CSS).
+  function bestSrc(card) {
+    const cands = [];
+    for (const img of card.querySelectorAll("img")) {
+      cands.push(img.currentSrc, img.getAttribute("data-src"), img.getAttribute("data-original"), img.getAttribute("data-lazy"), img.getAttribute("data-design-src"), img.getAttribute("src"));
+      const ss = img.getAttribute("srcset") || img.getAttribute("data-srcset");
+      if (ss) cands.push(ss.split(",").map((x) => x.trim().split(/\s+/)[0]).pop());
+    }
+    for (const el of card.querySelectorAll("[style*='background-image']")) { const m = (el.getAttribute("style") || "").match(/url\(["']?([^"')]+)/); if (m) cands.push(m[1]); }
+    for (let c of cands) {
+      if (!c) continue;
+      c = String(c).trim();
+      if (c.startsWith("//")) c = `https:${c}`;
+      if (!/^https:\/\//.test(c) || /^data:|placeholder|blank|loading|lazy|\.gif(\?|$)|1x1|transparent|bg-grey|default_img/i.test(c)) continue;
+      return c;
+    }
+    return null;
+  }
   let timer = null;
   const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
 
@@ -22,21 +41,26 @@
         const m = href.match(re);
         if (!m) continue;
         const key = `${platform}:${m[1]}`;
-        if (sent.has(key)) break;
+        if (sent.has(key) && !noImage.has(key)) break;
         let card = a;
         for (let i = 0; i < 6 && card.parentElement; i++) {
           if (card.querySelector("img") && /\d[.,]\d{2}\s?€|€\s?\d/.test(card.textContent || "")) break;
           card = card.parentElement;
         }
         const img = card.querySelector("img");
-        let src = img ? (img.currentSrc || img.getAttribute("src") || img.dataset?.src || "") : "";
-        if (src.startsWith("//")) src = `https:${src}`;
+        const src = bestSrc(card);
+        if (noImage.has(key)) {
+          // Déjà envoyé sans photo : on ne le renvoie que si la photo est enfin chargée (3 essais au plus).
+          if (!src) { const n = noImage.get(key) + 1; if (n >= 3) noImage.delete(key); else noImage.set(key, n); break; }
+          noImage.delete(key);
+        }
         const title = clean(a.getAttribute("title") || card.querySelector("[title]")?.getAttribute("title") || img?.alt || a.textContent || card.querySelector("h1,h2,h3")?.textContent);
         const pm = clean(card.textContent).match(/(\d{1,4}[.,]\d{2})\s?€|€\s?(\d{1,4}[.,]\d{2})/);
         const price = pm ? Number((pm[1] || pm[2]).replace(",", ".")) : null;
         if (title.length >= 8 && title.length <= 400) {
           sent.add(key);
-          out.push({ platform, source_id: m[1], url: href.split(/[?#]/)[0], title: title.slice(0, 300), image_url: /^https:\/\//.test(src) ? src : null, price, category: null });
+          if (!src) noImage.set(key, 0);
+          out.push({ platform, source_id: m[1], url: href.split(/[?#]/)[0], title: title.slice(0, 300), image_url: src, price, category: null });
         }
         break;
       }
