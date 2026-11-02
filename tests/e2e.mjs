@@ -117,6 +117,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
 
 const radarUrls = [];
 const fbRequests = [];
+const imageProxyCalls = [];
 let oplaStock = [["art_a1b2c3d4e5f6a7b8c9d0", "Sweat Nike gris", 25], ["art_b1b2c3d4e5f6a7b8c9d0", "Jean Levi's 501", 30]];
 let beebsStock = [[34000001, "Robe crochet fille", 12], [34000002, "Gilet bébé laine", 9]];
 await ctx.route("**/*", async (route) => {
@@ -259,6 +260,7 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "alerts:send") return route.fulfill({ headers: cors, json: { ok: true, discord: true, telegram: false, skool: false } });
     if (body.action === "listing") return route.fulfill({ headers: cors, json: { title: "Sac bandoulière cuir noir femme", description: "Joli sac neuf.", category: "Femmes > Sacs > Sacs à bandoulière", brand: "Sans marque", condition: "Neuf sans étiquette", size: "Taille unique", colors: ["Noir"], material: "Cuir synthétique", parcel: "Petit", price: 19, priceReason: "Prix médian des ventes constatées.", hashtags: ["sac", "cuir"], market: null, supplierPrice: 6.4, margin: 12.6 } });
     if (body.action === "diagnostic") return route.fulfill({ headers: cors, json: { summary: "Ton compte a une bonne base mais publie trop peu.", strengths: ["Bonne note"], fixes: [{ title: "Publie 1 annonce par jour", why: "0 annonce cette semaine", how: "Prépare 7 articles le dimanche." }, { title: "Ajoute la marque", why: "Peu d'annonces avec marque", how: "Renseigne le champ marque." }, { title: "Refais les vieilles annonces", why: "Âge médian élevé", how: "Supprime et republie avec de nouvelles photos." }] } });
+    if (body.action === "imageproxy") { imageProxyCalls.push(body.url); return route.fulfill({ headers: cors, json: { type: "image/png", b64: PNG.toString("base64") } }); }
     if (body.action === "imagesearch") return route.fulfill({ headers: cors, json: { name: "Sac bandoulière cuir noir", supplier: ["women leather crossbody bag black", "small shoulder bag pu leather"], vinted: ["sac bandoulière noir", "petit sac cuir"], brand: null, branded: false, category: "Sacs" } });
     if (body.action === "review") return route.fulfill({ headers: cors, json: { verdict: "go", summary: "Bon sac d'entrée de gamme, bien noté.", good: ["Note de 4,8"], watch: ["Les dimensions sont petites"], save: ["Prends la variante noire, moins chère"], resale: "Vends-le autour de 20 € avec des photos portées." } });
     if (body.action === "compare") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 2).map((c) => [c.id, 0.9])) } });
@@ -890,6 +892,17 @@ if (process.env.STORE_SHOTS) {
   await lbc.close();
 }
 
+// Onglet ouvert par l'extension (chrome.tabs.create) : Playwright ne l'intercepte pas toujours à temps (en CI la vraie
+// page se charge), alors on le recharge sur l'adresse attendue, sous les copies de test, puis on attend l'étape voulue.
+async function extTab(before, flowUrl, finalRe) {
+  let p = null;
+  for (let i = 0; i < 20 && !p; i++) { await page.waitForTimeout(500); p = ctx.pages().find((x) => !before.has(x)); }
+  if (!p) return null;
+  await p.goto(flowUrl).catch(() => {});
+  for (let i = 0; i < 24 && !finalRe.test(p.url()); i++) await page.waitForTimeout(500);
+  return finalRe.test(p.url()) ? p : null;
+}
+
 // Pages d'accueil : toutes les annonces déjà chargées rejoignent la base (Vinted et Leboncoin), par paquets.
 {
   const ids = (bodies, key) => new Set(bodies.flatMap((b) => { try { return (JSON.parse(b)._items || []).map((i) => i[key]); } catch { return []; } }));
@@ -922,9 +935,10 @@ if (process.env.STORE_SHOTS) {
   await bb.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackers" })))?.data?.[0] || {};
   const onDressing = await bb.locator(".aliedge-beebs-competitor").count();
+  const before_926 = new Set(ctx.pages());
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:open", listing: { title: "Robe crochet bohème", description: "Neuve.", price: 15, brand: "Zara", condition: "Très bon état", size: "M", photos: ["https://cdn.beebs.app/a.jpg"] } }));
   let sellTab = null;
-  for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /beebs\.app\/fr\/vendre/.test(p.url())); }
+  sellTab = await extTab(before_926, "https://www.beebs.app/fr?ae=sell", /beebs\.app\/fr\/vendre/);
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
   const onSell = sellTab ? await sellTab.locator("#aliedge-beebs-sell").count() : 0;
   await sellTab?.waitForTimeout(2500);
@@ -934,9 +948,10 @@ if (process.env.STORE_SHOTS) {
   // Reposter plusieurs annonces Vinted du membre sur Beebs, l'une après l'autre.
   const mine = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:myItems" }));
   const ids = (mine?.data || []).slice(0, 2).map((i) => i.id);
+  const before_938 = new Set(ctx.pages());
   await page.evaluate((x) => chrome.runtime.sendMessage({ type: "beebs:queue", ids: x, market: "fr" }), ids);
   let qTab = null;
-  for (let i = 0; i < 20 && !qTab; i++) { await page.waitForTimeout(500); qTab = ctx.pages().find((p) => /beebs\.app\/fr\/vendre/.test(p.url())); }
+  qTab = await extTab(before_938, "https://www.beebs.app/fr?ae=sell", /beebs\.app\/fr\/vendre/);
   if (qTab) await qTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
   await qTab?.waitForFunction(() => document.querySelector('input[name="title"]')?.value, null, { timeout: 8000 }).catch(() => {});
   const firstTitle = qTab ? await qTab.evaluate(() => document.querySelector('input[name="title"]').value) : "";
@@ -953,9 +968,10 @@ if (process.env.STORE_SHOTS) {
 {
   const mine = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:myItems" }));
   const ids = (mine?.data || []).slice(0, 2).map((i) => i.id);
+  const before_957 = new Set(ctx.pages());
   await page.evaluate((x) => chrome.runtime.sendMessage({ type: "lbc:queue", ids: x, market: "fr" }), ids);
   let dep = null;
-  for (let i = 0; i < 20 && !dep; i++) { await page.waitForTimeout(500); dep = ctx.pages().find((p) => /leboncoin\.fr\/deposer-une-annonce/.test(p.url())); }
+  dep = await extTab(before_957, "https://www.leboncoin.fr/deposer-une-annonce", /leboncoin\.fr\/deposer-une-annonce/);
   await dep?.waitForFunction(() => document.querySelector('input[name="subject"]')?.value, null, { timeout: 9000 }).catch(() => {});
   const t1 = dep ? await dep.evaluate(() => document.querySelector('input[name="subject"]').value) : "";
   const nx = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:next", posted: true }));
@@ -968,9 +984,10 @@ if (process.env.STORE_SHOTS) {
 
 // Facebook Marketplace : remplissage seulement (titre, prix, description, catégorie, état, photos), aucune autre page lue.
 {
+  const before_972 = new Set(ctx.pages());
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "facebook:open", listing: { title: "Chemise à carreaux Chaps", description: "Taille XL.", price: 10, condition: "Très bon état", categoryPath: ["Hommes", "Vêtements", "Chemises"], photos: ["https://images1.vinted.net/t/1.jpeg"] } }));
   let fb = null;
-  for (let i = 0; i < 20 && !fb; i++) { await page.waitForTimeout(500); fb = ctx.pages().find((p) => /facebook\.com\/marketplace\/create/.test(p.url())); }
+  fb = await extTab(before_972, "https://www.facebook.com/marketplace/create/item?ae=sell", /facebook\.com\/marketplace\/create/);
   await fb?.waitForFunction(() => document.getElementById("fbcond")?.dataset.v && document.getElementById("fbph")?.files.length, null, { timeout: 20000 }).catch(() => {});
   const f = fb ? await fb.evaluate(() => ({ t: document.getElementById("fbt").value, p: document.getElementById("fbp").value, d: document.getElementById("fbd").value, cat: document.getElementById("fbcat").dataset.v, c: document.getElementById("fbcond").dataset.v, ph: document.getElementById("fbph").files.length })) : {};
   check("Facebook Marketplace : formulaire rempli (titre, prix, description, catégorie, état, photos), rien d'autre lu sur Facebook", f.t === "Chemise à carreaux Chaps" && f.p === "10" && f.d === "Taille XL." && f.cat === "Vêtements et chaussures pour hommes" && /comme neuf/i.test(f.c || "") && f.ph === 1 && fbRequests.every((x) => x.startsWith("/marketplace/")), JSON.stringify({ f, fbRequests }));
@@ -1006,9 +1023,10 @@ if (process.env.STORE_SHOTS) {
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:trackers" })))?.data?.[0] || {};
   const onShop = await op.locator(".aliedge-beebs-competitor").count();
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "settings:set", patch: { autoPublish_opla: true } }));
+  const before_1010 = new Set(ctx.pages());
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", size: "M", categoryPath: ["Hommes", "Vêtements", "Sweats"], photos: ["https://images1.vinted.net/t/0.jpeg"] } }));
   let sellTab = null;
-  for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /opla\.co\/sell\/create/.test(p.url())); }
+  sellTab = await extTab(before_1010, "https://www.opla.co/sell/create?ae=sell", /opla\.co\/sell\/create/);
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
   await sellTab?.waitForFunction(() => document.getElementById("etat")?.dataset.v && document.getElementById("ph")?.files.length, null, { timeout: 20000 }).catch(() => {});
   const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.getElementById("t").value, d: document.getElementById("d").value, p: document.getElementById("p").value, cat: document.getElementById("cat").dataset.v, b: document.getElementById("brand").dataset.v, c: document.getElementById("etat").dataset.v, sz: document.getElementById("taille").dataset.v, ph: document.getElementById("ph").files.length })) : {};

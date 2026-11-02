@@ -1770,7 +1770,10 @@ const handlers = {
     const out = [];
     for (const u of (Array.isArray(urls) ? urls : []).filter((x) => /^https:\/\//.test(String(x))).slice(0, 10)) {
       let item = null;
-      try {
+      // Sites d'images sans autorisation pour l'extension (CDN Vinted…) : directement par le serveur, sans essai qui
+      // finirait en erreur CORS dans la console de l'extension.
+      const direct = /(^|\.)(alicdn\.com|aliexpress-media\.com|kwcdn\.com|ltwebstatic\.com|sheincdn\.com)$/.test(new URL(u).hostname);
+      if (direct) try {
         const res = await fetch(u, { credentials: "omit" });
         if (res.ok) {
           const blob = await res.blob();

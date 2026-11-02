@@ -124,13 +124,14 @@
     return [...new Set(urls)].slice(0, 10);
   }
 
-  async function crossPost(item, raw, retry = true) {
+  async function crossPost(item, raw, retry = 6) {
     if (!mountedMenu || mountedMenu.dataset.lbc) return;
     const sellerId = Number(raw?.user_id ?? raw?.user?.id) || null;
     const byPage = ownerControls();
     let own = byPage;
     if (!own && sellerId) { try { const r = await chrome.runtime.sendMessage({ type: "vinted:isOwn", sellerId }); own = !!r?.data?.own; } catch { return; } }
-    if (!own) { if (retry) setTimeout(() => crossPost(item, raw, false).catch(() => {}), 2500); return; }
+    // Les boutons et statistiques du vendeur s'affichent parfois tard : on regarde encore quelques fois.
+    if (!own) { if (retry > 0) setTimeout(() => crossPost(item, raw, retry - 1).catch(() => {}), 2000); return; }
     // Compte reconnu par la page : enregistré comme compte du membre (ses annonces ne vont jamais dans la base commune).
     if (byPage && sellerId) chrome.runtime.sendMessage({ type: "vinted:self", id: sellerId, market: location.hostname.split(".").pop() }).catch(() => {});
     if (mountedMenu.dataset.lbc) return;
