@@ -74,7 +74,7 @@
       </div>
       <button class="btn" type="button" aria-haspopup="menu" aria-expanded="false">
         <span class="mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></span>
-        Trouver le fournisseur
+        <span class="lbl">Trouver le fournisseur</span>
       </button>`;
     const btn = root.querySelector(".btn");
     const menu = root.querySelector(".menu");
@@ -85,7 +85,9 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") menu.hidden = true; });
     document.documentElement.appendChild(host);
     mountedMenu = menu;
+    mountedLabel = root.querySelector(".lbl");
   }
+  let mountedLabel = null;
   let mountedMenu = null;
 
   async function crossPost(item, raw) {
@@ -117,7 +119,12 @@
       });
       return b;
     };
-    mountedMenu.append(sep, a, chBtn("beebs", "Beebs"), chBtn("opla", "Opla"));
+    // Sur sa propre annonce, reposter passe en premier : le bouton s'appelle « Reposter ailleurs ».
+    const fold = document.createElement("p");
+    fold.textContent = "Chercher ce produit chez les fournisseurs";
+    mountedMenu.querySelector("p")?.remove();
+    mountedMenu.prepend(sep, chBtn("beebs", "Beebs"), chBtn("opla", "Opla"), a, fold);
+    if (mountedLabel) mountedLabel.textContent = "Reposter ailleurs";
   }
 
   // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.

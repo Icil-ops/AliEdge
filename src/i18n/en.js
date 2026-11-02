@@ -108,7 +108,7 @@
     "Ouvre une page de résultats AliExpress, Temu ou Shein (recherche, catégorie ou meilleures ventes), puis réessaie.": "Open an AliExpress, Temu or Shein results page (search, category or best sellers), then try again.",
     "Connecte-toi pour ajouter des produits au catalogue.": "Sign in to add products to the catalog.", "Connecte-toi pour ajouter des annonces.": "Sign in to add listings.",
     "Colle un ou plusieurs liens d'annonces Vinted (https://www.vinted.fr/items/…).": "Paste one or more Vinted listing links (https://www.vinted.fr/items/…).",
-    "Trouver le fournisseur": "Find the supplier", "Colle ici le lien du produit trouvé": "Paste the link of the product you found here",
+    "Trouver le fournisseur": "Find the supplier", "Reposter ailleurs": "Repost elsewhere", "Colle ici le lien du produit trouvé": "Paste the link of the product you found here",
     "Lien du produit fournisseur": "Supplier product link",
     "Le produit relié rejoint le catalogue commun : tout le monde voit ensuite le fournisseur de cette vente.": "The linked product joins the shared catalog: everyone then sees the supplier of this sale.",
     "Lien de fiche produit AliExpress, Temu ou Shein attendu.": "An AliExpress, Temu or Shein product link is expected.",
