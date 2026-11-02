@@ -168,13 +168,27 @@
       return;
     }
     const field = (k, label, v) => v ? `<div class="f"><b>${esc(label)}</b><div>${esc(v)}</div><button class="b" type="button" data-copy="${k}">Copier</button></div>` : "";
-    panel.innerHTML = `<h4>Annonce AliEdge</h4>
+    const q = l.queue;
+    panel.innerHTML = `<h4>Annonce AliEdge${q ? ` · ${q.index + 1} / ${q.total}` : ""}</h4>
       ${field("title", "Titre", l.title)}${field("body", "Description", l.description)}${field("price", "Prix conseillé", l.price ? String(l.price) : "")}
       ${l.category ? `<p class="msg">Catégorie : ${esc(l.category)}</p>` : ""}
       ${(l.photos || []).length ? `<div class="f"><b>Photos (${l.photos.length})</b><div class="thumbs">${l.photos.slice(0, 10).map((u) => `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer">`).join("")}</div><button class="b" type="button" data-photos>Ajouter les photos à l'annonce</button></div>` : ""}
       <button class="b p wide" type="button" data-fill>Remplir les champs de la page</button>
       <p class="msg" data-best></p>
-      <p class="msg" data-fillmsg>Relis tout avant de publier : c'est toi qui publies l'annonce.</p>`;
+      <p class="msg" data-fillmsg>Relis tout avant de publier : c'est toi qui publies l'annonce.</p>
+      ${q ? `<button class="b p wide" type="button" data-next>Publiée : annonce suivante</button><div class="bar" style="margin:4px"><button class="chip" type="button" data-skip>Passer celle-ci</button><button class="chip" type="button" data-stop>Arrêter</button></div>`
+        : l.vintedId ? `<button class="b wide" type="button" data-done>Annonce publiée : effacer de l'aide</button>` : ""}`;
+    panel.hidden = false;
+    const goNext = async (posted) => {
+      const r = await send({ type: "lbc:next", posted });
+      const d = r?.ok ? r.data : null;
+      ui.host.remove();
+      if (d && !d.done) location.href = d.sell || "https://www.leboncoin.fr/deposer-une-annonce";
+    };
+    panel.querySelector("[data-next]")?.addEventListener("click", () => goNext(true));
+    panel.querySelector("[data-skip]")?.addEventListener("click", () => goNext(false));
+    panel.querySelector("[data-stop]")?.addEventListener("click", async () => { await send({ type: "lbc:stopQueue" }); ui.host.remove(); });
+    panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: "lbc:clearListing" }); ui.host.remove(); });
     const vals = { title: l.title, body: l.description, price: l.price ? String(Math.round(l.price)) : "" };
     panel.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(vals[b.dataset.copy]); b.textContent = "Copié"; } catch { b.textContent = "Copie impossible"; }
@@ -200,6 +214,23 @@
         ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`
         : "Champs pas encore affichés sur cette étape : utilise les boutons « Copier ».";
     });
+    // Publication rapide (annonce reprise de Vinted) : le dépôt Leboncoin se fait en plusieurs étapes, chaque champ
+    // est rempli dès qu'il apparaît (seulement s'il est vide), les photos dès que le champ photos est là.
+    if (l.from === "vinted") {
+      const filled = new Set();
+      let photosDone = false;
+      const tick = async () => {
+        if (!document.getElementById("aliedge-lbc-deposit")) return clearInterval(auto);
+        for (const k of ["title", "body", "price"]) {
+          if (filled.has(k) || !vals[k]) continue;
+          const el = findField(k);
+          if (el && !el.value) { setValue(el, vals[k]); filled.add(k); }
+        }
+        if (!photosDone && (l.photos || []).length && document.querySelector('input[type="file"]')) { photosDone = true; const n = await addPhotos(l.photos); if (n) panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; }
+      };
+      const auto = setInterval(tick, 1500);
+      setTimeout(tick, 900);
+    }
   }
 
   // ───────── Messagerie : réponses toutes prêtes + aide à la négociation (rien n'est envoyé par AliEdge)

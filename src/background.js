@@ -1151,6 +1151,23 @@ async function reportCards({ items }) {
 // ───────────────────────── Leboncoin (accès facultatif à leboncoin.fr, proposé d'office dans le panneau ; coupable
 // dans Compte) : lecture des pages que le membre ouvre, boutons sur les annonces. AUCUNE requête automatique vers Leboncoin.
 const LBC_ORIGINS = ["https://www.leboncoin.fr/*"];
+const LBC_DEPOSIT = "https://www.leboncoin.fr/deposer-une-annonce";
+async function saveLbcListing(listing) {
+  if (listing && !listing.category) listing.category = (LBC_CATS.find(([re]) => re.test(listing.title || "")) || [null, null])[1];
+  if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
+  await chrome.storage.local.set({ ae_lbc_listing: listing ? { ...listing, at: Date.now() } : null });
+}
+async function markLbcPosted(vintedId) {
+  const p = (await chrome.storage.local.get("ae_lbc_posted")).ae_lbc_posted || {};
+  p[vintedId] = Date.now();
+  await chrome.storage.local.set({ ae_lbc_posted: p });
+}
+async function lbcOpen(listing) {
+  await saveLbcListing(listing);
+  const on = await lbcEnabled();
+  chrome.tabs.create({ url: on ? LBC_DEPOSIT : chrome.runtime.getURL("app/app.html?mode=tab#/analyse") });
+  return { enabled: on };
+}
 const LBC_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/harvest-lbc.js", "src/content/lbc-competitors.js", "src/content/lbc-tools.js"];
 async function lbcEnabled() {
   try { if (!(await chrome.permissions.contains({ origins: LBC_ORIGINS }))) return false; } catch { return false; }
@@ -1255,6 +1272,22 @@ async function syncChannelScript(ch) {
 }
 async function syncChannels() { for (const ch of Object.keys(CHANNELS)) await syncChannelScript(ch).catch(() => {}); }
 
+/**
+ * Annonces en ligne du compte Vinted du membre : lues sur Vinted, sinon celles relevées la dernière fois qu'il a
+ * ouvert son propre profil (la lecture peut échouer quand Vinted demande une session différente).
+ */
+async function ownActiveItems() {
+  const own = (await chrome.storage.local.get(OWN_KEY))[OWN_KEY] || [];
+  const saved = (await chrome.storage.local.get("ae_own_items")).ae_own_items || null;
+  if (!own.length && !saved?.items?.length) throw err("Ouvre ton profil Vinted (la page de tes annonces) une fois : AliEdge les relèvera, puis reviens ici.");
+  const market = MARKETS[own[0]?.market] ? own[0].market : saved?.market || "fr";
+  let items = [];
+  if (own.length) items = (await vinted.sellerItems(own[0].id, market, { pages: 3 }).catch(() => [])).filter((i) => i.status === "active");
+  if (!items.length && saved?.items?.length) items = saved.items;
+  if (!items.length) throw err("Aucune annonce trouvée : ouvre ton profil Vinted (la page de tes annonces), puis reviens ici.");
+  return { market, items };
+}
+
 /** Annonce Vinted du membre, reprise pour un autre site : titre, description, prix, marque, taille, état, photos. */
 async function listingFromVinted(vintedId, market = "fr") {
   const it = await vinted.itemRaw(vintedId, market);
@@ -1339,16 +1372,18 @@ function channelHandlers(ch) {
       return l && q ? { ...l, queue: { index: q.index, total: q.ids.length } } : l || null;
     },
     [`${ch}:saveListing`]: async ({ listing }) => { await saveListing(listing); return {}; },
-    [`${ch}:clearListing`]: async () => { await chrome.storage.local.remove(K.listing); return {}; },
+    // « Annonce publiée » (annonce seule) : elle est marquée comme déjà publiée sur ce site.
+    [`${ch}:clearListing`]: async ({ posted = true } = {}) => {
+      const cur = await get(K.listing);
+      if (posted && cur?.vintedId) { const p = (await get(K.posted)) || {}; p[cur.vintedId] = Date.now(); await chrome.storage.local.set({ [K.posted]: p }); }
+      await chrome.storage.local.remove(K.listing); return {};
+    },
     [`${ch}:open`]: async ({ listing }) => open(listing),
     // Série : plusieurs annonces Vinted du membre, l'une après l'autre.
     [`${ch}:myItems`]: async () => {
-      const own = (await get(OWN_KEY)) || [];
-      if (!own.length) throw err("Ouvre Vinted connecté à ton compte : AliEdge le reconnaîtra, puis reviens ici.");
-      const market = MARKETS[own[0].market] ? own[0].market : "fr";
-      const items = await vinted.sellerItems(own[0].id, market, { pages: 3 });
+      const { market, items } = await ownActiveItems();
       const posted = (await get(K.posted)) || {};
-      return items.filter((i) => i.status === "active").map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
+      return items.map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
     },
     [`${ch}:queue`]: async ({ ids = [], market = "fr" }) => {
       const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
@@ -1560,6 +1595,7 @@ async function importVintedLinks(links) {
 
 // ───────────────────────── Barapics en API (même compte, mêmes crédits)
 
+const aliOfficial = new Map();
 async function barapics(body) {
   const session = await sb.getSession();
   if (!session) throw new sb.ApiError("Connecte-toi pour créer des photos.", 401, "auth");
@@ -1724,6 +1760,19 @@ const handlers = {
     _sort: filters.sort || "sold", _min_sold: filters.minSold || 0, _limit: filters.limit || 30, _offset: filters.offset || 0,
   }),
   "catalog:items": async ({ productId }) => sb.rpc("aliedge_product_items", { _product_id: productId }),
+  // Fiche officielle AliExpress (prix France, stock) : lue par le serveur avec la clé de l'app Drop Shipping.
+  "ali:official": async ({ url }) => {
+    const id = String(url || "").match(/\/item\/(\d{6,20})\.html/)?.[1];
+    if (!id) return null;
+    const hit = aliOfficial.get(id);
+    if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.data;
+    const data = await barapics({ action: "aliproduct", productId: id }).catch(() => null);
+    const ok = data && !data.error && (data.price != null || data.title) ? data : null;
+    aliOfficial.set(id, { at: Date.now(), data: ok });
+    while (aliOfficial.size > 200) aliOfficial.delete(aliOfficial.keys().next().value);
+    return ok;
+  },
+  "sales:suppliers": async ({ platform = "vinted", id }) => sb.rpc("aliedge_sale_suppliers", { _platform: platform === "lbc" ? "lbc" : "vinted", _id: Number(id) || 0, _limit: 6 }),
   "sales:feed": async ({ search = null, offset = 0, dropship = true } = {}) => sb.rpc("aliedge_sales_feed", { _search: search ? String(search).slice(0, 80) : null, _limit: 20, _offset: Math.max(0, Number(offset) || 0), _dropship: dropship !== false }),
   "saved:list": async () => sb.select("aliedge_saved", "select=product_id,note,created_at&order=created_at.desc"),
   "saved:add": async ({ productId }) => sb.insert("aliedge_saved", { product_id: productId }, true),
@@ -1750,13 +1799,52 @@ const handlers = {
   },
   "vinted:isOwn": async ({ sellerId }) => ({ own: (await ownSellerIds()).has(Number(sellerId)) }),
   // Dernière annonce rédigée (texte Leboncoin) : reprise par l'assistant de dépôt sur leboncoin.fr.
-  "lbc:listing": async () => (await chrome.storage.local.get("ae_lbc_listing")).ae_lbc_listing || null,
-  "lbc:saveListing": async ({ listing }) => {
-    if (listing && !listing.category) listing.category = (LBC_CATS.find(([re]) => re.test(listing.title || "")) || [null, null])[1];
-    if (listing) listing.photos = (listing.photos || []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 10);
-    await chrome.storage.local.set({ ae_lbc_listing: listing ? { ...listing, at: Date.now() } : null });
-    return {};
+  "lbc:listing": async () => {
+    const { ae_lbc_listing: l, ae_lbc_queue: q } = await chrome.storage.local.get(["ae_lbc_listing", "ae_lbc_queue"]);
+    return l && q ? { ...l, queue: { index: q.index, total: q.ids.length } } : l || null;
   },
+  // Publier rapidement sur Leboncoin (une annonce Vinted, ou plusieurs l'une après l'autre), comme Beebs et Opla.
+  "lbc:open": async ({ listing }) => lbcOpen(listing),
+  "lbc:myItems": async () => {
+    const { market, items } = await ownActiveItems();
+    const posted = (await chrome.storage.local.get("ae_lbc_posted")).ae_lbc_posted || {};
+    return items.map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
+  },
+  "lbc:queue": async ({ ids = [], market = "fr" }) => {
+    const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
+    if (!list.length) throw err("Choisis au moins une annonce.");
+    const mk = MARKETS[market] ? market : "fr";
+    await chrome.storage.local.set({ ae_lbc_queue: { ids: list, index: 0, market: mk } });
+    return lbcOpen(await listingFromVinted(list[0], mk));
+  },
+  "lbc:next": async ({ posted = true } = {}) => {
+    const { ae_lbc_queue: q, ae_lbc_listing: cur } = await chrome.storage.local.get(["ae_lbc_queue", "ae_lbc_listing"]);
+    if (posted && cur?.vintedId) await markLbcPosted(cur.vintedId);
+    if (!q || q.index + 1 >= q.ids.length) { await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return { done: true }; }
+    q.index += 1;
+    await chrome.storage.local.set({ ae_lbc_queue: q });
+    await saveLbcListing(await listingFromVinted(q.ids[q.index], q.market));
+    return { done: false, index: q.index, total: q.ids.length, sell: LBC_DEPOSIT };
+  },
+  "lbc:stopQueue": async () => { await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return {}; },
+  "lbc:clearListing": async ({ posted = true } = {}) => {
+    const cur = (await chrome.storage.local.get("ae_lbc_listing")).ae_lbc_listing;
+    if (posted && cur?.vintedId) await markLbcPosted(cur.vintedId);
+    await chrome.storage.local.remove("ae_lbc_listing"); return {};
+  },
+  // Annonces Vinted du membre déjà publiées ailleurs (repère sur Vinted).
+  // Profil Vinted du membre ouvert : ses annonces en ligne (pour « Reposter sur un autre site »).
+  "vinted:ownItems": async ({ items = [], sellerId = null, market = "fr" }) => {
+    const list = (Array.isArray(items) ? items : []).slice(0, 300).map((i) => ({ vinted_id: Number(i.vinted_id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo_url: /^https:\/\//.test(i.photo_url || "") ? i.photo_url : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, status: "active" })).filter((i) => i.vinted_id > 0);
+    if (sellerId) await addOwnSeller(Number(sellerId), MARKETS[market] ? market : "fr");
+    if (list.length) await chrome.storage.local.set({ ae_own_items: { at: Date.now(), market: MARKETS[market] ? market : "fr", items: list } });
+    return { saved: list.length };
+  },
+  "vinted:postedIds": async () => {
+    const g = await chrome.storage.local.get(["ae_beebs_posted", "ae_opla_posted", "ae_lbc_posted"]);
+    return { beebs: Object.keys(g.ae_beebs_posted || {}), opla: Object.keys(g.ae_opla_posted || {}), lbc: Object.keys(g.ae_lbc_posted || {}) };
+  },
+  "lbc:saveListing": async ({ listing }) => { await saveLbcListing(listing); return {}; },
   // Produit fournisseur relié à une annonce (titre) : pour « Confier à la warehouse » depuis Leboncoin.
   "lbc:itemInfo": async ({ title }) => { const [links, cands] = await Promise.all([saleLinks(), supplierCandidates()]); const m = matchSale({ title }, links, cands); return m ? { url: m.url, title: m.title, price: m.price, platform: m.platform, sure: m.sure } : null; },
   "lbc:profile": async (msg) => reportLbcProfile(msg),
@@ -1940,7 +2028,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

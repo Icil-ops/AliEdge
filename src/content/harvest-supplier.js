@@ -1,5 +1,5 @@
 // Sur AliExpress, Temu et Shein (réglage « Ajouter automatiquement les produits des recherches », activé par défaut) :
-// les produits déjà affichés par une page de résultats sont ajoutés au catalogue commun d'AliEdge.
+// les produits déjà affichés par la page (résultats, accueil, catégories, au fil du défilement) sont ajoutés au catalogue commun d'AliEdge.
 // AUCUNE requête en plus vers le site : on lit seulement ce que la page affiche. Les ventes Vinted de ces produits
 // sont ensuite repérées par le serveur et par les analyses des membres.
 (() => {
@@ -40,18 +40,20 @@
         }
         break;
       }
-      if (out.length >= 60) break;
+      if (out.length >= 600) break;
     }
     return out;
   }
   function flush() {
     timer = null;
+    // Tous les produits déjà chargés (au fil du défilement, accueil et catégories compris), par paquets de 60.
     const items = readCards();
-    if (items.length) chrome.runtime.sendMessage({ type: "catalog:autoSeen", items }).catch(() => {});
+    for (let i = 0; i < items.length; i += 60) chrome.runtime.sendMessage({ type: "catalog:autoSeen", items: items.slice(i, i + 60) }).catch(() => {});
   }
   const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 5000 }) : setTimeout(fn, 0));
-  const schedule = () => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, 4000); };
+  const schedule = (delay = 4000) => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, delay); };
   document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
-  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-  schedule();
+  new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("scroll", () => schedule(2000), { passive: true });
+  schedule(2000);
 })();

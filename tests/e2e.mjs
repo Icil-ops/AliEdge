@@ -60,6 +60,7 @@ const rpc = {
   aliedge_seen_products: 1,
   aliedge_competitor_sales_since: [{ vinted_id: 9000, seller_id: 555, label: "vendeuse", title: "Sac bandoulière cuir noir", brand: null, price: 21, photo_url: "https://images1.vinted.net/t/0.jpeg", url: "https://www.vinted.fr/items/9000-sac", sold_at: new Date(Date.now() - 36e5).toISOString(), days_to_sell: 1.2, product_url: null, product_price: null }],
   aliedge_niche_stats: { sold: 7, active_known: 12, median_price: 20, median_days: 3.5, top_sellers: [{ seller_id: 8801, sold: 4, median_price: 21 }, { seller_id: 555, sold: 2, median_price: 19 }], recent: [{ title: "Sac cuir femme", price: 19, url: "https://www.vinted.fr/items/7002", photo_url: "https://images1.vinted.net/t/s2.jpeg", sold_at: new Date(Date.now() - 864e5).toISOString() }] },
+  aliedge_sale_suppliers: { words: ["tapis"], suppliers: [{ title: "Tapis rond coloré tissé", url: "https://fr.aliexpress.com/item/1005009999.html", price: 9.5, platform: "aliexpress", image_url: null, reason: "similar_sale", score: 30 }] },
   aliedge_sales_feed: [{ vinted_id: 7101, title: "Tapis multicolore", brand: "Vintage", size: null, price: 32, photo_url: "https://images1.vinted.net/t/s9.jpeg", url: "https://www.vinted.fr/items/7101", sold_at: new Date(Date.now() - 864e5).toISOString(), days_to_sell: 14, product_title: null, product_url: null, product_price: null, product_platform: null, total_count: 1 }],
   aliedge_report_lbc_items: 2,
   aliedge_lbc_report_profile: { shown: 2, gone: 0, complete: true },
@@ -140,7 +141,7 @@ await ctx.route("**/*", async (route) => {
     const card = (id, t, p) => `<a href="/fr/p/${id}-x" style="display:inline-block;width:150px"><img alt="${t}" src="https://cdn.beebs.app/${id}.jpg" style="width:150px;height:150px"><span>${p} € 00</span><span>${t}</span></a>`;
     if (url.pathname.startsWith("/fr/p/")) return html(`<title>Robe | Beebs</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Robe crochet fille 6 ans", image: ["https://cdn.beebs.app/a.jpg"], offers: { price: "12.00" } })}</script></head><body>${head}<h1>Robe crochet fille 6 ans</h1><p>Vendu par</p><a href="/fr/dressing/KJ3GOEqX9Kdh8kFE7Ti2MOwOcDo2">CELINE D.</a></body></html>`);
     if (url.pathname.startsWith("/fr/dressing/")) return html(`<title>Dressing de CELINE D</title></head><body>${head}<h1>CELINE D.</h1><p>Annonces (${beebsStock.length})</p>${beebsStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
-    if (url.pathname.startsWith("/fr/vendre")) return html(`<title>Vendre | Beebs</title></head><body>${head}<h1>Mettre un article en vente</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title" placeholder="Titre"></label><label>Description <textarea name="description"></textarea></label><label>Prix <input name="price" placeholder="Prix"></label><button type="button">Mettre en vente</button></body></html>`);
+    if (url.pathname.startsWith("/fr/vendre")) return html(`<title>Vendre | Beebs</title></head><body>${head}<h1>Mettre un article en vente</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title" placeholder="Titre"></label><label>Description <textarea name="description"></textarea></label><label>Prix <input name="price" placeholder="Prix"></label><label>État <select name="condition"><option value="">Choisir</option><option value="new">Neuf avec étiquette</option><option value="vgood">Très bon état</option><option value="good">Bon état</option></select></label><label>Taille <select name="size"><option value="">Choisir</option><option value="s">S</option><option value="m">M</option></select></label><button type="button">Mettre en vente</button></body></html>`);
     return html(`<title>Beebs</title></head><body>${head}<h1>Seconde main des familles</h1></body></html>`);
   }
   if (/(^|\.)opla\.co$/.test(h)) {
@@ -149,7 +150,7 @@ await ctx.route("**/*", async (route) => {
     const card = (id, t, p) => `<a href="/product/${id}" style="display:inline-block;width:150px"><img alt="${t}" src="https://cdn.opla.co/${id}.jpg" style="width:150px;height:150px"><span>${t}</span><span>${p},00 €</span></a>`;
     if (url.pathname.startsWith("/product/")) return html(`<title>Sweat | Opla</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Sweat Nike gris taille M", image: "https://cdn.opla.co/a.jpg", offers: { price: "25.00" } })}</script></head><body>${head}<h1>Sweat Nike gris taille M</h1><a href="/seller/google-oauth2%7C1234567890">Marc V.</a></body></html>`);
     if (url.pathname.startsWith("/seller/")) return html(`<title>Marc V. sur Opla</title></head><body>${head}<h1>Marc V.</h1>${oplaStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
-    if (url.pathname.startsWith("/sell/create")) return html(`<title>Vendre | Opla</title></head><body>${head}<h1>Vendre un article</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title"></label><label>Description <textarea name="description"></textarea></label><label>Marque <input name="brand"></label><label>Prix <input name="price"></label><button type="button">Publier</button></body></html>`);
+    if (url.pathname.startsWith("/sell/create")) return html(`<title>Vendre | Opla</title></head><body>${head}<h1>Vendre un article</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title"></label><label>Description <textarea name="description"></textarea></label><label>Marque <input name="brand"></label><label>Prix <input name="price"></label><section><p>État</p><div><button type="button" onclick="this.setAttribute('aria-pressed','true')">Neuf</button><button type="button" id="c-tbe" onclick="this.setAttribute('aria-pressed','true')">Très bon état</button></div></section><button type="button">Publier</button></body></html>`);
     return html(`<title>Opla</title></head><body>${head}<h1>Opla</h1></body></html>`);
   }
   if (h === "www.leboncoin.fr") {
@@ -436,6 +437,11 @@ await page.waitForFunction(() => document.querySelector("main")?.innerText.inclu
 await page.screenshot({ path: `${shots}/6-catalogue.png`, fullPage: true });
 await page.waitForSelector("#salesfeed .sale-row", { timeout: 6000 }).catch(() => {});
 check("catalogue : ventes Vinted sans fournisseur affichées, avec recherche du fournisseur", (await page.locator("#salesfeed .sale-row").count()) === 1 && (await page.locator("#salesfeed details.supplier").count()) === 1);
+await page.click("#salesfeed [data-sale]").catch(() => {});
+await page.waitForSelector("#salesheet .sup", { timeout: 6000 }).catch(() => {});
+const sheet = await page.evaluate(() => { const d = document.getElementById("salesheet"); return d ? { open: d.open, text: d.innerText.replace(/\s+/g, " ").slice(0, 1200), sup: d.querySelectorAll(".sup").length, link: d.querySelector('a.btn.primary')?.href } : null; });
+check("catalogue : fiche d'une vente (délai, lien vers l'annonce, fournisseurs probables de la base)", sheet?.open && sheet.sup === 1 && /14 j/.test(sheet.text) && /Tapis rond/.test(sheet.text) && /vinted\.fr\/items\/7101/.test(sheet.link || ""), JSON.stringify(sheet));
+await page.evaluate(() => document.getElementById("salesheet")?.close());
 check("catalogue affiché", (await page.locator("main").innerText()).includes("Sac bandoulière cuir femme"));
 await page.waitForSelector(".pick", { timeout: 6000 }).catch(() => {});
 check("sélection VintedDrop et défi Skool", (await page.locator(".pick").count()) === 2 && /37 \/ 50/.test(await page.locator(".challenge").innerText().catch(() => "")));
@@ -453,12 +459,14 @@ await page.screenshot({ path: `${shots}/7-catalogue-large.png`, fullPage: true }
 
 // 3a. Ajout des produits d'une page de résultats AliExpress au catalogue
 const listing = await ctx.newPage();
+const seenBefore = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
 await listing.goto("https://fr.aliexpress.com/w/wholesale-sac.html");
 await listing.bringToFront();
 {
-  const n0 = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
+  const n0 = seenBefore;
   await listing.waitForTimeout(7000);
-  check("recherche AliExpress : produits affichés ajoutés automatiquement au catalogue (réglage activé par défaut)", calls.filter((c) => c.endsWith("aliedge_seen_products")).length > n0);
+  // (Les produits déjà envoyés depuis une autre page AliExpress ouverte avant ne sont pas renvoyés dans les 24 h.)
+check("recherche AliExpress : produits affichés ajoutés automatiquement au catalogue (réglage activé par défaut)", calls.filter((c) => c.endsWith("aliedge_seen_products")).length > 0, JSON.stringify({ before: n0, after: calls.filter((c) => c.endsWith("aliedge_seen_products")).length }));
 }
 const before = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
 const imported = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importPage" }));
@@ -872,14 +880,14 @@ if (process.env.STORE_SHOTS) {
   await bb.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackers" })))?.data?.[0] || {};
   const onDressing = await bb.locator(".aliedge-beebs-competitor").count();
-  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:open", listing: { title: "Robe crochet bohème", description: "Neuve.", price: 15, photos: ["https://cdn.beebs.app/a.jpg"] } }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:open", listing: { title: "Robe crochet bohème", description: "Neuve.", price: 15, condition: "Très bon état", size: "M", photos: ["https://cdn.beebs.app/a.jpg"] } }));
   let sellTab = null;
   for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /beebs\.app\/fr\/vendre/.test(p.url())); }
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
   const onSell = sellTab ? await sellTab.locator("#aliedge-beebs-sell").count() : 0;
   await sellTab?.waitForTimeout(2500);
-  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector('textarea').value, p: document.querySelector('input[name="price"]').value })) : {};
-  check("Beebs : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Beebs » ouvre le formulaire avec l'annonce", onItem === 1 && onDressing === 1 && tr.active_count === 1 && tr.gone_30d === 1 && onSell === 1 && filled.t === "Robe crochet bohème" && filled.d === "Neuve." && filled.p === "15", JSON.stringify({ onItem, onDressing, tr, sell: sellTab?.url() || null, onSell, filled }));
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector('textarea').value, p: document.querySelector('input[name="price"]').value, c: document.querySelector('select[name="condition"]').value, s: document.querySelector('select[name="size"]').value })) : {};
+  check("Beebs : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Beebs » ouvre le formulaire avec l'annonce", onItem === 1 && onDressing === 1 && tr.active_count === 1 && tr.gone_30d === 1 && onSell === 1 && filled.t === "Robe crochet bohème" && filled.d === "Neuve." && filled.p === "15" && filled.c === "vgood" && filled.s === "m", JSON.stringify({ onItem, onDressing, tr, sell: sellTab?.url() || null, onSell, filled }));
   await sellTab?.close();
   // Reposter plusieurs annonces Vinted du membre sur Beebs, l'une après l'autre.
   const mine = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:myItems" }));
@@ -899,6 +907,23 @@ if (process.env.STORE_SHOTS) {
   await bb.close();
 }
 
+// Leboncoin : publier rapidement ses annonces Vinted, une par une, formulaire rempli au fur et à mesure.
+{
+  const mine = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:myItems" }));
+  const ids = (mine?.data || []).slice(0, 2).map((i) => i.id);
+  await page.evaluate((x) => chrome.runtime.sendMessage({ type: "lbc:queue", ids: x, market: "fr" }), ids);
+  let dep = null;
+  for (let i = 0; i < 20 && !dep; i++) { await page.waitForTimeout(500); dep = ctx.pages().find((p) => /leboncoin\.fr\/deposer-une-annonce/.test(p.url())); }
+  await dep?.waitForFunction(() => document.querySelector('input[name="subject"]')?.value, null, { timeout: 9000 }).catch(() => {});
+  const t1 = dep ? await dep.evaluate(() => document.querySelector('input[name="subject"]').value) : "";
+  const nx = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:next", posted: true }));
+  const l2 = await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:listing" }));
+  const postedIds = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "vinted:postedIds" })))?.data || {};
+  check("Leboncoin : publication rapide en série (annonce Vinted reprise, formulaire rempli, suivante, repère « déjà publiée »)", ids.length === 2 && t1.length > 3 && nx?.data?.done === false && l2?.data?.queue?.index === 1 && (postedIds.lbc || []).map(Number).includes(ids[0]), JSON.stringify({ ids, t1, next: nx?.data, l2: l2?.data?.title, posted: postedIds }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:stopQueue" }));
+  await dep?.close();
+}
+
 // Opla : mêmes outils que Beebs (article, boutique d'un concurrent, « Publier sur Opla » qui remplit /sell/create).
 {
   const op = await ctx.newPage();
@@ -915,15 +940,15 @@ if (process.env.STORE_SHOTS) {
   await op.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:trackers" })))?.data?.[0] || {};
   const onShop = await op.locator(".aliedge-beebs-competitor").count();
-  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", photos: ["https://cdn.opla.co/a.jpg"] } }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", photos: ["https://cdn.opla.co/a.jpg"] } }));
   let sellTab = null;
   for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /opla\.co\/sell\/create/.test(p.url())); }
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
-  await sellTab?.waitForFunction(() => document.querySelector('input[name="title"]')?.value, null, { timeout: 8000 }).catch(() => {});
-  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector("textarea").value, p: document.querySelector('input[name="price"]').value, b: document.querySelector('input[name="brand"]').value })) : {};
+  await sellTab?.waitForFunction(() => document.querySelector('input[name="title"]')?.value && document.getElementById("c-tbe")?.getAttribute("aria-pressed"), null, { timeout: 8000 }).catch(() => {});
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector("textarea").value, p: document.querySelector('input[name="price"]').value, b: document.querySelector('input[name="brand"]').value, c: document.getElementById("c-tbe").getAttribute("aria-pressed") })) : {};
   const beebsIds = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackedIds" })))?.data || [];
-  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit le formulaire, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.b === "Nike" && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
-  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing" }));
+  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit le formulaire, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.b === "Nike" && filled.c === "true" && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing", posted: false }));
   await sellTab?.close();
   await op.close();
 }

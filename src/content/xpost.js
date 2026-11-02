@@ -199,6 +199,47 @@
     if (kind === "brand") return all.find((el) => el.tagName === "INPUT" && /marque|brand/.test(label(el)));
     return null;
   }
+  // État et taille : l'état Vinted traduit vers les libellés courants (Beebs, Opla), puis choisi dans la liste
+  // du site (menu <select>, ou boutons / cases à cocher affichés sous le titre « État » / « Taille »).
+  const norm = (t) => clean(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const CONDITIONS = [
+    [/neuf avec etiquette|new with tags|^6$/, ["neuf avec etiquette", "neuf avec etiquettes", "neuf (avec etiquette)", "neuf"]],
+    [/neuf sans etiquette|new without tags|^1$/, ["neuf sans etiquette", "neuf sans etiquettes", "comme neuf", "jamais porte", "neuf"]],
+    [/tres bon etat|very good|^2$/, ["tres bon etat", "excellent etat", "comme neuf"]],
+    [/bon etat|good|^3$/, ["bon etat", "etat correct"]],
+    [/satisfaisant|satisfactory|^4$/, ["satisfaisant", "etat correct", "etat moyen", "usage"]],
+  ];
+  function conditionWords(v) {
+    const n = norm(v);
+    return CONDITIONS.find(([re]) => re.test(n))?.[1] || (n ? [n] : []);
+  }
+  const clickable = 'button, [role="option"], [role="radio"], [role="button"], label, li, span, div';
+  function choose(kind, words) {
+    if (!words.length) return false;
+    const head = kind === "condition" ? /^(etat|condition|etat de l.article)\b/ : /^(taille|size|pointure|age)\b/;
+    // 1. Un vrai menu <select>.
+    for (const sel of document.querySelectorAll("select")) {
+      if (!visibleField(sel)) continue;
+      const lab = norm(`${sel.name} ${sel.id} ${sel.getAttribute("aria-label") || ""} ${sel.closest("label")?.textContent || ""} ${document.querySelector(`label[for="${sel.id}"]`)?.textContent || ""}`);
+      if (!head.test(lab) && !(kind === "condition" ? /etat|condition/ : /taille|size/).test(lab)) continue;
+      for (const w of words) {
+        const opt = [...sel.options].find((o) => norm(o.textContent) === w) || [...sel.options].find((o) => norm(o.textContent).startsWith(w));
+        if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event("input", { bubbles: true })); sel.dispatchEvent(new Event("change", { bubbles: true })); return true; }
+      }
+    }
+    // 2. Boutons ou cases affichés dans le bloc qui suit le titre « État » / « Taille ».
+    const heads = [...document.querySelectorAll("h1, h2, h3, h4, h5, legend, label, p, span, div")].filter((el) => el.children.length === 0 && head.test(norm(el.textContent)) && norm(el.textContent).length < 40 && el.offsetParent !== null);
+    for (const h of heads) {
+      let box = h.parentElement;
+      for (let depth = 0; box && depth < 3; depth++, box = box.parentElement) {
+        for (const w of words) {
+          const el = [...box.querySelectorAll(clickable)].find((x) => x !== h && x.offsetParent !== null && x.children.length <= 2 && norm(x.textContent) === w);
+          if (el) { (el.closest('button, [role="option"], [role="radio"], label') || el).click(); return true; }
+        }
+      }
+    }
+    return false;
+  }
   const isSellForm = () => S.sellPage() || (!!document.querySelector('input[type="file"]') && !!field("body"));
   let submittedAt = 0;
   async function mountSell(l) {
@@ -247,10 +288,12 @@
       b.textContent = "Remplissage…";
       let n = 0;
       for (const k of ["title", "body", "price", "brand"]) { const el = vals[k] && field(k); if (el && !el.value) { setValue(el, vals[k]); n++; } }
+      const picked = [l.condition && choose("condition", conditionWords(l.condition)) && "état", l.size && choose("size", [norm(l.size)]) && "taille"].filter(Boolean);
+      n += picked.length;
       const ph = await addPhotos(l.photos || []);
       b.textContent = "Tout remplir";
       msg.textContent = n || ph
-        ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète la catégorie, l'état et la taille si besoin, puis publie l'annonce.`
+        ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète ${picked.length === 2 ? "la catégorie" : "la catégorie, l'état et la taille"} si besoin, puis publie l'annonce.`
         : "Les champs ne sont pas encore affichés sur cette étape : utilise les boutons « Copier ».";
     });
     panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: `${CH}:clearListing` }); ui.host.remove(); });

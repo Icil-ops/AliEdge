@@ -629,6 +629,7 @@ function viewAnalyse() {
           <label class="field"><span>Prix d'achat</span><div class="input-euro"><input id="price" class="input num" inputmode="decimal" value="${productPrice() != null ? money(productPrice()) : ""}" placeholder="0,00"></div></label>
           <label class="field"><span>Livraison fournisseur</span><div class="input-euro"><input id="shipping" class="input num" inputmode="decimal" value="${state.shipping ? money(state.shipping) : ""}" placeholder="0,00"></div></label>
         </div>
+        <div id="aliofficial"></div>
         ${p.currency && p.currency !== "EUR" && p.price ? `<p class="small muted">Prix affiché ${esc(p.price)} ${esc(p.currency)}, converti en euros au taux indicatif.</p>` : ""}
         ${productPrice() == null ? `<p class="notice warn">Prix non détecté : saisis le prix payé pour calculer la marge.</p>` : ""}
         ${searchControls()}
@@ -796,7 +797,23 @@ function viewResult(entry) {
   </section>`;
 }
 
+// Fiche officielle AliExpress (API Drop Shipping, via le serveur) : prix livré en France, stock, note. Affichée
+// seulement quand le serveur répond ; rien ne change sinon.
+async function loadAliOfficial() {
+  const box = document.getElementById("aliofficial");
+  const p = state.product;
+  if (!box || !p || p.platform !== "aliexpress" || !p.url) return;
+  const o = await api("ali:official", { url: p.url }).catch(() => null);
+  if (!o || !document.body.contains(box) || state.product !== p) return;
+  const range = o.price != null ? (o.priceMax && o.priceMax !== o.price ? `${eur(o.price)} à ${eur(o.priceMax)}` : eur(o.price)) : null;
+  const bits = [range && `<b class="num">${range}</b> livré en France`, o.stock != null && `${o.stock.toLocaleString("fr-FR")} en stock`, o.rating && `note ${String(o.rating).replace(".", ",")}/5`, o.orders && `${Number(o.orders).toLocaleString("fr-FR")} ventes`, o.delivery && `livraison ${esc(o.delivery)} j`].filter(Boolean);
+  if (!bits.length) return;
+  box.innerHTML = `<div class="notice info small" style="margin:0"><b>Fiche officielle AliExpress</b> · ${bits.join(" · ")}${o.store ? ` · boutique ${esc(o.store)}` : ""}${o.price != null && productPrice() == null ? ` <button class="btn ghost small" type="button" id="useofficial">Utiliser ce prix</button>` : ""}</div>`;
+  document.getElementById("useofficial")?.addEventListener("click", () => { state.priceOverride = o.price; render(); });
+}
+
 function bindAnalyse() {
+  loadAliOfficial();
   const parseNum = (v) => {
     const n = parseFloat(String(v).replace(/\s/g, "").replace(",", "."));
     return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
@@ -981,7 +998,7 @@ async function loadSalesFeed(append = false) {
   const extra = (r) => lbc ? `${r.department ? ` · ${esc(r.department)}` : ""}${r.shipping ? " · livraison" : ""}` : r.brand ? ` · ${esc(r.brand)}` : "";
   const line = (r) => `
     <div class="sale-row">
-      <a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" style="grid-template-columns:56px 1fr auto">
+      <a class="item" href="${safeUrl(r.url)}" target="_blank" rel="noopener" data-sale="${esc(r.list_id || r.vinted_id)}" style="grid-template-columns:56px 1fr auto">
         ${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
         <div><div class="t">${esc(r.title || `Annonce ${name}`)}</div><div class="m">${badge(r)} ${esc(ago(new Date(r.sold_at).getTime()))}${r.days_to_sell != null ? ` · parti en ${esc(String(r.days_to_sell).replace(".", ","))} j` : ""}${extra(r)}</div></div>
         <div class="p num">${r.price != null ? eur(Number(r.price)) : ""}</div>
@@ -1001,6 +1018,58 @@ async function loadSalesFeed(append = false) {
   bindSupplierForms(box);
   bindHead();
   document.getElementById("salesmore")?.addEventListener("click", () => loadSalesFeed(true));
+  box.querySelectorAll("[data-sale]").forEach((a) => a.addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return; // ouvrir dans un onglet : comportement normal
+    e.preventDefault();
+    const r = sf.rows.find((x) => String(x.list_id || x.vinted_id) === a.dataset.sale);
+    if (r) openSaleSheet(r, lbc);
+  }));
+}
+
+/** Fiche d'une vente : infos, lien vers l'annonce, délai de vente, et fournisseurs probables tirés de la base commune. */
+const SUP_REASON = { linked: "Relié à cette annonce", similar_sale: "Relié à une vente au titre proche", similar_title: "Titre proche" };
+async function openSaleSheet(r, lbc) {
+  document.getElementById("salesheet")?.remove();
+  const d = document.createElement("dialog");
+  d.id = "salesheet"; d.className = "salesheet";
+  const site = lbc ? "Leboncoin" : "Vinted";
+  const rows = [
+    ["Prix", r.price != null ? eur(Number(r.price)) : "—"],
+    ["Vendu", `${esc(ago(new Date(r.sold_at).getTime()))}${lbc && r.certainty !== "sold" ? " (estimation)" : ""}`],
+    ["Parti en", r.days_to_sell != null ? `${esc(String(r.days_to_sell).replace(".", ","))} j` : "délai inconnu"],
+    ...(lbc ? [["Département", esc(r.department || "—")], ["Livraison", r.shipping ? "oui" : "non"]] : [["Marque", esc(r.brand || "—")], ["Taille", esc(r.size || "—")]]),
+  ];
+  d.innerHTML = `<div style="position:relative">
+    <button class="btn ghost small close" type="button" data-close aria-label="Fermer">✕</button>
+    <div class="sh">
+      <div class="sh-l">
+        ${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" referrerpolicy="no-referrer">` : ""}
+        <h3 style="margin:12px 0 0;font-size:15px">${esc(r.title || `Annonce ${site}`)}</h3>
+        <div class="kv">${rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join("")}</div>
+        <a class="btn primary block" href="${safeUrl(r.url)}" target="_blank" rel="noopener">Voir l'annonce sur ${site}</a>
+      </div>
+      <div class="sh-r">
+        <h3 style="margin:0;font-size:15px">Fournisseurs probables</h3>
+        <p class="small muted" style="margin:0">Tirés du catalogue AliEdge : le produit relié à cette vente, ceux reliés à des ventes au titre proche, puis les titres proches. Vérifie toujours que c'est le même article.</p>
+        <div class="stack" id="shsup" style="gap:8px"><div class="skel" style="height:64px"></div><div class="skel" style="height:64px"></div></div>
+        <details class="small"><summary>Chercher ailleurs</summary><div class="row wrap" style="gap:6px;margin-top:6px">${supplierLinks(r).map(([n, u]) => `<a class="btn ghost small" href="${safeUrl(u)}" target="_blank" rel="noopener">${esc(n)}</a>`).join("")}</div></details>
+      </div>
+    </div></div>`;
+  document.body.appendChild(d);
+  d.querySelector("[data-close]").addEventListener("click", () => d.close());
+  d.addEventListener("close", () => d.remove());
+  d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
+  d.showModal();
+  const res = await api("sales:suppliers", { platform: lbc ? "lbc" : "vinted", id: Number(r.list_id || r.vinted_id) }).catch(() => null);
+  const box = d.querySelector("#shsup");
+  if (!box) return;
+  const list = res?.suppliers || [];
+  box.innerHTML = list.length ? list.map((p) => {
+    const margin = Number(r.price) && Number(p.price) ? Number(r.price) - Number(p.price) : null;
+    return `<a class="sup" href="${safeUrl(p.url)}" target="_blank" rel="noopener">${p.image_url ? `<img src="${safeUrl(p.image_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+      <div><div class="t">${esc(p.title)}</div><div class="small muted">${esc(PLATFORM_NAME[p.platform] || p.platform)} · ${esc(SUP_REASON[p.reason] || "")}</div></div>
+      <div class="num" style="text-align:right">${p.price != null ? `<b>${eur(Number(p.price))}</b>` : ""}${margin != null ? `<div class="small" style="color:${margin > 0 ? "var(--gain)" : "var(--loss)"}">${eur(margin, true)}</div>` : ""}</div></a>`;
+  }).join("") : `<p class="small muted" style="margin:0">Aucun fournisseur trouvé dans la base pour l'instant. Cherche-le avec les liens ci-dessous et relie-le depuis la liste des ventes : il servira à tout le monde.</p>`;
 }
 
 async function loadPicks() {
@@ -2248,11 +2317,13 @@ function bindSales() {
 }
 
 // ───────────────────────── Beebs, canal de vente en plus : reposter ses annonces Vinted en série
+// Sites où reposter ses annonces Vinted en série : Beebs, Opla et Leboncoin.
+const REPOST_CH = { ...CHANNELS, lbc: { label: "Leboncoin" } };
 const repost = { state: "idle", items: [], sel: new Set(), error: "", market: "fr", ch: "beebs" };
 function repostHtml() {
   let body;
-  const L = CHANNELS[repost.ch].label;
-  const seg = `<div class="seg" role="group" aria-label="Canal de vente">${Object.entries(CHANNELS).map(([ch, C]) => `<button type="button" data-rpch="${ch}" aria-pressed="${repost.ch === ch}">${C.label}</button>`).join("")}</div>`;
+  const L = REPOST_CH[repost.ch].label;
+  const seg = `<div class="seg" role="group" aria-label="Canal de vente">${Object.entries(REPOST_CH).map(([ch, C]) => `<button type="button" data-rpch="${ch}" aria-pressed="${repost.ch === ch}">${C.label}</button>`).join("")}</div>`;
   if (repost.state === "idle") body = `<div class="card pad stack"><p class="small muted">Un canal de vente en plus : choisis tes annonces Vinted, AliEdge les prépare une par une sur ${L} (texte, prix, photos). Tu publies chacune d'un clic, la suivante s'ouvre toute seule.</p><button class="btn primary block" type="button" id="repostload">Choisir mes annonces Vinted</button></div>`;
   else if (repost.state === "loading") body = `<div class="skel" style="height:90px"></div>`;
   else if (repost.state === "error") body = `<div class="notice warn">${esc(repost.error)}</div>${repost.needEnable ? `<button class="btn" type="button" id="repostenable">Activer ${L}</button>` : ""}`;
@@ -2268,7 +2339,7 @@ function bindRepost() {
   const box = document.getElementById("repostbox");
   if (!box) return;
   const load = async () => {
-    const L = CHANNELS[repost.ch].label;
+    const L = REPOST_CH[repost.ch].label;
     repost.needEnable = false;
     if (!(await api(`${repost.ch}:status`).catch(() => ({ enabled: false }))).enabled) { repost.state = "error"; repost.needEnable = true; repost.error = `Active ${L} pour publier tes annonces sur ${L}.`; refreshRepost(); return; }
     repost.state = "loading"; refreshRepost();
@@ -2277,13 +2348,13 @@ function bindRepost() {
     refreshRepost();
   };
   box.querySelector("#repostload")?.addEventListener("click", load);
-  box.querySelector("#repostenable")?.addEventListener("click", async () => { if (await enableChannel(repost.ch)) load(); });
+  box.querySelector("#repostenable")?.addEventListener("click", async () => { if (await (repost.ch === "lbc" ? enableLbc() : enableChannel(repost.ch))) load(); });
   box.querySelectorAll("[data-rpch]").forEach((b) => b.addEventListener("click", () => { repost.ch = b.dataset.rpch; repost.state = "idle"; repost.items = []; repost.sel = new Set(); refreshRepost(); }));
   box.querySelectorAll("[data-rp]").forEach((c) => c.addEventListener("change", () => { const id = Number(c.dataset.rp); if (c.checked) repost.sel.add(id); else repost.sel.delete(id); refreshRepost(); }));
   box.querySelector("#repostall")?.addEventListener("change", (e) => { repost.sel = new Set(e.target.checked ? repost.items.filter((i) => !i.posted).map((i) => i.id).slice(0, 40) : []); refreshRepost(); });
   box.querySelector("#repostgo")?.addEventListener("click", async (e) => {
     e.currentTarget.disabled = true; e.currentTarget.textContent = "Préparation…";
-    try { await api(`${repost.ch}:queue`, { ids: [...repost.sel], market: repost.market }); toast(`${CHANNELS[repost.ch].label} s'ouvre avec ta première annonce`); }
+    try { await api(`${repost.ch}:queue`, { ids: [...repost.sel], market: repost.market }); toast(`${REPOST_CH[repost.ch].label} s'ouvre avec ta première annonce`); }
     catch (x) { toast(x.message); refreshRepost(); }
   });
 }

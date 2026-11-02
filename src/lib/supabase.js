@@ -122,7 +122,13 @@ export async function recover(email) {
 export async function signInWithGoogle() {
   const redirect = chrome.identity.getRedirectURL("supabase");
   const url = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirect)}`;
-  const result = await chrome.identity.launchWebAuthFlow({ url, interactive: true });
+  let result;
+  try { result = await chrome.identity.launchWebAuthFlow({ url, interactive: true }); }
+  catch (e) {
+    // Fenêtre fermée : souvent parce que Google a renvoyé sur barapics.com au lieu de revenir dans AliEdge
+    // (adresse de retour de ce navigateur pas encore autorisée). La connexion par email marche toujours.
+    throw new ApiError(/approve|closed|cancel/i.test(String(e?.message)) ? "Connexion Google interrompue. Si une page Barapics s'est ouverte, ton navigateur n'est pas encore pris en charge pour Google : connecte-toi avec ton email et un mot de passe (même compte que Barapics)." : "Connexion Google impossible pour le moment : utilise ton email et un mot de passe.");
+  }
   if (!result) throw new ApiError("Connexion Google annulée.");
   const hash = new URL(result).hash.slice(1);
   const params = new URLSearchParams(hash);

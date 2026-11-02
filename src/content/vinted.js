@@ -90,29 +90,60 @@
   let mountedLabel = null;
   let mountedMenu = null;
 
-  async function crossPost(item, raw) {
-    const sellerId = Number(raw?.user_id ?? raw?.user?.id);
-    if (!sellerId || !mountedMenu) return;
-    let own = false;
-    try { const r = await chrome.runtime.sendMessage({ type: "vinted:isOwn", sellerId }); own = !!r?.data?.own; } catch { return; }
-    if (!own || mountedMenu.querySelector("[data-lbc]")) return;
-    const photos = (raw.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10);
-    const price = Number(raw.price?.amount ?? raw.price ?? item.price) || null;
-    const listing = { title: String(raw.title || item.title).slice(0, 70), description: String(raw.description || "").trim(), price, category: null, photos, from: "vinted" };
+  // Annonce du membre : Vinted affiche ses boutons de vendeur (« Modifier l'annonce », « Indiquer comme vendu »…).
+  // Reconnu ainsi même quand la lecture des détails échoue ou que le compte n'est pas encore enregistré.
+  const OWNER_BTN = /^(modifier l.annonce|indiquer comme vendu|marquer comme r[ée]serv[ée]|booster|edit listing|mark as sold|bump)$/i;
+  const ownerControls = () => [...document.querySelectorAll("button, a")].some((b) => OWNER_BTN.test((b.textContent || "").replace(/\s+/g, " ").trim()));
+  // Détail affiché sur la page (« Marque », « Taille », « État ») : valeur de la ligne qui porte ce libellé.
+  function domDetail(re) {
+    for (const el of document.querySelectorAll("div, span, dt, td")) {
+      if (el.children.length || !re.test((el.textContent || "").trim())) continue;
+      const row = el.parentElement;
+      const val = [...(row?.children || [])].find((x) => x !== el && (x.textContent || "").trim())
+        || el.nextElementSibling || row?.nextElementSibling;
+      const t = (val?.textContent || "").replace(/\s+/g, " ").trim();
+      if (t && t.length < 60) return t;
+    }
+    return null;
+  }
+  function domPhotos() {
+    const urls = [...document.querySelectorAll('img[src*="vinted.net"]')]
+      .filter((i) => (i.naturalWidth || i.width) >= 200 && !i.closest('a[href*="/items/"]:not([href*="' + location.pathname.split("/")[2] + '"])'))
+      .map((i) => i.currentSrc || i.src).filter((u) => /^https:\/\//.test(u));
+    return [...new Set(urls)].slice(0, 10);
+  }
+
+  async function crossPost(item, raw, retry = true) {
+    if (!mountedMenu || mountedMenu.querySelector("[data-lbc]")) return;
+    const sellerId = Number(raw?.user_id ?? raw?.user?.id) || null;
+    const byPage = ownerControls();
+    let own = byPage;
+    if (!own && sellerId) { try { const r = await chrome.runtime.sendMessage({ type: "vinted:isOwn", sellerId }); own = !!r?.data?.own; } catch { return; } }
+    if (!own) { if (retry) setTimeout(() => crossPost(item, raw, false).catch(() => {}), 2500); return; }
+    // Compte reconnu par la page : enregistré comme compte du membre (ses annonces ne vont jamais dans la base commune).
+    if (byPage && sellerId) chrome.runtime.sendMessage({ type: "vinted:self", id: sellerId, market: location.hostname.split(".").pop() }).catch(() => {});
+    if (mountedMenu.querySelector("[data-lbc]")) return;
+    const photos = raw ? (raw.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10) : domPhotos();
+    const price = Number(raw?.price?.amount ?? raw?.price ?? item.price) || null;
+    const descEl = document.querySelector('[itemprop="description"], [data-testid*="description"]');
+    const description = String(raw?.description || descEl?.textContent || document.querySelector('meta[name="description"]')?.content || "").trim();
+    const listing = { vintedId: Number(item.vinted_id) || null, title: String(raw?.title || item.title).replace(/\s*\|\s*Vinted.*$/i, "").slice(0, 70), description, price, category: null, photos, from: "vinted" };
     const sep = document.createElement("p");
     sep.textContent = "Vendre aussi ailleurs";
-    const a = document.createElement("a");
-    a.href = "https://www.leboncoin.fr/deposer-une-annonce";
-    a.target = "_blank"; a.rel = "noopener"; a.dataset.lbc = "1";
-    a.innerHTML = 'Publier aussi sur Leboncoin<span aria-hidden="true">↗</span>';
-    a.addEventListener("click", () => { chrome.runtime.sendMessage({ type: "lbc:saveListing", listing }).catch(() => {}); });
-    // « Publier sur Beebs » : AliEdge ouvre Beebs, ouvre le formulaire de vente et remplit l'annonce (photos comprises).
-    // Même chose pour Opla.
-    const extra = { brand: raw.brand_title || raw.brand || null, size: raw.size_title || raw.size || null, condition: raw.status || raw.condition || null };
+    const extra = {
+      brand: raw?.brand_title || raw?.brand || domDetail(/^(marque|brand)$/i),
+      size: raw?.size_title || raw?.size || domDetail(/^(taille|size)$/i),
+      condition: raw?.status || raw?.condition || domDetail(/^(état|etat|condition)$/i),
+    };
+    let posted = {};
+    try { const r = await chrome.runtime.sendMessage({ type: "vinted:postedIds" }); posted = r?.data || {}; } catch { /* rien */ }
+    const done = (ch) => (posted[ch] || []).map(String).includes(String(item.vinted_id));
+    // « Publier sur Beebs / Opla / Leboncoin » : AliEdge ouvre le site, ouvre le formulaire de vente et remplit
+    // l'annonce (photos comprises). « ✓ » quand elle y a déjà été publiée.
     const chBtn = (ch, label) => {
       const b = document.createElement("a");
       b.href = "#"; b.dataset[ch] = "1";
-      b.innerHTML = `Publier sur ${label}<span aria-hidden="true">↗</span>`;
+      b.innerHTML = `${done(ch) ? "✓ " : ""}Publier sur ${label}<span aria-hidden="true">${done(ch) ? "déjà publiée" : "↗"}</span>`;
       b.addEventListener("click", (e) => {
         e.preventDefault();
         chrome.runtime.sendMessage({ type: `${ch}:open`, listing: { ...listing, ...extra } }).catch(() => {});
@@ -123,7 +154,7 @@
     const fold = document.createElement("p");
     fold.textContent = "Chercher ce produit chez les fournisseurs";
     mountedMenu.querySelector("p")?.remove();
-    mountedMenu.prepend(sep, chBtn("beebs", "Beebs"), chBtn("opla", "Opla"), a, fold);
+    mountedMenu.prepend(sep, chBtn("beebs", "Beebs"), chBtn("opla", "Opla"), chBtn("lbc", "Leboncoin"), fold);
     if (mountedLabel) mountedLabel.textContent = "Reposter ailleurs";
   }
 

@@ -52,8 +52,20 @@
   }
 
   // Toutes les annonces déjà chargées sont envoyées (par paquets de 96), y compris sur la page d'accueil.
+  // Son propre profil (Vinted y affiche « Booster » sous ses annonces) : ses annonces servent à « Reposter sur un
+  // autre site » et ne partent jamais dans la base commune.
+  const ownProfile = () => /^\/member\/\d{3,15}/.test(location.pathname)
+    && [...document.querySelectorAll("button, a")].some((b) => /^(booster|bump|modifier le profil|edit profile)$/i.test((b.textContent || "").replace(/\s+/g, " ").trim()));
+  let ownSent = "";
   function flush() {
     timer = null;
+    if (ownProfile()) {
+      seen.clear();
+      const mine = readCards().filter((i) => i.status === "active");
+      const key = mine.map((i) => i.vinted_id).join(",");
+      if (mine.length && key !== ownSent) { ownSent = key; chrome.runtime.sendMessage({ type: "vinted:ownItems", items: mine, sellerId: Number(location.pathname.match(/^\/member\/(\d+)/)[1]), market }).catch(() => {}); }
+      return;
+    }
     const items = readCards();
     for (let i = 0; i < items.length; i += 96) chrome.runtime.sendMessage({ type: "vinted:cards", items: items.slice(i, i + 96) }).catch(() => {});
   }
