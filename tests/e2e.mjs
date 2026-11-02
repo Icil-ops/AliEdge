@@ -184,7 +184,8 @@ await ctx.route("**/*", async (route) => {
   }
   // Facebook Marketplace : formulaire « Créer une annonce » (champs dans des <label>, listes en combobox).
   if (h === "www.facebook.com") {
-    fbRequests.push(url.pathname);
+    // Pages ouvertes sur Facebook (Chrome fait aussi ses propres appels en CI : /ajax/qm, /data/manifest).
+    if (route.request().resourceType() === "document") fbRequests.push(url.pathname);
     if (url.pathname.startsWith("/marketplace/create")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><head><meta charset="utf-8"><title>Marketplace</title></head><body><main>
       <input type="file" accept="image/*,image/heif,image/heic" multiple id="fbph" style="display:none"><div>Ajouter des photos</div>
       <label><span>Titre</span><input type="text" id="fbt"></label>
@@ -990,7 +991,7 @@ async function extTab(before, flowUrl, finalRe) {
   fb = await extTab(before_972, "https://www.facebook.com/marketplace/create/item?ae=sell", /facebook\.com\/marketplace\/create/);
   await fb?.waitForFunction(() => document.getElementById("fbcond")?.dataset.v && document.getElementById("fbph")?.files.length, null, { timeout: 20000 }).catch(() => {});
   const f = fb ? await fb.evaluate(() => ({ t: document.getElementById("fbt").value, p: document.getElementById("fbp").value, d: document.getElementById("fbd").value, cat: document.getElementById("fbcat").dataset.v, c: document.getElementById("fbcond").dataset.v, ph: document.getElementById("fbph").files.length })) : {};
-  check("Facebook Marketplace : formulaire rempli (titre, prix, description, catégorie, état, photos), rien d'autre lu sur Facebook", f.t === "Chemise à carreaux Chaps" && f.p === "10" && f.d === "Taille XL." && f.cat === "Vêtements et chaussures pour hommes" && /comme neuf/i.test(f.c || "") && f.ph === 1 && fbRequests.every((x) => x.startsWith("/marketplace/")), JSON.stringify({ f, fbRequests }));
+  check("Facebook Marketplace : formulaire rempli (titre, prix, description, catégorie, état, photos), aucune autre page Facebook ouverte", f.t === "Chemise à carreaux Chaps" && f.p === "10" && f.d === "Taille XL." && f.cat === "Vêtements et chaussures pour hommes" && /comme neuf/i.test(f.c || "") && f.ph === 1 && fbRequests.every((x) => x.startsWith("/marketplace/")), JSON.stringify({ f, fbRequests }));
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "facebook:clearListing", posted: false }));
   await fb?.close();
 }
