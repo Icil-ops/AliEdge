@@ -99,7 +99,9 @@
   // Annonce du membre : Vinted affiche ses boutons de vendeur (« Modifier l'annonce », « Indiquer comme vendu »…).
   // Reconnu ainsi même quand la lecture des détails échoue ou que le compte n'est pas encore enregistré.
   const OWNER_BTN = /^(modifier l.annonce|indiquer comme vendu|marquer comme r[ée]serv[ée]|booster|edit listing|mark as sold|bump)$/i;
-  const ownerControls = () => [...document.querySelectorAll("button, a")].some((b) => OWNER_BTN.test((b.textContent || "").replace(/\s+/g, " ").trim()));
+  // Aussi les statistiques réservées au vendeur (« Impressions », « membres ont vu cet article »), affichées même vendue.
+  const ownerControls = () => [...document.querySelectorAll("button, a")].some((b) => OWNER_BTN.test((b.textContent || "").replace(/\s+/g, " ").trim()))
+    || /membres ont vu cet article|clic\(s\) sur cet article|members viewed this item/i.test(document.body.innerText || "");
   // Détail affiché sur la page (« Marque », « Taille », « État ») : valeur de la ligne qui porte ce libellé.
   function domDetail(re) {
     for (const el of document.querySelectorAll("div, span, dt, td")) {
@@ -130,6 +132,8 @@
     // Compte reconnu par la page : enregistré comme compte du membre (ses annonces ne vont jamais dans la base commune).
     if (byPage && sellerId) chrome.runtime.sendMessage({ type: "vinted:self", id: sellerId, market: location.hostname.split(".").pop() }).catch(() => {});
     if (mountedMenu.dataset.lbc) return;
+    // Annonce vendue : rien à reposter.
+    if (item.status === "sold" || [...document.querySelectorAll("div, span, h2")].some((el) => el.children.length === 0 && /^vendu$|^sold$/i.test((el.textContent || "").trim()))) return;
     const photos = raw ? (raw.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10) : domPhotos();
     const price = Number(raw?.price?.amount ?? raw?.price ?? item.price) || null;
     const descEl = document.querySelector('[itemprop="description"], [data-testid*="description"]');
