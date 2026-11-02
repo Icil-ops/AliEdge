@@ -1370,23 +1370,40 @@ async function openPhotos(product) {
     go.textContent = "Lecture des détails du produit…";
     let spec = null;
     try { spec = await api("barapics", { body: { action: "brief", title: product.title || "Article", description: "", images } }); } catch { spec = null; }
-    go.textContent = "Création en cours (1 à 2 min par photo)…";
-    const queue = [...scenes];
+    go.textContent = "Création en cours (1 à 2 min)…";
+    // Photos « chez soi » : créées par planches de 4 (une seule image découpée, 4 fois moins chère) ; studio, extérieur et déco une par une.
+    const HOME = new Set(["front-carpet", "side", "detail", "flat-lay", "worn"]);
+    const grouped = scenes.filter((id) => HOME.has(id));
+    const jobs = [];
+    for (let k = 0; k < grouped.length; k += 4) jobs.push(grouped.slice(k, k + 4));
+    for (const id of scenes) if (!HOME.has(id)) jobs.push([id]);
     let stop = false;
+    const common = { productUrl: product.url || "", title: product.title || "Article", description: "", images, quality: "medium", ...(product.priceEur ? { price: `${money(product.priceEur)} €` } : {}), ...(spec ? { spec } : {}) };
+    const labelOf = (id) => PHOTO_SCENES.find((x) => x[0] === id)?.[1] || id;
+    const figOf = (id) => grid.querySelector(`[data-shot="${id}"]`);
+    const showDone = (id, r) => {
+      const fig = figOf(id);
+      fig.innerHTML = `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener"><img src="${safeUrl(r.url)}" alt="Photo ${esc(labelOf(id))}"></a><figcaption>${esc(labelOf(id))} · contrôlée${r.attempts > 1 ? `, corrigée ${r.attempts - 1}×` : ""}</figcaption>`;
+      fig.classList.add("done");
+    };
+    const showError = (id, message) => { figOf(id).innerHTML = `<div class="ph"></div><figcaption class="neg">${esc(labelOf(id))} · ${esc(message)}</figcaption>`; };
     const worker = async () => {
       for (;;) {
-        const id = queue.shift();
-        if (!id) return;
-        const fig = grid.querySelector(`[data-shot="${id}"]`);
-        const label = PHOTO_SCENES.find((x) => x[0] === id)?.[1] || id;
-        if (stop) { fig.querySelector("figcaption").textContent = `${label} · non créée`; continue; }
-        fig.querySelector("figcaption").textContent = `${label} · création…`;
+        const job = jobs.shift();
+        if (!job) return;
+        if (stop) { job.forEach((id) => { figOf(id).querySelector("figcaption").textContent = `${labelOf(id)} · non créée`; }); continue; }
+        job.forEach((id) => { figOf(id).querySelector("figcaption").textContent = `${labelOf(id)} · création…`; });
         try {
-          const r = await api("barapics", { body: { action: "photo", productUrl: product.url || "", title: product.title || "Article", description: "", images, sceneId: id, quality: "medium", ...(product.priceEur ? { price: `${money(product.priceEur)} €` } : {}), ...(spec ? { spec } : {}) } });
-          fig.innerHTML = `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener"><img src="${safeUrl(r.url)}" alt="Photo ${esc(label)}"></a><figcaption>${esc(label)} · contrôlée${r.attempts > 1 ? `, corrigée ${r.attempts - 1}×` : ""}</figcaption>`;
-          fig.classList.add("done");
+          if (job.length === 1) showDone(job[0], await api("barapics", { body: { action: "photo", ...common, sceneId: job[0] } }));
+          else {
+            const r = await api("barapics", { body: { action: "planche", ...common, scenes: job.map((sceneId) => ({ sceneId })) } });
+            for (const x of r.results || []) {
+              if (x.ok) showDone(x.sceneId, x);
+              else { showError(x.sceneId, x.error); if (/quota|crédit/i.test(x.error || "")) stop = true; }
+            }
+          }
         } catch (e) {
-          fig.innerHTML = `<div class="ph"></div><figcaption class="neg">${esc(label)} · ${esc(e.message)}</figcaption>`;
+          job.forEach((id) => showError(id, e.message));
           if (e.code === "quota" || e.code === "no_access" || e.code === "auth") stop = true;
         }
       }

@@ -269,6 +269,7 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
     if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
     await new Promise((r) => setTimeout(r, 400));
+    if (body.action === "planche") return route.fulfill({ headers: cors, json: { results: body.scenes.map((x) => ({ sceneId: x.sceneId, ok: true, id: `p-${x.sceneId}`, url: "https://barapics.com/mock.png", attempts: 1, qualityReport: null })) } });
     return route.fulfill({ headers: cors, json: { id: `p-${body.sceneId}`, url: "https://barapics.com/mock.png", attempts: 1, qualityReport: null } });
   }
   if (h === "barapics.com" && url.pathname === "/mock.png") return route.fulfill({ contentType: "image/png", body: PNG });
@@ -466,7 +467,7 @@ check("photos Barapics : solde affiché dans AliEdge", /12 photos disponibles/.t
 await panel.click("#pgo");
 await panel.waitForFunction(() => document.querySelectorAll(".pshot.done").length === 4, null, { timeout: 20000 }).catch(() => {});
 await panel.screenshot({ path: `${shots}/5c-photos.png`, fullPage: true });
-check("photos Barapics : 4 photos créées depuis AliEdge", (await panel.locator(".pshot.done").count()) === 4, barapicsCalls.join(","));
+check("photos Barapics : 4 photos créées depuis AliEdge (en une planche)", (await panel.locator(".pshot.done").count()) === 4 && barapicsCalls.includes("planche"), barapicsCalls.join(","));
 await panel.keyboard.press("Escape");
 
 // 2c. Annonce complète rédigée par Barapics depuis AliEdge
