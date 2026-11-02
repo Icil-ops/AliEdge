@@ -141,7 +141,7 @@ await ctx.route("**/*", async (route) => {
     const card = (id, t, p) => `<a href="/fr/p/${id}-x" style="display:inline-block;width:150px"><img alt="${t}" src="https://cdn.beebs.app/${id}.jpg" style="width:150px;height:150px"><span>${p} € 00</span><span>${t}</span></a>`;
     if (url.pathname.startsWith("/fr/p/")) return html(`<title>Robe | Beebs</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Robe crochet fille 6 ans", image: ["https://cdn.beebs.app/a.jpg"], offers: { price: "12.00" } })}</script></head><body>${head}<h1>Robe crochet fille 6 ans</h1><p>Vendu par</p><a href="/fr/dressing/KJ3GOEqX9Kdh8kFE7Ti2MOwOcDo2">CELINE D.</a></body></html>`);
     if (url.pathname.startsWith("/fr/dressing/")) return html(`<title>Dressing de CELINE D</title></head><body>${head}<h1>CELINE D.</h1><p>Annonces (${beebsStock.length})</p>${beebsStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
-    if (url.pathname.startsWith("/fr/vendre")) return html(`<title>Vendre | Beebs</title></head><body>${head}<h1>Mettre un article en vente</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title" placeholder="Titre"></label><label>Description <textarea name="description"></textarea></label><label>Prix <input name="price" placeholder="Prix"></label><label>État <select name="condition"><option value="">Choisir</option><option value="new">Neuf avec étiquette</option><option value="vgood">Très bon état</option><option value="good">Bon état</option></select></label><label>Taille <select name="size"><option value="">Choisir</option><option value="s">S</option><option value="m">M</option></select></label><button type="button">Mettre en vente</button></body></html>`);
+    if (url.pathname.startsWith("/fr/vendre")) return html(`<title>Vendre | Beebs</title></head><body>${head}<h1>Mettre un article en vente</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title" placeholder="Titre"></label><label>Description <textarea name="description"></textarea></label><label>Prix <input name="price" placeholder="Prix"></label><label>État <select name="condition"><option value="">Choisir</option><option value="new">Neuf avec étiquette</option><option value="vgood">Très bon état</option><option value="good">Bon état</option></select></label><label>Taille <select name="size"><option value="">Choisir</option><option value="s">S</option><option value="m">M</option></select></label><p>Adresse</p><div><input name="addr" placeholder="Votre adresse"></div><button type="button">Mettre en vente</button></body></html>`);
     return html(`<title>Beebs</title></head><body>${head}<h1>Seconde main des familles</h1></body></html>`);
   }
   if (/(^|\.)opla\.co$/.test(h)) {
@@ -159,18 +159,21 @@ await ctx.route("**/*", async (route) => {
       <div class="row"><span>Catégorie</span><button type="button" id="cat" onclick="pick('cat')">Sélectionner</button></div>
       <div class="row"><span>Marque</span><button type="button" id="brand" onclick="pick('brand')">Sélectionner</button></div>
       <div class="row"><span>État</span><button type="button" id="etat" onclick="pick('etat')">Sélectionner</button></div>
+      <div class="row"><span>Taille</span><button type="button" id="taille" onclick="pick('taille')">Sélectionner</button></div>
       <div class="row"><span>Prix (€)</span><input id="p" value="0,00"></div>
       <button type="button">Publier l'article</button>
       <script>
-        const LISTS = { cat: [["Femme", "Homme", "Maison"], ["Vêtements", "Chaussures"]], etat: [["Neuf avec étiquette", "Très bon état", "Bon état"]], brand: [["Nike", "adidas", "Zara"]] };
+        const LISTS = { cat: [["Femme", "Homme", "Maison"], ["Vêtements", "Chaussures"]], etat: [["Neuf avec étiquette", "Très bon état", "Bon état"]], brand: [["Nike", "adidas", "Zara"]], taille: [["S", "M", "L", "XL"]] };
+        const DESC = { "Très bon état": "Porté très peu, aucun défaut visible.", "Bon état": "Traces d'usure légères.", "Neuf avec étiquette": "Jamais porté." };
         function pick(kind, level = 0) {
           document.querySelector("[role=dialog]")?.remove();
           const d = document.createElement("div"); d.setAttribute("role", "dialog");
-          d.innerHTML = (kind === "brand" ? '<input placeholder="Rechercher une marque">' : "") + "<ul>" + LISTS[kind][level].map((o) => "<li><button type=button>" + o + "</button></li>").join("") + "</ul>";
+          d.innerHTML = '<div class="h">' + kind + '</div>' + (kind === "brand" ? '<input placeholder="Rechercher une marque">' : "") + "<ul>" + LISTS[kind][level].map((o) => kind === "etat" ? "<li class=opt><div><div>" + o + "</div><div>" + DESC[o] + "</div></div></li>" : "<li><button type=button>" + o + "</button></li>").join("") + "</ul>";
           document.body.appendChild(d);
-          d.querySelectorAll("li button").forEach((b) => b.onclick = () => {
+          d.querySelectorAll("li button, li.opt").forEach((b) => b.onclick = (ev) => {
+            ev.stopPropagation();
             const btn = document.getElementById(kind);
-            btn.dataset.v = (btn.dataset.v ? btn.dataset.v + ">" : "") + b.textContent;
+            btn.dataset.v = (btn.dataset.v ? btn.dataset.v + ">" : "") + (b.matches("li.opt") ? b.querySelector(":scope > div > div").textContent : b.textContent);
             if (LISTS[kind][level + 1]) pick(kind, level + 1); else { btn.textContent = btn.dataset.v; d.remove(); }
           });
         }
@@ -904,14 +907,14 @@ if (process.env.STORE_SHOTS) {
   await bb.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackers" })))?.data?.[0] || {};
   const onDressing = await bb.locator(".aliedge-beebs-competitor").count();
-  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:open", listing: { title: "Robe crochet bohème", description: "Neuve.", price: 15, condition: "Très bon état", size: "M", photos: ["https://cdn.beebs.app/a.jpg"] } }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:open", listing: { title: "Robe crochet bohème", description: "Neuve.", price: 15, brand: "Zara", condition: "Très bon état", size: "M", photos: ["https://cdn.beebs.app/a.jpg"] } }));
   let sellTab = null;
   for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /beebs\.app\/fr\/vendre/.test(p.url())); }
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
   const onSell = sellTab ? await sellTab.locator("#aliedge-beebs-sell").count() : 0;
   await sellTab?.waitForTimeout(2500);
-  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector('textarea').value, p: document.querySelector('input[name="price"]').value, c: document.querySelector('select[name="condition"]').value, s: document.querySelector('select[name="size"]').value })) : {};
-  check("Beebs : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Beebs » ouvre le formulaire avec l'annonce", onItem === 1 && onDressing === 1 && tr.active_count === 1 && tr.gone_30d === 1 && onSell === 1 && filled.t === "Robe crochet bohème" && filled.d === "Neuve." && filled.p === "15" && filled.c === "vgood" && filled.s === "m", JSON.stringify({ onItem, onDressing, tr, sell: sellTab?.url() || null, onSell, filled }));
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector('textarea').value, p: document.querySelector('input[name="price"]').value, c: document.querySelector('select[name="condition"]').value, s: document.querySelector('select[name="size"]').value, a: document.querySelector('input[name="addr"]').value })) : {};
+  check("Beebs : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Beebs » ouvre le formulaire avec l'annonce", onItem === 1 && onDressing === 1 && tr.active_count === 1 && tr.gone_30d === 1 && onSell === 1 && filled.t === "Robe crochet bohème" && filled.d === "Neuve." && filled.p === "15" && filled.c === "vgood" && filled.s === "m" && filled.a !== "Zara", JSON.stringify({ onItem, onDressing, tr, sell: sellTab?.url() || null, onSell, filled }));
   await sellTab?.close();
   // Reposter plusieurs annonces Vinted du membre sur Beebs, l'une après l'autre.
   const mine = await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:myItems" }));
@@ -975,14 +978,14 @@ if (process.env.STORE_SHOTS) {
   await op.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:trackers" })))?.data?.[0] || {};
   const onShop = await op.locator(".aliedge-beebs-competitor").count();
-  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", categoryPath: ["Hommes", "Vêtements", "Sweats"], photos: ["https://images1.vinted.net/t/0.jpeg"] } }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", size: "M", categoryPath: ["Hommes", "Vêtements", "Sweats"], photos: ["https://images1.vinted.net/t/0.jpeg"] } }));
   let sellTab = null;
   for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /opla\.co\/sell\/create/.test(p.url())); }
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
-  await sellTab?.waitForFunction(() => document.getElementById("etat")?.dataset.v && document.getElementById("ph")?.files.length, null, { timeout: 15000 }).catch(() => {});
-  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.getElementById("t").value, d: document.getElementById("d").value, p: document.getElementById("p").value, cat: document.getElementById("cat").dataset.v, b: document.getElementById("brand").dataset.v, c: document.getElementById("etat").dataset.v, ph: document.getElementById("ph").files.length })) : {};
+  await sellTab?.waitForFunction(() => document.getElementById("etat")?.dataset.v && document.getElementById("ph")?.files.length, null, { timeout: 20000 }).catch(() => {});
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.getElementById("t").value, d: document.getElementById("d").value, p: document.getElementById("p").value, cat: document.getElementById("cat").dataset.v, b: document.getElementById("brand").dataset.v, c: document.getElementById("etat").dataset.v, sz: document.getElementById("taille").dataset.v, ph: document.getElementById("ph").files.length })) : {};
   const beebsIds = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackedIds" })))?.data || [];
-  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit titre, description, prix, catégorie, marque, état et photos, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.cat === "Homme>Vêtements" && filled.b === "Nike" && filled.c === "Très bon état" && filled.ph === 1 && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
+  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit titre, description, prix, catégorie, marque, état et photos, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.cat === "Homme>Vêtements" && filled.b === "Nike" && filled.c === "Très bon état" && filled.sz === "M" && filled.ph === 1 && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing", posted: false }));
   await sellTab?.close();
   await op.close();

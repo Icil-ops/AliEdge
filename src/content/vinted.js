@@ -115,10 +115,12 @@
     }
     return null;
   }
+  // Photos de l'annonce seulement : la galerie (jamais la photo de profil du vendeur ni les annonces similaires).
   function domPhotos() {
-    const urls = [...document.querySelectorAll('img[src*="vinted.net"]')]
-      .filter((i) => (i.naturalWidth || i.width) >= 200 && !i.closest('a[href*="/items/"]:not([href*="' + location.pathname.split("/")[2] + '"])'))
-      .map((i) => i.currentSrc || i.src).filter((u) => /^https:\/\//.test(u));
+    const gallery = [...document.querySelectorAll('img[data-testid*="item-photo"], [data-testid*="item-photo"] img, [class*="item-photos" i] img, [class*="item-photo" i] img')];
+    const imgs = gallery.length ? gallery : [...document.querySelectorAll('img[src*="vinted.net"]')]
+      .filter((i) => (i.naturalWidth || i.width) >= 200 && !i.closest('a[href*="/items/"], a[href*="/member/"], [class*="avatar" i], [class*="user" i], [data-testid*="user" i], [data-testid*="seller" i]'));
+    const urls = imgs.map((i) => i.currentSrc || i.src).filter((u) => /^https:\/\//.test(u) && !/avatar|\/50x50\/|\/100x100\//i.test(u));
     return [...new Set(urls)].slice(0, 10);
   }
 
@@ -132,8 +134,7 @@
     // Compte reconnu par la page : enregistré comme compte du membre (ses annonces ne vont jamais dans la base commune).
     if (byPage && sellerId) chrome.runtime.sendMessage({ type: "vinted:self", id: sellerId, market: location.hostname.split(".").pop() }).catch(() => {});
     if (mountedMenu.dataset.lbc) return;
-    // Annonce vendue : rien à reposter.
-    if (item.status === "sold" || [...document.querySelectorAll("div, span, h2")].some((el) => el.children.length === 0 && /^vendu$|^sold$/i.test((el.textContent || "").trim()))) return;
+    // Annonce vendue comprise : on peut la remettre en vente ailleurs (même article en stock).
     const photos = raw ? (raw.photos || []).map((p) => p.full_size_url || p.url).filter((u) => /^https:\/\//.test(u || "")).slice(0, 10) : domPhotos();
     const price = Number(raw?.price?.amount ?? raw?.price ?? item.price) || null;
     const descEl = document.querySelector('[itemprop="description"], [data-testid*="description"]');

@@ -1969,6 +1969,7 @@ function viewCompte(params) {
           <button class="btn small" type="button" id="lbcrepliessave">Enregistrer les réponses</button>
         </div>
       </details>
+      <label class="field" style="margin-top:6px"><span><b>Adresse pour reposter</b> <span class="small muted">· demandée par certains sites (Beebs…) pour calculer la distance avec les acheteurs. AliEdge la remplit pour toi ; elle reste dans ce navigateur.</span></span><input class="input" type="text" data-set="sellAddress" value="${esc(s.sellAddress || "")}" placeholder="Ex : 12 rue de la République, 30000 Nîmes" autocomplete="street-address" maxlength="200"></label>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
     </section>
     <div class="row between" style="margin-top:12px">
@@ -2329,7 +2330,7 @@ function repostHtml() {
   else if (repost.state === "error") body = `<div class="notice warn">${esc(repost.error)}</div>${repost.needEnable ? `<button class="btn" type="button" id="repostenable">Activer ${L}</button>` : ""}`;
   else if (!repost.items.length) body = `<p class="muted small">Aucune annonce en ligne sur ton compte Vinted.</p>`;
   else body = `<div class="row between wrap" style="gap:8px"><label class="row small"><input type="checkbox" id="repostall"> Tout sélectionner (hors déjà sur ${L})</label><span class="small muted">${repost.sel.size} sélectionnée${repost.sel.size > 1 ? "s" : ""}</span></div>
-    <div class="items">${repost.items.map((i) => `<label class="item" style="grid-template-columns:20px 44px 1fr auto;cursor:pointer"><input type="checkbox" data-rp="${i.id}" ${repost.sel.has(i.id) ? "checked" : ""}>${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:56px">` : '<div class="ph" style="width:44px;height:56px"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${i.posted ? `Déjà sur ${L}` : ""}</div></div><div class="p num">${i.price != null ? eur(i.price) : ""}</div></label>`).join("")}</div>
+    <div class="items">${repost.items.map((i) => `<label class="item" style="grid-template-columns:20px 44px 1fr auto;cursor:pointer"><input type="checkbox" data-rp="${i.id}" ${repost.sel.has(i.id) ? "checked" : ""}>${i.photo ? `<img src="${safeUrl(i.photo)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:56px">` : '<div class="ph" style="width:44px;height:56px"></div>'}<div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${[i.sold ? "Vendue sur Vinted" : "", i.posted ? `Déjà sur ${L}` : ""].filter(Boolean).join(" · ")}</div></div><div class="p num">${i.price != null ? eur(i.price) : ""}</div></label>`).join("")}</div>
     <button class="btn primary block" type="button" id="repostgo" ${repost.sel.size ? "" : "disabled"}>Publier ${repost.sel.size || ""} annonce${repost.sel.size > 1 ? "s" : ""} sur ${L}</button>
     <p class="small muted">Sois connecté à ${L}. Vérifie chaque annonce avant de la publier (catégorie, état, taille).</p>`;
   return `<section class="stack" id="repostbox" style="margin-top:22px"><div class="row between wrap" style="gap:8px"><h2>Reposter sur un autre site</h2>${seg}</div>${body}</section>`;

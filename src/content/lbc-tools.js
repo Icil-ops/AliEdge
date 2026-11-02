@@ -178,6 +178,145 @@
     return dt.files.length;
   }
 
+  // ───────── Listes déroulantes du site (catégorie, marque, état, taille) : on ouvre la ligne, on repère les choix
+  // apparus après le clic (différence avant / après), on tape la recherche s'il y a un champ, on clique le bon choix.
+  const pnorm = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const psleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isVis = (el) => !!el && (el.offsetParent !== null || el.getClientRects().length > 0);
+  const psing = (w) => w.replace(/(?<=..)s$/, "");
+  const LEAVES = 'li, button, [role="option"], label, a, div, span, p';
+  const leaves = () => [...document.querySelectorAll(LEAVES)].filter((x) => isVis(x) && (x.textContent || "").length < 120 && !x.closest("#aliedge-beebs-sell, #aliedge-lbc-deposit"));
+  function press(el) {
+    for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup"]) el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+    el.click();
+  }
+  const HEADS = /^(titre|description|prix|marque|adresse|taille|etat|categorie|couleur|matiere|type de vetement|format du colis)\b/;
+  function rowTrigger(re) {
+    for (const h of document.querySelectorAll("label, p, span, div, h2, h3, h4, legend, dt")) {
+      if (h.children.length > 2 || !isVis(h)) continue;
+      const t = pnorm(h.textContent);
+      if (!t || t.length > 40 || !re.test(t)) continue;
+      let row = h.parentElement;
+      for (let d = 0; row && d < 4; d++, row = row.parentElement) {
+        // Le bloc de CE champ seulement (un seul titre de champ dedans).
+        const heads = [...row.querySelectorAll("label, p, span, h2, h3, h4, legend, dt")].filter((x) => x.children.length === 0 && HEADS.test(pnorm(x.textContent)) && pnorm(x.textContent).length < 40);
+        if (heads.length > 1) break;
+        const trig = [...row.querySelectorAll('[role="combobox"], [aria-haspopup], button, [role="button"], input:not([type=file]):not([type=hidden]), select')].find(isVis);
+        if (trig) return trig;
+        if (/s[ée]lectionner|choisi(r|ssez)/i.test(row.textContent || "") && (row.textContent || "").length < 200 && d > 0) return row;
+      }
+    }
+    return null;
+  }
+  function bestOption(cands, words, loose) {
+    for (const w of words) {
+      const exact = cands.filter((x) => { const t = pnorm(x.textContent); return t === w || psing(t) === psing(w); });
+      const hit = exact.sort((a, b) => a.querySelectorAll("*").length - b.querySelectorAll("*").length)[0]
+        || (loose && cands.filter((x) => pnorm(x.textContent).startsWith(w)).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0]);
+      if (hit) return hit.matches('button, a, [role="option"], label') ? hit : hit.querySelector('button, a, [role="option"], label, input[type="radio"]') || hit.closest('button, a, [role="option"], label, li') || hit;
+    }
+    return null;
+  }
+  async function closeOpen(trig) {
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    await psleep(200);
+    const x = [...document.querySelectorAll('[role="dialog"] button, [aria-modal="true"] button')].find((b) => isVis(b) && /fermer|close|×|✕/i.test(`${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`));
+    if (x) x.click();
+    await psleep(200);
+  }
+  /** Ouvre la liste du champ (re) et choisit une des valeurs (words, déjà normalisées). search : tape d'abord words[0]. */
+  async function pickValue(re, words, { search = false, loose = false } = {}) {
+    words = words.map(pnorm).filter(Boolean);
+    const trig = rowTrigger(re);
+    if (!trig || !words.length) return false;
+    if (trig.tagName === "SELECT") {
+      const o = [...trig.options].find((x) => words.some((w) => pnorm(x.textContent) === w || pnorm(x.textContent).startsWith(w)));
+      if (!o) return false;
+      trig.value = o.value; trig.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }
+    const before = new Set(leaves());
+    const inputsBefore = new Set([...document.querySelectorAll("input")].filter(isVis));
+    press(trig);
+    if (trig.tagName === "INPUT") { trig.focus(); trig.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true })); }
+    await psleep(800);
+    if (search) {
+      const q = (trig.tagName === "INPUT" ? trig : null) || trig.querySelector?.("input")
+        || [...document.querySelectorAll("input")].find((i) => isVis(i) && !inputsBefore.has(i) && !/file|checkbox|radio|hidden/.test(i.type));
+      if (q) { q.focus(); setValue(q, words[0]); await psleep(1100); }
+    }
+    const cands = leaves().filter((x) => search || !before.has(x));
+    const opt = bestOption(cands, words, loose);
+    if (!opt) { await closeOpen(trig); return false; }
+    press(opt);
+    await psleep(600);
+    return true;
+  }
+  /** Catégorie : avec un champ de recherche, on tape les mots du fil d'Ariane Vinted (du plus précis au plus large) ;
+   *  sinon on descend l'arbre niveau par niveau (Homme › Vêtements › …). */
+  async function pickCategory(path) {
+    const crumbs = (path || []).map(pnorm).filter(Boolean);
+    if (!crumbs.length) return false;
+    const gender = /^(homme|femme|enfant|fille|garcon|bebe)/.exec(crumbs[0])?.[1] || "";
+    const trig = rowTrigger(/^(categorie|type de vetement)\b/);
+    if (!trig) return false;
+    const inputsBefore = new Set([...document.querySelectorAll("input")].filter(isVis));
+    let before = new Set(leaves());
+    press(trig);
+    await psleep(900);
+    const q = (trig.tagName === "INPUT" ? trig : null) || [...document.querySelectorAll("input")].find((i) => isVis(i) && !inputsBefore.has(i) && !/file|checkbox|radio|hidden/.test(i.type));
+    if (q) {
+      // Le plus précis d'abord, sans le dernier niveau quand il porte la marque (« CHAPS Chemises… »).
+      const terms = crumbs.slice(1).reverse().map((c) => c.split(/\s+/).filter((w) => w.length > 3).slice(-2).join(" ")).filter(Boolean);
+      for (const term of terms) {
+        setValue(q, term.split(" ")[0]);
+        await psleep(1100);
+        const cands = leaves().filter((x) => pnorm(x.textContent).includes(psing(term.split(" ")[0])) && pnorm(x.textContent).length < 60);
+        const pick = cands.find((x) => gender && pnorm(x.textContent).includes(gender)) || cands.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+        if (pick) { press(pick.closest('button, a, [role="option"], li, label') || pick); await psleep(600); return true; }
+      }
+      await closeOpen(trig);
+      return false;
+    }
+    let words = crumbs.slice(), picked = 0;
+    for (let level = 0; level < 5 && words.length; level++) {
+      const cands = leaves().filter((x) => !before.has(x));
+      const opt = bestOption(cands, words, false);
+      if (!opt) break;
+      const t = pnorm(opt.textContent);
+      before = new Set(leaves());
+      press(opt);
+      picked++;
+      const i = words.findIndex((w) => psing(w) === psing(t) || w === t);
+      words = i >= 0 ? words.slice(i + 1) : words.slice(1);
+      await psleep(800);
+    }
+    if (!picked) await closeOpen(trig);
+    return picked > 0;
+  }
+  // État Vinted → libellés des autres sites (Beebs, Opla, Leboncoin).
+  const COND_WORDS = [
+    [/neuf avec etiquette|new with tags/, ["neuf avec etiquette", "neuf avec etiquettes", "etat neuf", "neuf"]],
+    [/neuf sans etiquette|new without tags/, ["neuf sans etiquette", "neuf sans etiquettes", "etat neuf", "comme neuf", "neuf"]],
+    [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf"]],
+    [/bon etat|good/, ["bon etat"]],
+    [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen"]],
+  ];
+  const condWords = (v) => COND_WORDS.find(([re]) => re.test(pnorm(v)))?.[1] || [pnorm(v)];
+  /** Adresse (Beebs…) : celle enregistrée dans AliEdge (Compte), puis la première suggestion du site. */
+  async function fillAddress(addr) {
+    if (!addr) return false;
+    const el = [...document.querySelectorAll("input")].find((i) => isVis(i) && /adresse|address/i.test(`${i.name} ${i.id} ${i.placeholder} ${i.getAttribute("aria-label") || ""}`));
+    if (!el || (el.value && !/^\s*$/.test(el.value))) return false;
+    const before = new Set(leaves());
+    el.focus(); setValue(el, addr);
+    await psleep(1300);
+    const first = pnorm(addr).split(/\s+/).find((w) => w.length > 2) || "";
+    const sug = leaves().filter((x) => !before.has(x) && first && pnorm(x.textContent).includes(first)).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    if (sug) { press(sug.closest('[role="option"], li, button') || sug); await psleep(400); }
+    return true;
+  }
+
   // Étape « Choisissez une catégorie suggérée » : AliEdge coche la suggestion qui correspond à la catégorie Vinted
   // de l'annonce (Vêtements, Chaussures, Accessoires…), sinon la première suggestion de Leboncoin. Modifiable ensuite.
   const LBC_FROM_VINTED = [
@@ -269,20 +408,34 @@
     // est rempli dès qu'il apparaît (seulement s'il est vide), les photos dès que le champ photos est là.
     if (l.from === "vinted") {
       const filled = new Set();
-      let photosDone = false, photosBusy = false, catDone = false;
+      // Une seule fois par annonce, même si Leboncoin recharge ses étapes (sinon les photos repartiraient à chaque étape).
+      const key = `ae_lbc_done_${l.vintedId || l.at || ""}`;
+      const doneSet = new Set((() => { try { return JSON.parse(sessionStorage.getItem(key) || "[]"); } catch { return []; } })());
+      const mark = (k) => { doneSet.add(k); try { sessionStorage.setItem(key, JSON.stringify([...doneSet])); } catch { /* rien */ } };
+      let photosDone = doneSet.has("photos"), photosBusy = false, catDone = doneSet.has("cat"), condDone = false, brandDone = false;
+      const note = (what) => { const m = panel.querySelector("[data-fillmsg]"); if (m) m.textContent = `${what === "état" ? "État" : "Marque"} choisi${what === "état" ? "" : "e"}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; };
+      let ticking = false;
       const tick = async () => {
         if (!document.getElementById("aliedge-lbc-deposit")) return clearInterval(auto);
+        if (ticking) return;
+        ticking = true;
+        try { await step(); } finally { ticking = false; }
+      };
+      const step = async () => {
         for (const k of ["title", "body", "price"]) {
           if (filled.has(k) || !vals[k]) continue;
           const el = findField(k);
           if (el && !el.value) { setValue(el, vals[k]); filled.add(k); }
         }
-        if (!catDone) catDone = pickSuggestedCategory(l);
+        if (!catDone && pickSuggestedCategory(l)) { catDone = true; mark("cat"); }
+        // Étape « Dites-nous en plus » : état (obligatoire) puis marque (ignorée si Leboncoin ne la connaît pas).
+        if (!condDone && l.condition && rowTrigger(/^etat\b/)) { condDone = true; if (await pickValue(/^etat\b/, condWords(l.condition))) note("état"); }
+        if (!brandDone && l.brand && rowTrigger(/^marque\b/)) { brandDone = true; if (await pickValue(/^marque\b/, [l.brand], { search: true })) note("marque"); }
         if (!photosDone && !photosBusy && (l.photos || []).length && (document.querySelector('input[type="file"]') || /d[ée]posez jusqu|importer|ajouter des photos/i.test(document.body.innerText || ""))) {
           photosBusy = true;
           const n = await addPhotos(l.photos);
           photosBusy = false;
-          if (n) { photosDone = true; panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; }
+          if (n) { photosDone = true; mark("photos"); panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; }
         }
       };
       const auto = setInterval(tick, 1500);

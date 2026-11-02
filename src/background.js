@@ -1282,7 +1282,8 @@ async function ownActiveItems() {
   if (!own.length && !saved?.items?.length) throw err("Ouvre ton profil Vinted (la page de tes annonces) une fois : AliEdge les relèvera, puis reviens ici.");
   const market = MARKETS[own[0]?.market] ? own[0].market : saved?.market || "fr";
   let items = [];
-  if (own.length) items = (await vinted.sellerItems(own[0].id, market, { pages: 3 }).catch(() => [])).filter((i) => i.status === "active");
+  // Annonces en ligne et vendues (on peut remettre en vente ailleurs un article vendu sur Vinted).
+  if (own.length) items = (await vinted.sellerItems(own[0].id, market, { pages: 3 }).catch(() => [])).filter((i) => i.status === "active" || i.status === "sold");
   if (!items.length && saved?.items?.length) items = saved.items;
   if (!items.length) throw err("Aucune annonce trouvée : ouvre ton profil Vinted (la page de tes annonces), puis reviens ici.");
   return { market, items };
@@ -1383,7 +1384,7 @@ function channelHandlers(ch) {
     [`${ch}:myItems`]: async () => {
       const { market, items } = await ownActiveItems();
       const posted = (await get(K.posted)) || {};
-      return items.map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
+      return items.map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id], sold: i.status === "sold" }));
     },
     [`${ch}:queue`]: async ({ ids = [], market = "fr" }) => {
       const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
@@ -1828,6 +1829,8 @@ const handlers = {
   // Publier rapidement sur Leboncoin (une annonce Vinted, ou plusieurs l'une après l'autre), comme Beebs et Opla.
   "lbc:open": async ({ listing }) => lbcOpen(listing),
   // « Reposter partout » : Beebs, Opla et Leboncoin s'ouvrent chacun avec l'annonce (site pas encore activé : le panneau le propose).
+  // Adresse pour les sites qui la demandent (Beebs…) : saisie par le membre dans Compte, gardée dans ce navigateur.
+  "settings:sellAddress": async () => String((await getSettings()).sellAddress || "").slice(0, 200) || null,
   "xpost:all": async ({ listing }) => {
     const out = {};
     for (const ch of Object.keys(CHANNELS)) out[ch] = (await channelHandlerMap[`${ch}:open`]({ listing })).enabled;
@@ -1837,7 +1840,7 @@ const handlers = {
   "lbc:myItems": async () => {
     const { market, items } = await ownActiveItems();
     const posted = (await chrome.storage.local.get("ae_lbc_posted")).ae_lbc_posted || {};
-    return items.map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id] }));
+    return items.map((i) => ({ id: i.vinted_id, title: i.title, price: i.price, photo: i.photo_url, url: i.url, market, posted: !!posted[i.vinted_id], sold: i.status === "sold" }));
   },
   "lbc:queue": async ({ ids = [], market = "fr" }) => {
     const list = ids.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 40);
@@ -1864,7 +1867,7 @@ const handlers = {
   // Annonces Vinted du membre déjà publiées ailleurs (repère sur Vinted).
   // Profil Vinted du membre ouvert : ses annonces en ligne (pour « Reposter sur un autre site »).
   "vinted:ownItems": async ({ items = [], sellerId = null, market = "fr" }) => {
-    const list = (Array.isArray(items) ? items : []).slice(0, 300).map((i) => ({ vinted_id: Number(i.vinted_id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo_url: /^https:\/\//.test(i.photo_url || "") ? i.photo_url : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, status: "active" })).filter((i) => i.vinted_id > 0);
+    const list = (Array.isArray(items) ? items : []).slice(0, 300).map((i) => ({ vinted_id: Number(i.vinted_id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo_url: /^https:\/\//.test(i.photo_url || "") ? i.photo_url : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, status: i.status === "sold" ? "sold" : "active" })).filter((i) => i.vinted_id > 0);
     if (sellerId) await addOwnSeller(Number(sellerId), MARKETS[market] ? market : "fr");
     if (list.length) await chrome.storage.local.set({ ae_own_items: { at: Date.now(), market: MARKETS[market] ? market : "fr", items: list } });
     return { saved: list.length };
@@ -2057,7 +2060,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

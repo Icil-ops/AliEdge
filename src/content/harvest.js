@@ -61,7 +61,7 @@
     timer = null;
     if (ownProfile()) {
       seen.clear();
-      const mine = readCards().filter((i) => i.status === "active");
+      const mine = readCards().filter((i) => i.status === "active" || i.status === "sold");
       const key = mine.map((i) => i.vinted_id).join(",");
       if (mine.length && key !== ownSent) { ownSent = key; chrome.runtime.sendMessage({ type: "vinted:ownItems", items: mine, sellerId: Number(location.pathname.match(/^\/member\/(\d+)/)[1]), market }).catch(() => {}); }
       return;

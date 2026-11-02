@@ -225,88 +225,158 @@
   function fieldNear(kind) {
     const re = FIELD_HEAD[kind];
     if (!re) return null;
-    for (const h of document.querySelectorAll("label, p, span, div, h2, h3, h4, legend")) {
-      if (h.children.length > 1 || h.offsetParent === null) continue;
-      const t = norm(h.textContent);
-      if (!t || t.length > 40 || !re.test(t)) continue;
-      let box = h.parentElement;
-      for (let d = 0; box && d < 3; d++, box = box.parentElement) {
-        const el = [...box.querySelectorAll(kind === "body" ? "textarea" : "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden])")]
-          .find((x) => visibleField(x) && (h.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING));
-        if (el) return el;
-      }
+    const FOLLOW = Node.DOCUMENT_POSITION_FOLLOWING;
+    const heads = [...document.querySelectorAll("label, p, span, div, h2, h3, h4, legend")].filter((x) => x.children.length <= 1 && isVis(x) && HEADS.test(pnorm(x.textContent)) && pnorm(x.textContent).length < 40);
+    const inputs = [...document.querySelectorAll(kind === "body" ? "textarea" : "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden])")].filter(visibleField);
+    for (const h of heads) {
+      if (!re.test(pnorm(h.textContent))) continue;
+      // Premier champ après ce titre, sans autre titre de champ entre les deux (la marque ne va jamais dans « Adresse »).
+      const el = inputs.find((x) => h.compareDocumentPosition(x) & FOLLOW);
+      if (!el) continue;
+      const between = heads.some((o) => o !== h && !o.contains(h) && !h.contains(o) && (h.compareDocumentPosition(o) & FOLLOW) && (o.compareDocumentPosition(el) & FOLLOW));
+      if (!between) return el;
     }
     return null;
   }
   const isEmpty = (el) => !el.value || /^0+([.,]0+)?$/.test(el.value.trim());
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // Sélecteurs « Catégorie / Marque / État » affichés comme une ligne cliquable (« Sélectionner ») qui ouvre une liste.
-  function openRow(re) {
-    for (const h of document.querySelectorAll("label, p, span, div, h3, h4, button")) {
-      if (h.children.length > 2 || h.offsetParent === null) continue;
-      const t = norm(h.textContent);
+  // ───────── Listes déroulantes du site (catégorie, marque, état, taille) : on ouvre la ligne, on repère les choix
+  // apparus après le clic (différence avant / après), on tape la recherche s'il y a un champ, on clique le bon choix.
+  const pnorm = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const psleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isVis = (el) => !!el && (el.offsetParent !== null || el.getClientRects().length > 0);
+  const psing = (w) => w.replace(/(?<=..)s$/, "");
+  const LEAVES = 'li, button, [role="option"], label, a, div, span, p';
+  const leaves = () => [...document.querySelectorAll(LEAVES)].filter((x) => isVis(x) && (x.textContent || "").length < 120 && !x.closest("#aliedge-beebs-sell, #aliedge-lbc-deposit"));
+  function press(el) {
+    for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup"]) el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+    el.click();
+  }
+  const HEADS = /^(titre|description|prix|marque|adresse|taille|etat|categorie|couleur|matiere|type de vetement|format du colis)\b/;
+  function rowTrigger(re) {
+    for (const h of document.querySelectorAll("label, p, span, div, h2, h3, h4, legend, dt")) {
+      if (h.children.length > 2 || !isVis(h)) continue;
+      const t = pnorm(h.textContent);
       if (!t || t.length > 40 || !re.test(t)) continue;
-      let row = h;
+      let row = h.parentElement;
       for (let d = 0; row && d < 4; d++, row = row.parentElement) {
-        if (/s[ée]lectionner|choisi(r|ssez)/i.test(row.textContent || "") && (row.textContent || "").length < 160) {
-          const target = row.querySelector('button, [role="button"], [role="combobox"], select') || row;
-          if (target.tagName === "SELECT") return null;
-          target.click();
-          return row;
-        }
+        // Le bloc de CE champ seulement (un seul titre de champ dedans).
+        const heads = [...row.querySelectorAll("label, p, span, h2, h3, h4, legend, dt")].filter((x) => x.children.length === 0 && HEADS.test(pnorm(x.textContent)) && pnorm(x.textContent).length < 40);
+        if (heads.length > 1) break;
+        const trig = [...row.querySelectorAll('[role="combobox"], [aria-haspopup], button, [role="button"], input:not([type=file]):not([type=hidden]), select')].find(isVis);
+        if (trig) return trig;
+        if (/s[ée]lectionner|choisi(r|ssez)/i.test(row.textContent || "") && (row.textContent || "").length < 200 && d > 0) return row;
       }
     }
     return null;
   }
-  const layer = () => [...document.querySelectorAll('[role="dialog"], [aria-modal="true"], [role="listbox"], [class*="modal" i], [class*="drawer" i], [class*="sheet" i], [class*="dropdown" i], [class*="popover" i]')].filter((x) => x.offsetParent !== null || x.getClientRects().length).pop() || document.body;
-  const singular = (w) => w.replace(/(?<=..)s$/, "");
-  function optionFor(box, words, loose) {
-    const opts = [...box.querySelectorAll('[role="option"], li, button, label, a, div, span')].filter((x) => x.offsetParent !== null && x.children.length <= 3 && (x.textContent || "").length < 80);
+  function bestOption(cands, words, loose) {
     for (const w of words) {
-      const hit = opts.find((x) => norm(x.textContent) === w) || opts.find((x) => singular(norm(x.textContent)) === singular(w))
-        || (loose && opts.find((x) => norm(x.textContent).startsWith(w)));
-      if (hit) return hit.matches('button, a, [role="option"], label') ? hit : hit.querySelector('button, a, [role="option"], label, input[type="radio"]') || hit.closest('button, a, [role="option"], label') || hit;
+      const exact = cands.filter((x) => { const t = pnorm(x.textContent); return t === w || psing(t) === psing(w); });
+      const hit = exact.sort((a, b) => a.querySelectorAll("*").length - b.querySelectorAll("*").length)[0]
+        || (loose && cands.filter((x) => pnorm(x.textContent).startsWith(w)).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0]);
+      if (hit) return hit.matches('button, a, [role="option"], label') ? hit : hit.querySelector('button, a, [role="option"], label, input[type="radio"]') || hit.closest('button, a, [role="option"], label, li') || hit;
     }
     return null;
   }
-  async function closeLayer() {
-    const box = layer();
-    const x = box !== document.body && [...box.querySelectorAll("button, [role=button]")].find((b) => /fermer|close|annuler|retour|×|✕/i.test(`${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`));
-    if (x) x.click(); else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await sleep(300);
+  async function closeOpen(trig) {
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    await psleep(200);
+    const x = [...document.querySelectorAll('[role="dialog"] button, [aria-modal="true"] button')].find((b) => isVis(b) && /fermer|close|×|✕/i.test(`${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`));
+    if (x) x.click();
+    await psleep(200);
   }
-  /** Choisit une valeur dans une liste ouverte depuis une ligne « Sélectionner » ; recherche tapée pour la marque. */
-  async function pickFromRow(re, words, { search = false } = {}) {
-    if (!words.length || !openRow(re)) return false;
-    await sleep(800);
-    let box = layer();
-    if (search) {
-      const q = [...box.querySelectorAll('input:not([type=checkbox]):not([type=radio])')].find(visibleField);
-      if (q) { setValue(q, words[0]); await sleep(1000); box = layer(); }
+  /** Ouvre la liste du champ (re) et choisit une des valeurs (words, déjà normalisées). search : tape d'abord words[0]. */
+  async function pickValue(re, words, { search = false, loose = false } = {}) {
+    words = words.map(pnorm).filter(Boolean);
+    const trig = rowTrigger(re);
+    if (!trig || !words.length) return false;
+    if (trig.tagName === "SELECT") {
+      const o = [...trig.options].find((x) => words.some((w) => pnorm(x.textContent) === w || pnorm(x.textContent).startsWith(w)));
+      if (!o) return false;
+      trig.value = o.value; trig.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
     }
-    const opt = optionFor(box, words, search);
-    if (!opt) { await closeLayer(); return false; }
-    opt.click();
-    await sleep(500);
+    const before = new Set(leaves());
+    const inputsBefore = new Set([...document.querySelectorAll("input")].filter(isVis));
+    press(trig);
+    if (trig.tagName === "INPUT") { trig.focus(); trig.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true })); }
+    await psleep(800);
+    if (search) {
+      const q = (trig.tagName === "INPUT" ? trig : null) || trig.querySelector?.("input")
+        || [...document.querySelectorAll("input")].find((i) => isVis(i) && !inputsBefore.has(i) && !/file|checkbox|radio|hidden/.test(i.type));
+      if (q) { q.focus(); setValue(q, words[0]); await psleep(1100); }
+    }
+    const cands = leaves().filter((x) => search || !before.has(x));
+    const opt = bestOption(cands, words, loose);
+    if (!opt) { await closeOpen(trig); return false; }
+    press(opt);
+    await psleep(600);
     return true;
   }
-  /** Catégorie en plusieurs niveaux (Homme › Vêtements › …) : à chaque niveau, l'option qui correspond au chemin Vinted. */
+  /** Catégorie : avec un champ de recherche, on tape les mots du fil d'Ariane Vinted (du plus précis au plus large) ;
+   *  sinon on descend l'arbre niveau par niveau (Homme › Vêtements › …). */
   async function pickCategory(path) {
-    const words = (path || []).map(norm).filter(Boolean);
-    if (!words.length || !openRow(/^cat[ée]gorie\b/)) return false;
-    let picked = 0;
-    for (let level = 0; level < 5; level++) {
-      await sleep(700);
-      const opt = optionFor(layer(), words.slice(picked ? 1 : 0), false) || optionFor(layer(), words, false);
-      if (!opt) break;
-      const txt = norm(opt.textContent);
-      opt.click();
-      picked++;
-      const i = words.findIndex((w) => singular(w) === singular(txt) || w === txt);
-      if (i >= 0) words.splice(0, i + 1);
-      if (!words.length) break;
+    const crumbs = (path || []).map(pnorm).filter(Boolean);
+    if (!crumbs.length) return false;
+    const gender = /^(homme|femme|enfant|fille|garcon|bebe)/.exec(crumbs[0])?.[1] || "";
+    const trig = rowTrigger(/^(categorie|type de vetement)\b/);
+    if (!trig) return false;
+    const inputsBefore = new Set([...document.querySelectorAll("input")].filter(isVis));
+    let before = new Set(leaves());
+    press(trig);
+    await psleep(900);
+    const q = (trig.tagName === "INPUT" ? trig : null) || [...document.querySelectorAll("input")].find((i) => isVis(i) && !inputsBefore.has(i) && !/file|checkbox|radio|hidden/.test(i.type));
+    if (q) {
+      // Le plus précis d'abord, sans le dernier niveau quand il porte la marque (« CHAPS Chemises… »).
+      const terms = crumbs.slice(1).reverse().map((c) => c.split(/\s+/).filter((w) => w.length > 3).slice(-2).join(" ")).filter(Boolean);
+      for (const term of terms) {
+        setValue(q, term.split(" ")[0]);
+        await psleep(1100);
+        const cands = leaves().filter((x) => pnorm(x.textContent).includes(psing(term.split(" ")[0])) && pnorm(x.textContent).length < 60);
+        const pick = cands.find((x) => gender && pnorm(x.textContent).includes(gender)) || cands.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+        if (pick) { press(pick.closest('button, a, [role="option"], li, label') || pick); await psleep(600); return true; }
+      }
+      await closeOpen(trig);
+      return false;
     }
+    let words = crumbs.slice(), picked = 0;
+    for (let level = 0; level < 5 && words.length; level++) {
+      const cands = leaves().filter((x) => !before.has(x));
+      const opt = bestOption(cands, words, false);
+      if (!opt) break;
+      const t = pnorm(opt.textContent);
+      before = new Set(leaves());
+      press(opt);
+      picked++;
+      const i = words.findIndex((w) => psing(w) === psing(t) || w === t);
+      words = i >= 0 ? words.slice(i + 1) : words.slice(1);
+      await psleep(800);
+    }
+    if (!picked) await closeOpen(trig);
     return picked > 0;
+  }
+  // État Vinted → libellés des autres sites (Beebs, Opla, Leboncoin).
+  const COND_WORDS = [
+    [/neuf avec etiquette|new with tags/, ["neuf avec etiquette", "neuf avec etiquettes", "etat neuf", "neuf"]],
+    [/neuf sans etiquette|new without tags/, ["neuf sans etiquette", "neuf sans etiquettes", "etat neuf", "comme neuf", "neuf"]],
+    [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf"]],
+    [/bon etat|good/, ["bon etat"]],
+    [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen"]],
+  ];
+  const condWords = (v) => COND_WORDS.find(([re]) => re.test(pnorm(v)))?.[1] || [pnorm(v)];
+  /** Adresse (Beebs…) : celle enregistrée dans AliEdge (Compte), puis la première suggestion du site. */
+  async function fillAddress(addr) {
+    if (!addr) return false;
+    const el = [...document.querySelectorAll("input")].find((i) => isVis(i) && /adresse|address/i.test(`${i.name} ${i.id} ${i.placeholder} ${i.getAttribute("aria-label") || ""}`));
+    if (!el || (el.value && !/^\s*$/.test(el.value))) return false;
+    const before = new Set(leaves());
+    el.focus(); setValue(el, addr);
+    await psleep(1300);
+    const first = pnorm(addr).split(/\s+/).find((w) => w.length > 2) || "";
+    const sug = leaves().filter((x) => !before.has(x) && first && pnorm(x.textContent).includes(first)).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    if (sug) { press(sug.closest('[role="option"], li, button') || sug); await psleep(400); }
+    return true;
   }
   // État et taille : l'état Vinted traduit vers les libellés courants (Beebs, Opla), puis choisi dans la liste
   // du site (menu <select>, ou boutons / cases à cocher affichés sous le titre « État » / « Taille »).
@@ -396,20 +466,23 @@
       const b = e.currentTarget, msg = panel.querySelector("[data-msg]");
       b.textContent = "Remplissage…";
       let n = 0;
-      for (const k of ["title", "body", "price", "brand"]) { const el = vals[k] && (field(k) || fieldNear(k)); if (el && isEmpty(el)) { setValue(el, vals[k]); n++; } }
-      // Lignes « Sélectionner » (Opla, Beebs) : catégorie, marque, état.
-      const rows = [
-        l.categoryPath?.length && await pickCategory(l.categoryPath) && "catégorie",
-        l.brand && !field("brand") && await pickFromRow(/^marque\b/, [norm(l.brand)], { search: true }) && "marque",
-        l.condition && await pickFromRow(/^(etat|condition)\b/, conditionWords(l.condition)) && "état",
-      ].filter(Boolean);
+      for (const k of ["title", "body", "price"]) { const el = vals[k] && (field(k) || fieldNear(k)); if (el && isEmpty(el)) { setValue(el, vals[k]); n++; } }
+      const brandInput = vals.brand && field("brand");
+      if (brandInput && isEmpty(brandInput)) { setValue(brandInput, vals.brand); n++; }
+      // Listes du site : la catégorie d'abord (elle fait apparaître taille, marque, état), puis le reste.
+      const rows = [];
+      if (l.categoryPath?.length && await pickCategory(l.categoryPath)) { rows.push("catégorie"); await psleep(1200); }
+      if (l.size && (await pickValue(/^taille\b/, [l.size]) || choose("size", [norm(l.size)]))) rows.push("taille");
+      if (l.brand && !brandInput && await pickValue(/^marque\b/, [l.brand], { search: true })) rows.push("marque");
+      if (l.condition && (await pickValue(/^(etat|condition)\b/, condWords(l.condition)) || choose("condition", condWords(l.condition)))) rows.push("état");
+      const addr = (await send({ type: "settings:sellAddress" }))?.data;
+      if (addr && await fillAddress(addr)) rows.push("adresse");
       n += rows.length;
-      const picked = [l.condition && !rows.includes("état") && choose("condition", conditionWords(l.condition)) && "état", l.size && choose("size", [norm(l.size)]) && "taille"].filter(Boolean);
-      n += picked.length;
+      const picked = rows;
       const ph = await addPhotos(l.photos || []);
       b.textContent = "Tout remplir";
       msg.textContent = n || ph
-        ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète ${picked.length === 2 ? "la catégorie" : "la catégorie, l'état et la taille"} si besoin, puis publie l'annonce.`
+        ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète ce qui manque${picked.length ? "" : " (catégorie, état, taille)"}, puis publie l'annonce.`
         : "Les champs ne sont pas encore affichés sur cette étape : utilise les boutons « Copier ».";
     });
     panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: `${CH}:clearListing` }); ui.host.remove(); });
