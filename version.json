@@ -1,7 +1,7 @@
 {
-  "version": "3.5.0",
-  "notes": "Balade SHEIN : AliEdge parcourt le catalogue pour toi et sort des pistes de niches. Ventes à expédier : confie-les à la warehouse en un clic. Nouveau design épuré et version anglaise. Leboncoin : prix dans l'analyse, fournisseur et warehouse depuis les annonces, aide au dépôt (y compris depuis tes annonces Vinted), réponses toutes prêtes et aide à la négociation, badges produit repéré. Compte gratuit obligatoire.",
+  "version": "3.6.0",
+  "notes": "Reposter tes annonces Vinted sur Beebs, Opla, Leboncoin et Facebook Marketplace (photos, catégorie, état, taille remplis), Reposter partout, publication automatique facultative sur Beebs et Opla, fiche d'une vente avec fournisseurs probables, catalogue alimenté au défilement (Vinted, Leboncoin, AliExpress, Temu, Shein).",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-01",
+  "releaseDate": "2026-11-02",
   "minVersion": "3.0.0"
 }
