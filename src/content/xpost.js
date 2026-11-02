@@ -24,6 +24,12 @@
       total: () => null, sellPage: () => /^\/(?:[a-z]{2}\/)?sell\/create/.test(location.pathname), sellUrl: "/sell/create?ae=sell",
     },
   };
+  // Facebook Marketplace : seulement la page « Créer une annonce » (aucune lecture des autres pages).
+  SITES.facebook = {
+    host: /(^|\.)facebook\.com$/, label: "Facebook", shop: "page", home: "/marketplace",
+    product: /(?!)/, shopPage: /(?!)/, sellerLink: "a[data-ae-never]", sellerId: /(?!)/, itemLink: "a[data-ae-never]", itemId: /(?!)/,
+    total: () => null, sellPage: () => /^\/marketplace\/create/.test(location.pathname), sellUrl: "/marketplace/create/item?ae=sell",
+  };
   const CH = Object.keys(SITES).find((k) => SITES[k].host.test(location.hostname));
   if (!CH) return;
   const S = SITES[CH];
@@ -258,6 +264,8 @@
       if (h.children.length > 2 || !isVis(h)) continue;
       const t = pnorm(h.textContent);
       if (!t || t.length > 40 || !re.test(t)) continue;
+      const own = h.closest('[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]');
+      if (own && isVis(own)) return own; // Facebook : le titre est dans la liste elle-même
       let row = h.parentElement;
       for (let d = 0; row && d < 4; d++, row = row.parentElement) {
         // Le bloc de CE champ seulement (un seul titre de champ dedans).
@@ -275,6 +283,8 @@
       const exact = cands.filter((x) => { const t = pnorm(x.textContent); return t === w || psing(t) === psing(w); });
       const hit = exact.sort((a, b) => a.querySelectorAll("*").length - b.querySelectorAll("*").length)[0]
         || (loose && cands.filter((x) => pnorm(x.textContent).startsWith(w)).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0]);
+      const near = !hit && loose && cands.filter((x) => pnorm(x.textContent).includes(w) && pnorm(x.textContent).length < 60).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+      if (near) return near.closest('[role="option"], button, a, label, li') || near;
       if (hit) return hit.matches('button, a, [role="option"], label') ? hit : hit.querySelector('button, a, [role="option"], label, input[type="radio"]') || hit.closest('button, a, [role="option"], label, li') || hit;
     }
     return null;
@@ -343,7 +353,14 @@
     let words = crumbs.slice(), picked = 0;
     for (let level = 0; level < 5 && words.length; level++) {
       const cands = leaves().filter((x) => !before.has(x));
-      const opt = bestOption(cands, words, false);
+      let opt = bestOption(cands, words, false);
+      // Libellés composés (« Vêtements et chaussures pour hommes ») : le choix qui contient le genre et un mot du chemin.
+      if (!opt) {
+        const keys = words.flatMap((w) => w.split(/\s+/)).filter((w) => w.length > 3).map(psing);
+        const scored = cands.map((x) => { const t = pnorm(x.textContent); return [x, (gender && t.includes(gender) ? 2 : 0) + keys.filter((k) => t.includes(k)).length]; })
+          .filter(([x, n]) => n >= 2 && pnorm(x.textContent).length < 70).sort((a, b) => b[1] - a[1] || (a[0].textContent || "").length - (b[0].textContent || "").length);
+        if (scored[0]) opt = scored[0][0].closest('[role="option"], button, a, label, li') || scored[0][0];
+      }
       if (!opt) break;
       const t = pnorm(opt.textContent);
       before = new Set(leaves());
@@ -360,8 +377,8 @@
   const COND_WORDS = [
     [/neuf avec etiquette|new with tags/, ["neuf avec etiquette", "neuf avec etiquettes", "etat neuf", "neuf"]],
     [/neuf sans etiquette|new without tags/, ["neuf sans etiquette", "neuf sans etiquettes", "etat neuf", "comme neuf", "neuf"]],
-    [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf"]],
-    [/bon etat|good/, ["bon etat"]],
+    [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf", "d'occasion - comme neuf"]],
+    [/bon etat|good/, ["bon etat", "d'occasion - bon etat"]],
     [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen"]],
   ];
   const condWords = (v) => COND_WORDS.find(([re]) => re.test(pnorm(v)))?.[1] || [pnorm(v)];
@@ -474,20 +491,62 @@
       if (l.categoryPath?.length && await pickCategory(l.categoryPath)) { rows.push("catégorie"); await psleep(1200); }
       if (l.size && (await pickValue(/^taille\b/, [l.size]) || choose("size", [norm(l.size)]))) rows.push("taille");
       if (l.brand && !brandInput && await pickValue(/^marque\b/, [l.brand], { search: true })) rows.push("marque");
-      if (l.condition && (await pickValue(/^(etat|condition)\b/, condWords(l.condition)) || choose("condition", condWords(l.condition)))) rows.push("état");
+      if (l.condition && (await pickValue(/^(etat|condition)\b/, condWords(l.condition), { loose: CH === "facebook" }) || choose("condition", condWords(l.condition)))) rows.push("état");
       const addr = (await send({ type: "settings:sellAddress" }))?.data;
       if (addr && await fillAddress(addr)) rows.push("adresse");
       n += rows.length;
       const picked = rows;
       const ph = await addPhotos(l.photos || []);
       b.textContent = "Tout remplir";
+      autoPublish({ ph, rows, title: !!(field("title") || fieldNear("title"))?.value, price: !isEmpty(field("price") || fieldNear("price") || { value: "" }) }).catch(() => {});
       msg.textContent = n || ph
         ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""}${ph ? `, ${ph} photo${ph > 1 ? "s" : ""} ajoutée${ph > 1 ? "s" : ""}` : ""}. Vérifie, complète ce qui manque${picked.length ? "" : " (catégorie, état, taille)"}, puis publie l'annonce.`
         : "Les champs ne sont pas encore affichés sur cette étape : utilise les boutons « Copier ».";
     });
     panel.querySelector("[data-done]")?.addEventListener("click", async () => { await send({ type: `${CH}:clearListing` }); ui.host.remove(); });
+    document.addEventListener("aliedge-say", (e) => {
+      const m = panel.querySelector("[data-msg]"); if (!m) return;
+      m.textContent = e.detail;
+      if (/dans \d s/.test(e.detail) && !panel.querySelector("[data-cancel]")) {
+        const c = document.createElement("button"); c.className = "b wide"; c.type = "button"; c.dataset.cancel = "1"; c.textContent = "Annuler la publication";
+        c.addEventListener("click", () => { document.dispatchEvent(new Event("aliedge-cancel")); c.remove(); });
+        m.after(c);
+      } else if (!/dans \d s/.test(e.detail)) panel.querySelector("[data-cancel]")?.remove();
+    });
+    // Annonce seule publiée (par toi ou automatiquement) : quand le formulaire disparaît, elle est marquée comme repostée.
+    if (!q) {
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest?.("button, [role=button], input[type=submit]");
+        if (b && /mettre en vente|publier|vendre/i.test(clean(b.textContent || b.value)) && !ui.host.contains(b)) submittedAt = Date.now();
+      }, true);
+      const watchOne = setInterval(() => {
+        if (!document.getElementById("aliedge-beebs-sell")) { clearInterval(watchOne); return; }
+        if (submittedAt && Date.now() - submittedAt > 3000 && !isSellForm()) { clearInterval(watchOne); send({ type: `${CH}:clearListing` }); ui.host.remove(); }
+      }, 1000);
+    }
     // Remplissage automatique dès que le formulaire est là : il ne reste qu'à vérifier et cliquer sur « Mettre en vente ».
     setTimeout(() => panel.querySelector("[data-fill]")?.click(), 900);
+  }
+  // Publication automatique (Beebs, Opla ; option cochée par le membre dans Compte) : seulement quand titre, prix,
+  // photos, catégorie et état sont remplis. Compte à rebours de 5 s avec « Annuler » ; sinon AliEdge dit ce qui manque.
+  async function autoPublish(st) {
+    if (!["beebs", "opla"].includes(CH)) return;
+    const on = (await send({ type: "settings:autoPublish", ch: CH }))?.data === true;
+    const panelMsg = document.getElementById("aliedge-beebs-sell") && document.querySelector("#aliedge-beebs-sell");
+    if (!on || !panelMsg) return;
+    const missing = [!st.title && "titre", !st.price && "prix", !st.ph && "photos", !st.rows.includes("catégorie") && "catégorie", !st.rows.includes("état") && "état"].filter(Boolean);
+    const say = (t) => { const ev = new CustomEvent("aliedge-say", { detail: t }); document.dispatchEvent(ev); };
+    if (missing.length) { say(`Publication automatique en pause : complète ${missing.join(", ")}, puis publie.`); return; }
+    const btn = [...document.querySelectorAll('button, [role="button"], input[type="submit"]')].filter((x) => isVis(x) && !x.disabled)
+      .find((x) => /^(mettre en vente|publier l.article|publier|valider l.annonce)$/i.test((x.textContent || x.value || "").replace(/\s+/g, " ").trim()));
+    if (!btn) { say("Bouton de publication introuvable : publie l'annonce toi-même."); return; }
+    let cancelled = false;
+    document.addEventListener("aliedge-cancel", () => { cancelled = true; }, { once: true });
+    for (let k = 5; k > 0; k--) { if (cancelled) return say("Publication automatique annulée : publie quand tu veux."); say(`Publication automatique dans ${k} s… (Annuler dans l'aide AliEdge)`); await psleep(1000); }
+    if (cancelled) return say("Publication automatique annulée : publie quand tu veux.");
+    submittedAt = Date.now();
+    btn.click();
+    say("Annonce envoyée : vérifie qu'elle est bien en ligne.");
   }
   // Arrivée depuis « Publier sur Beebs » : on ouvre le formulaire de vente de Beebs (bouton « Vendre » de la page).
   function openSell() {

@@ -298,8 +298,8 @@
   const COND_WORDS = [
     [/neuf avec etiquette|new with tags/, ["neuf avec etiquette", "neuf avec etiquettes", "etat neuf", "neuf"]],
     [/neuf sans etiquette|new without tags/, ["neuf sans etiquette", "neuf sans etiquettes", "etat neuf", "comme neuf", "neuf"]],
-    [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf"]],
-    [/bon etat|good/, ["bon etat"]],
+    [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf", "d'occasion - comme neuf"]],
+    [/bon etat|good/, ["bon etat", "d'occasion - bon etat"]],
     [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen"]],
   ];
   const condWords = (v) => COND_WORDS.find(([re]) => re.test(pnorm(v)))?.[1] || [pnorm(v)];

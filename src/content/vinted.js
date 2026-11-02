@@ -168,7 +168,7 @@
     stack.className = "stack";
     stack.append(
       pill("Reposter partout", "all", () => chrome.runtime.sendMessage({ type: "xpost:all", listing: full }).catch(() => {})),
-      ...[["beebs", "Beebs"], ["opla", "Opla"], ["lbc", "Leboncoin"]].map(([ch, label]) =>
+      ...[["beebs", "Beebs"], ["opla", "Opla"], ["lbc", "Leboncoin"], ["facebook", "Facebook"]].map(([ch, label]) =>
         pill(`${done(ch) ? "✓ " : ""}Reposter sur ${label}`, done(ch) ? "done" : "", () => chrome.runtime.sendMessage({ type: `${ch}:open`, listing: full }).catch(() => {}))),
     );
     mountedRoot?.querySelector(".btn")?.before(stack);

@@ -116,6 +116,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
 });
 
 const radarUrls = [];
+const fbRequests = [];
 let oplaStock = [["art_a1b2c3d4e5f6a7b8c9d0", "Sweat Nike gris", 25], ["art_b1b2c3d4e5f6a7b8c9d0", "Jean Levi's 501", 30]];
 let beebsStock = [[34000001, "Robe crochet fille", 12], [34000002, "Gilet bébé laine", 9]];
 await ctx.route("**/*", async (route) => {
@@ -161,7 +162,7 @@ await ctx.route("**/*", async (route) => {
       <div class="row"><span>État</span><button type="button" id="etat" onclick="pick('etat')">Sélectionner</button></div>
       <div class="row"><span>Taille</span><button type="button" id="taille" onclick="pick('taille')">Sélectionner</button></div>
       <div class="row"><span>Prix (€)</span><input id="p" value="0,00"></div>
-      <button type="button">Publier l'article</button>
+      <button type="button" onclick="document.body.dataset.published = '1'">Publier l'article</button>
       <script>
         const LISTS = { cat: [["Femme", "Homme", "Maison"], ["Vêtements", "Chaussures"]], etat: [["Neuf avec étiquette", "Très bon état", "Bon état"]], brand: [["Nike", "adidas", "Zara"]], taille: [["S", "M", "L", "XL"]] };
         const DESC = { "Très bon état": "Porté très peu, aucun défaut visible.", "Bon état": "Traces d'usure légères.", "Neuf avec étiquette": "Jamais porté." };
@@ -179,6 +180,20 @@ await ctx.route("**/*", async (route) => {
         }
       </script></body></html>`);
     return html(`<title>Opla</title></head><body>${head}<h1>Opla</h1></body></html>`);
+  }
+  // Facebook Marketplace : formulaire « Créer une annonce » (champs dans des <label>, listes en combobox).
+  if (h === "www.facebook.com") {
+    fbRequests.push(url.pathname);
+    if (url.pathname.startsWith("/marketplace/create")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><head><meta charset="utf-8"><title>Marketplace</title></head><body><main>
+      <input type="file" accept="image/*,image/heif,image/heic" multiple id="fbph" style="display:none"><div>Ajouter des photos</div>
+      <label><span>Titre</span><input type="text" id="fbt"></label>
+      <label><span>Prix</span><input type="text" id="fbp"></label>
+      <label role="combobox" id="fbcat" tabindex="0" onclick="fbOpen('fbcat', ['Vêtements et chaussures pour hommes', 'Vêtements et chaussures pour femmes', 'Maison'])"><span>Catégorie</span></label>
+      <label role="combobox" id="fbcond" tabindex="0" onclick="fbOpen('fbcond', ['Neuf', 'D’occasion - comme neuf', 'D’occasion - bon état', 'D’occasion - assez bon état'])"><span>État</span></label>
+      <label><span>Description</span><textarea id="fbd"></textarea></label>
+      <div role="button">Suivant</div></main>
+      <script>function fbOpen(id, opts) { document.querySelector('[role=listbox]')?.remove(); const l = document.createElement('div'); l.setAttribute('role', 'listbox'); l.innerHTML = opts.map((o) => '<div role="option"><span>' + o + '</span></div>').join(''); document.body.appendChild(l); l.querySelectorAll('[role=option]').forEach((o) => o.onclick = (e) => { e.stopPropagation(); document.getElementById(id).dataset.v = o.textContent; l.remove(); }); }</script></body></html>` });
+    return route.fulfill({ status: 404, body: "" });
   }
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
@@ -951,6 +966,18 @@ if (process.env.STORE_SHOTS) {
   await dep?.close();
 }
 
+// Facebook Marketplace : remplissage seulement (titre, prix, description, catégorie, état, photos), aucune autre page lue.
+{
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "facebook:open", listing: { title: "Chemise à carreaux Chaps", description: "Taille XL.", price: 10, condition: "Très bon état", categoryPath: ["Hommes", "Vêtements", "Chemises"], photos: ["https://images1.vinted.net/t/1.jpeg"] } }));
+  let fb = null;
+  for (let i = 0; i < 20 && !fb; i++) { await page.waitForTimeout(500); fb = ctx.pages().find((p) => /facebook\.com\/marketplace\/create/.test(p.url())); }
+  await fb?.waitForFunction(() => document.getElementById("fbcond")?.dataset.v && document.getElementById("fbph")?.files.length, null, { timeout: 20000 }).catch(() => {});
+  const f = fb ? await fb.evaluate(() => ({ t: document.getElementById("fbt").value, p: document.getElementById("fbp").value, d: document.getElementById("fbd").value, cat: document.getElementById("fbcat").dataset.v, c: document.getElementById("fbcond").dataset.v, ph: document.getElementById("fbph").files.length })) : {};
+  check("Facebook Marketplace : formulaire rempli (titre, prix, description, catégorie, état, photos), rien d'autre lu sur Facebook", f.t === "Chemise à carreaux Chaps" && f.p === "10" && f.d === "Taille XL." && f.cat === "Vêtements et chaussures pour hommes" && /comme neuf/i.test(f.c || "") && f.ph === 1 && fbRequests.every((x) => x.startsWith("/marketplace/")), JSON.stringify({ f, fbRequests }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "facebook:clearListing", posted: false }));
+  await fb?.close();
+}
+
 // « Reposter partout » : Beebs, Opla et Leboncoin s'ouvrent ensemble, chacun avec l'annonce.
 {
   const before = new Set(ctx.pages());
@@ -978,12 +1005,17 @@ if (process.env.STORE_SHOTS) {
   await op.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:trackers" })))?.data?.[0] || {};
   const onShop = await op.locator(".aliedge-beebs-competitor").count();
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "settings:set", patch: { autoPublish_opla: true } }));
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", size: "M", categoryPath: ["Hommes", "Vêtements", "Sweats"], photos: ["https://images1.vinted.net/t/0.jpeg"] } }));
   let sellTab = null;
   for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /opla\.co\/sell\/create/.test(p.url())); }
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
   await sellTab?.waitForFunction(() => document.getElementById("etat")?.dataset.v && document.getElementById("ph")?.files.length, null, { timeout: 20000 }).catch(() => {});
   const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.getElementById("t").value, d: document.getElementById("d").value, p: document.getElementById("p").value, cat: document.getElementById("cat").dataset.v, b: document.getElementById("brand").dataset.v, c: document.getElementById("etat").dataset.v, sz: document.getElementById("taille").dataset.v, ph: document.getElementById("ph").files.length })) : {};
+  await sellTab?.waitForFunction(() => document.body.dataset.published === "1", null, { timeout: 12000 }).catch(() => {});
+  const published = sellTab ? await sellTab.evaluate(() => document.body.dataset.published === "1") : false;
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "settings:set", patch: { autoPublish_opla: false } }));
+  check("Opla : publication automatique (option cochée) quand tout est rempli, après le compte à rebours", published);
   const beebsIds = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackedIds" })))?.data || [];
   check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit titre, description, prix, catégorie, marque, état et photos, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.cat === "Homme>Vêtements" && filled.b === "Nike" && filled.c === "Très bon état" && filled.sz === "M" && filled.ph === 1 && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing", posted: false }));

@@ -30,7 +30,7 @@ async function setSettings(patch) {
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   await syncAlarms(next);
   if ("lbc" in patch) await syncLbcScript().catch(() => {});
-  for (const ch of ["beebs", "opla"]) if (ch in patch) await syncChannelScript(ch).catch(() => {});
+  for (const ch of Object.keys(CHANNELS)) if (ch in patch) await syncChannelScript(ch).catch(() => {});
   return next;
 }
 
@@ -1253,6 +1253,8 @@ chrome.permissions.onRemoved.addListener(() => { syncChannels().catch(() => {});
 const CHANNELS = {
   beebs: { label: "Beebs", origins: ["https://www.beebs.app/*", "https://beebs.app/*"], uid: /^[A-Za-z0-9_-]{10,64}$/, sell: "https://www.beebs.app/fr?ae=sell", shop: "boutique" },
   opla: { label: "Opla", origins: ["https://www.opla.co/*", "https://opla.co/*"], uid: /^[A-Za-z0-9|._%:-]{6,120}$/, sell: "https://www.opla.co/sell/create?ae=sell", shop: "boutique" },
+  // Facebook Marketplace : remplissage du formulaire seulement (aucune lecture des autres pages Facebook, pas de concurrents).
+  facebook: { label: "Facebook", origins: ["https://www.facebook.com/*"], matches: ["https://www.facebook.com/marketplace/*"], uid: /^\d{5,25}$/, sell: "https://www.facebook.com/marketplace/create/item?ae=sell", shop: "page", fillOnly: true },
 };
 const XPOST_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/xpost.js"];
 const err = (message, code = "invalid") => Object.assign(new Error(message), { code });
@@ -1266,7 +1268,8 @@ async function syncChannelScript(ch) {
   const id = `ae-${ch}`;
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [id] }).catch(() => []);
   if (on && existing.length && (existing[0].js || []).join() !== XPOST_JS.join()) { await chrome.scripting.unregisterContentScripts({ ids: [id] }); existing.length = 0; }
-  if (on && !existing.length) await chrome.scripting.registerContentScripts([{ id, matches: CHANNELS[ch].origins, js: XPOST_JS, runAt: "document_idle", persistAcrossSessions: true }]);
+  if (on && existing.length && (existing[0].matches || []).join() !== (CHANNELS[ch].matches || CHANNELS[ch].origins).join()) { await chrome.scripting.unregisterContentScripts({ ids: [id] }); existing.length = 0; }
+  if (on && !existing.length) await chrome.scripting.registerContentScripts([{ id, matches: CHANNELS[ch].matches || CHANNELS[ch].origins, js: XPOST_JS, runAt: "document_idle", persistAcrossSessions: true }]);
   else if (!on && existing.length) await chrome.scripting.unregisterContentScripts({ ids: [id] });
   return on;
 }
@@ -1831,9 +1834,11 @@ const handlers = {
   // « Reposter partout » : Beebs, Opla et Leboncoin s'ouvrent chacun avec l'annonce (site pas encore activé : le panneau le propose).
   // Adresse pour les sites qui la demandent (Beebs…) : saisie par le membre dans Compte, gardée dans ce navigateur.
   "settings:sellAddress": async () => String((await getSettings()).sellAddress || "").slice(0, 200) || null,
+  // Publication automatique (Beebs, Opla seulement, à cocher dans Compte) : AliEdge clique sur « Publier » quand tout est rempli.
+  "settings:autoPublish": async ({ ch }) => ["beebs", "opla"].includes(ch) && (await getSettings())[`autoPublish_${ch}`] === true,
   "xpost:all": async ({ listing }) => {
     const out = {};
-    for (const ch of Object.keys(CHANNELS)) out[ch] = (await channelHandlerMap[`${ch}:open`]({ listing })).enabled;
+    for (const ch of ["beebs", "opla"]) out[ch] = (await channelHandlerMap[`${ch}:open`]({ listing })).enabled;
     out.lbc = (await lbcOpen(listing)).enabled;
     return out;
   },
@@ -1873,8 +1878,8 @@ const handlers = {
     return { saved: list.length };
   },
   "vinted:postedIds": async () => {
-    const g = await chrome.storage.local.get(["ae_beebs_posted", "ae_opla_posted", "ae_lbc_posted"]);
-    return { beebs: Object.keys(g.ae_beebs_posted || {}), opla: Object.keys(g.ae_opla_posted || {}), lbc: Object.keys(g.ae_lbc_posted || {}) };
+    const g = await chrome.storage.local.get(["ae_beebs_posted", "ae_opla_posted", "ae_lbc_posted", "ae_facebook_posted"]);
+    return { beebs: Object.keys(g.ae_beebs_posted || {}), opla: Object.keys(g.ae_opla_posted || {}), lbc: Object.keys(g.ae_lbc_posted || {}), facebook: Object.keys(g.ae_facebook_posted || {}) };
   },
   "lbc:saveListing": async ({ listing }) => { await saveLbcListing(listing); return {}; },
   // Produit fournisseur relié à une annonce (titre) : pour « Confier à la warehouse » depuis Leboncoin.
@@ -2060,7 +2065,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

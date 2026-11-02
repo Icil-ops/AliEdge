@@ -1467,7 +1467,7 @@ async function viewConcurrents() {
   const [trackers, sales, diag, lbcOn] = await Promise.all([api("tracker:list").catch(() => []), api("competitor:sales").catch(() => null), api("diagnostic:last").catch(() => null), api("lbc:status").then((r) => r.enabled).catch(() => false)]);
   const lbcRows = lbcOn ? await api("lbc:trackers").catch(() => []) : [];
   const chRows = [];
-  for (const ch of Object.keys(CHANNELS)) {
+  for (const ch of Object.keys(CHANNELS).filter((c) => !CHANNELS[c].fillOnly)) {
     const on = (await api(`${ch}:status`).catch(() => ({ enabled: false }))).enabled;
     chRows.push([ch, on ? await api(`${ch}:trackers`).catch(() => []) : [], on]);
   }
@@ -1960,7 +1960,8 @@ function viewCompte(params) {
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Ajouter les produits des recherches fournisseurs</b><br><span class="small muted">Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).</span></span><input type="checkbox" data-set="autoSupplier" ${s.autoSupplier !== false ? "checked" : ""}></label>
-      ${Object.entries(CHANNELS).map(([ch, C]) => `<label class="switch"><span><b>${C.label}</b><br><span class="small muted">Publier tes annonces Vinted sur ${C.label} en un clic, suivre tes concurrents ${C.label}, trouver le fournisseur d'un article. Aucune requête en plus vers ${C.label}.</span></span><input type="checkbox" data-set="${ch}" ${s[ch] !== false && state.chPerm?.[ch] ? "checked" : ""}></label>`).join("")}
+      ${Object.entries(CHANNELS).map(([ch, C]) => `<label class="switch"><span><b>${C.label}</b><br><span class="small muted">${C.desc || `Publier tes annonces Vinted sur ${C.label} en un clic, suivre tes concurrents ${C.label}, trouver le fournisseur d'un article. Aucune requête en plus vers ${C.label}.`}</span></span><input type="checkbox" data-set="${ch}" ${s[ch] !== false && state.chPerm?.[ch] ? "checked" : ""}></label>`).join("")}
+      ${["beebs", "opla"].map((ch) => `<label class="switch"><span><b>Publier automatiquement sur ${CHANNELS[ch].label}</b><br><span class="small muted">Quand titre, prix, photos, catégorie et état sont remplis, AliEdge clique sur « Publier » après 5 secondes (annulable). Vérifie tes premières annonces : une erreur partirait en ligne.</span></span><input type="checkbox" data-set="autoPublish_${ch}" ${s[`autoPublish_${ch}`] === true ? "checked" : ""}></label>`).join("")}
       <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
       <details class="fold" data-fold="replies" style="margin-top:6px"><summary><b>Réponses toutes prêtes (messagerie Leboncoin)</b></summary>
         <div class="stack" style="margin-top:8px">
@@ -1993,6 +1994,7 @@ async function enableLbc() {
 // Canaux de vente en plus (Beebs, Opla) : accès facultatif à chaque site, demandé en un clic.
 const CHANNELS = {
   beebs: { label: "Beebs", host: "beebs.app", perm: { origins: ["https://www.beebs.app/*", "https://beebs.app/*"] }, shop: "boutique", shopUrl: (u) => `https://www.beebs.app/fr/dressing/${encodeURIComponent(u)}`, shopRe: /beebs\.app\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/, placeholder: "https://www.beebs.app/fr/dressing/…" },
+  facebook: { label: "Facebook", host: "facebook.com", perm: { origins: ["https://www.facebook.com/*"] }, fillOnly: true, desc: "Reposter une annonce Vinted sur Facebook Marketplace : AliEdge remplit le formulaire, tu publies. Meta exige une expédition sous 3 jours : seulement pour des articles déjà en stock à la warehouse. AliEdge ne lit aucune autre page Facebook." },
   opla: { label: "Opla", host: "opla.co", perm: { origins: ["https://www.opla.co/*", "https://opla.co/*"] }, shop: "boutique", shopUrl: (u) => `https://www.opla.co/seller/${encodeURIComponent(u)}`, shopRe: /opla\.co\/(?:[a-z]{2}\/)?seller\/([^/?#\s]{6,160})/, placeholder: "https://www.opla.co/seller/…" },
 };
 const BEEBS_PERM = CHANNELS.beebs.perm;
@@ -2319,7 +2321,8 @@ function bindSales() {
 
 // ───────────────────────── Beebs, canal de vente en plus : reposter ses annonces Vinted en série
 // Sites où reposter ses annonces Vinted en série : Beebs, Opla et Leboncoin.
-const REPOST_CH = { ...CHANNELS, lbc: { label: "Leboncoin" } };
+// Facebook : une annonce à la fois depuis Vinted, pas de série.
+const REPOST_CH = { ...Object.fromEntries(Object.entries(CHANNELS).filter(([, C]) => !C.fillOnly)), lbc: { label: "Leboncoin" } };
 const repost = { state: "idle", items: [], sel: new Set(), error: "", market: "fr", ch: "beebs" };
 function repostHtml() {
   let body;
