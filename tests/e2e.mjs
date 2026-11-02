@@ -155,6 +155,8 @@ await ctx.route("**/*", async (route) => {
   if (h === "www.leboncoin.fr") {
     lbcRequests.push(url.pathname);
     const html = (body) => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Leboncoin</title><body>${body}</body>` });
+    // Accueil : carrousels d'annonces recommandées (pas de conteneur de résultats de recherche).
+    if (url.pathname === "/") return html(`<main><h2>Annonces récentes</h2><ul>${Array.from({ length: 110 }, (_, i) => `<li><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/vetements/${3100000000 + i}"><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/h${i}.jpg"><span title="Voir l’annonce: Veste accueil ${i}"></span><p>Veste accueil ${i}</p><span>${20 + i} €</span><p>Lyon 69003</p></a></li>`).join("")}</ul></main>`);
     if (url.pathname.startsWith("/messages")) return html(`<main><a href="https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005">Sac à bandoulière noir vintage y2k</a><div class="thread"><p>Bonjour, vous feriez 20 € ?</p></div><form><textarea name="message" placeholder="Écrire un message"></textarea><button type="button">Envoyer</button></form></main>`);
     if (url.pathname.startsWith("/deposer-une-annonce")) return html(`<main><h1>Déposer une annonce</h1><label>Titre <input name="subject"></label><label>Description <textarea name="body"></textarea></label><label>Prix <input name="price"></label></main>`);
     // Carte d'annonce telle que Leboncoin l'affiche (relevé sur une vraie page enregistrée).
@@ -183,6 +185,8 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.startsWith("/inbox")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Messages | Vinted</title><main><h2><a href=\"/member/9090-gd02840\">gd02840</a></h2><p>Ta vente est finalisée.</p><a href=\"/member/9090-gd02840/feedback\">Évaluer</a></main>" });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
+    // Page d'accueil (fil d'actu) : beaucoup de cartes, sans attribut title (texte dans l'alt de la photo, ou prix affiché).
+    if (url.pathname === "/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Vinted</title><main><div class="feed-grid">${Array.from({ length: 130 }, (_, i) => `<div class="feed-grid__item"><a href="/items/${5100000 + i}-article"><img src="https://images1.vinted.net/t/h${i}.jpeg" alt="${i % 2 ? `Article accueil ${i}, marque: Zara, état: Neuf, taille: M, ${10 + i},00 €` : `Article accueil ${i}`}"></a><p>${10 + i},00 €</p></div>`).join("")}</div></main>` });
     if (url.pathname.startsWith("/catalog")) return route.fulfill({ contentType: "text/html", body: `<!doctype html><title>Recherche | Vinted</title><main><div class="grid">${catalogItems.slice(1, 3).map((it) => `<div data-testid="grid-item" style="width:200px;display:inline-block;margin:10px"><a href="/member/88${it.id}-vendeuse">vendeuse</a><a href="/items/${it.id}-sac" title="${it.title}, marque: Zara, état: Très bon état, taille: M, ${it.price.amount.replace(".", ",")} €"><img src="${it.photo.url}" width="200" height="260" alt=""></a><p>${it.price.amount} €</p></div>`).join("")}</div></main>` });
     return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Vinted</title>" });
   }
@@ -834,6 +838,23 @@ if (process.env.STORE_SHOTS) {
   check("Leboncoin : réponses toutes prêtes, aide à la négociation, badge produit repéré, moments de publication", onMessages === 1 && offer?.ok && badges === 1 && best?.data?.grid?.length === 7, JSON.stringify({ onMessages, badges, offer: offer?.data, n: best?.data?.n }));
   check("Leboncoin activé : outils sur l'annonce et assistant de dépôt", onAd === 1 && onDeposit === 1 && st?.data?.enabled === true && info?.data?.title === "Sac bandoulière cuir noir", JSON.stringify({ onAd, onDeposit, enabled: st?.data?.enabled }));
   await lbc.close();
+}
+
+// Pages d'accueil : toutes les annonces déjà chargées rejoignent la base (Vinted et Leboncoin), par paquets.
+{
+  const ids = (bodies, key) => new Set(bodies.flatMap((b) => { try { return (JSON.parse(b)._items || []).map((i) => i[key]); } catch { return []; } }));
+  const hv = await ctx.newPage();
+  await hv.goto("https://www.vinted.fr/");
+  await hv.waitForTimeout(6000);
+  const vin = [...ids(reportBodies, "vinted_id")].filter((x) => x >= 5100000 && x < 5100130);
+  const sample = reportBodies.map((b) => { try { return JSON.parse(b)._items.find((i) => i.vinted_id === 5100002); } catch { return null; } }).find(Boolean) || null;
+  await hv.goto("https://www.leboncoin.fr/");
+  await hv.waitForTimeout(6000);
+  const lbcAll = lbcBodies.flatMap((b) => { try { return JSON.parse(b)._items || []; } catch { return []; } }).filter((i) => i.list_id >= 3100000000 && i.list_id < 3100000110);
+  const lb = new Set(lbcAll.map((i) => i.list_id));
+  const lbs = lbcAll.find((i) => i.list_id === 3100000004) || null;
+  check("pages d'accueil : toutes les annonces chargées ajoutées à la base (Vinted 130, Leboncoin 110)", vin.length === 130 && sample?.price === 12 && sample?.title === "Article accueil 2" && lb.size === 110 && lbs?.title === "Veste accueil 4" && lbs?.price === 24 && lbs?.department === "69", JSON.stringify({ vinted: vin.length, sample, lbc: lb.size, lbs }));
+  await hv.close();
 }
 
 // Beebs : outils sur un article, concurrent suivi par son dressing (ventes probables), « Publier sur Beebs ».

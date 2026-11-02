@@ -18,11 +18,18 @@
       const id = Number((a.getAttribute("href") || "").match(/\/items\/(\d{5,15})/)?.[1]);
       if (!id || seen.has(id)) continue;
       // Carte d'annonce : l'attribut title porte « Titre, marque: X, état: Y, taille: Z, 15,00 € ».
-      const t = a.getAttribute("title") || "";
-      if (!t || !/€/.test(t)) continue;
-      const parts = t.split(/,\s+/);
-      const card = a.closest('[data-testid*="grid-item"], [class*="feed-grid__item"], [class*="ItemBox"], li, article') || a.parentElement;
+      // Accueil et carrousels : même texte dans le texte alternatif de la photo ou l'aria-label du lien ;
+      // sinon le prix affiché sur la carte.
+      const card = a.closest('[data-testid*="grid-item"], [data-testid*="item-box"], [class*="feed-grid__item"], [class*="ItemBox"], [class*="item-box"], li, article') || a.parentElement;
       const img = card?.querySelector("img");
+      let t = [a.getAttribute("title"), a.getAttribute("aria-label"), img?.getAttribute("alt")].find((x) => x && /€/.test(x)) || "";
+      if (!t) {
+        const base = a.getAttribute("title") || a.getAttribute("aria-label") || img?.getAttribute("alt") || "";
+        const price = num((card?.innerText || "").replace(/\s+/g, " "));
+        if (!base || price == null) continue;
+        t = `${base}, ${String(price).replace(".", ",")} €`;
+      }
+      const parts = t.split(/,\s+/);
       // Vendeur affiché sur la carte (lien vers son profil) : il complète le suivi des concurrents et permet
       // d'écarter les comptes des membres AliEdge. Rien n'est demandé à Vinted : on lit le lien déjà affiché.
       const sellerHref = card?.querySelector('a[href*="/member/"]')?.getAttribute("href") || "";
@@ -39,19 +46,20 @@
         url: new URL(a.getAttribute("href"), location.href).href.split("?")[0],
         status: sold ? "sold" : "active", liked: isFavourites(), ...(sellerId ? { seller_id: sellerId } : {}),
       });
-      if (out.length >= 96) break;
+      if (out.length >= 480) break;
     }
     return out;
   }
 
+  // Toutes les annonces déjà chargées sont envoyées (par paquets de 96), y compris sur la page d'accueil.
   function flush() {
     timer = null;
     const items = readCards();
-    if (items.length) chrome.runtime.sendMessage({ type: "vinted:cards", items }).catch(() => {});
+    for (let i = 0; i < items.length; i += 96) chrome.runtime.sendMessage({ type: "vinted:cards", items: items.slice(i, i + 96) }).catch(() => {});
   }
   // Lecture quand la page est au repos et visible : jamais pendant que la page charge ou s'anime.
   const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 5000 }) : setTimeout(fn, 0));
-  const schedule = () => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, 3000); };
+  const schedule = (delay = 3000) => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, delay); };
   document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
   // Clic sur le cœur (favori) d'une annonce : elle est marquée comme intéressante, sans aucune requête vers Vinted.
   document.addEventListener("click", (e) => {
@@ -65,6 +73,7 @@
     const items = readCards().filter((i) => i.vinted_id === id).map((i) => ({ ...i, liked: true }));
     chrome.runtime.sendMessage({ type: "vinted:cards", items: items.length ? items : [{ vinted_id: id, market, url: location.href.split("?")[0], status: "active", liked: true }] }).catch(() => {});
   }, true);
-  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-  schedule();
+  new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("scroll", () => schedule(1500), { passive: true });
+  schedule(1500);
 })();

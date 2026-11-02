@@ -42,7 +42,30 @@
         shipping: /Livraison/i.test(text), status: sold ? "sold" : "active", ...(seller ? { seller_uuid: seller } : {}),
         ...(depot(text) ? { published_at: depot(text) } : {}),
       });
-      if (out.length >= 96) break;
+      if (out.length >= 480) break;
+    }
+    // Accueil, carrousels « annonces recommandées / récentes » : cartes sans le conteneur des résultats de recherche.
+    for (const a of document.querySelectorAll('a[href*="/ad/"], a[href*="/vi/"]')) {
+      const id = idFromUrl(a.getAttribute("href"));
+      if (!id || seen.has(id) || out.length >= 480) continue;
+      const box = a.closest('[data-qa-id="aditem_container"], [data-test-id*="ad"], li, article') || a;
+      const text = (box.innerText || box.textContent || "").replace(/\s+/g, " ");
+      const img = box.querySelector("img");
+      const voir = box.querySelector('[title^="Voir l"]')?.getAttribute("title")?.replace(/^Voir l.annonce\s*:\s*/i, "");
+      const label = [a.getAttribute("aria-label"), a.getAttribute("title")].find((x) => x && !/^voir l/i.test(x));
+      const title = (voir || label || box.querySelector("h2, h3, p")?.textContent || img?.getAttribute("alt") || "").replace(/\s+/g, " ").trim();
+      // Prix : l'élément qui ne contient que le prix (le texte collé de la carte mélange titre et prix).
+      const priceEl = [...box.querySelectorAll("span, p, div")].find((el) => el.children.length === 0 && /^\d[\d\s  ]*(?:,\d{1,2})?\s*€$/.test((el.textContent || "").trim()));
+      const price = num(priceEl?.textContent || text.match(/Prix\s*:\s*[^.]*€/)?.[0] || "");
+      if (!title || title.length < 3 || !price) continue;
+      seen.add(id);
+      out.push({
+        list_id: id, title: title.slice(0, 200), price,
+        category: text.match(/Catégorie\s*:\s*([^.]+)\./)?.[1]?.trim() || null,
+        department: dept(text),
+        photo_url: photo(img), url: new URL(a.getAttribute("href"), location.href).href.split("?")[0],
+        shipping: /Livraison/i.test(text), status: "active",
+      });
     }
     return out;
   }
@@ -100,13 +123,15 @@
 
   function flush() {
     timer = null;
-    const items = [...fromAdPage(), ...goneAd(), ...fromCards()].slice(0, 96);
-    if (profileId()) { profile(items); return; }
-    if (items.length) chrome.runtime.sendMessage({ type: "lbc:cards", items }).catch(() => {});
+    const items = [...fromAdPage(), ...goneAd(), ...fromCards()];
+    if (profileId()) { profile(items.slice(0, 96)); for (let i = 96; i < items.length; i += 96) chrome.runtime.sendMessage({ type: "lbc:cards", items: items.slice(i, i + 96) }).catch(() => {}); return; }
+    // Toutes les annonces déjà chargées (accueil compris), par paquets de 96.
+    for (let i = 0; i < items.length; i += 96) chrome.runtime.sendMessage({ type: "lbc:cards", items: items.slice(i, i + 96) }).catch(() => {});
   }
   const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 5000 }) : setTimeout(fn, 0));
-  const schedule = () => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, 3000); };
+  const schedule = (delay = 3000) => { if (!timer) timer = setTimeout(() => { if (document.hidden) { timer = null; return; } idle(flush); }, delay); };
   document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
-  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-  schedule();
+  new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("scroll", () => schedule(1500), { passive: true });
+  schedule(1500);
 })();
