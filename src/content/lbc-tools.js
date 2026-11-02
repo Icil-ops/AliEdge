@@ -135,26 +135,77 @@
     grid.forEach((row, d) => row.forEach((v, h) => { if (!b || v > b.v) b = { v, d, h }; }));
     return b && b.v > 0 ? `${DAYS[b.d]} entre ${b.h * 3} h et ${b.h * 3 + 3} h` : null;
   }
-  // Photos : récupérées puis déposées dans le champ « photos » de la page, comme si le membre les avait choisies.
-  async function addPhotos(urls) {
-    const input = [...document.querySelectorAll('input[type="file"]')].find((i) => !i.disabled && /image|^$/.test(i.accept || ""));
-    if (!input || !urls.length) return 0;
-    const dt = new DataTransfer();
-    for (const [i, u] of urls.slice(0, 10).entries()) {
+  // Photos : lues par AliEdge (directement, ou par le serveur quand le site d'images refuse), converties en JPEG
+  // si besoin, puis déposées dans le champ photos de la page (ou glissées sur la zone de dépôt).
+  async function photoFiles(urls) {
+    const r = await send({ type: "photos:get", urls: (urls || []).slice(0, 10) });
+    const list = r?.ok && Array.isArray(r.data) ? r.data : [];
+    const files = [];
+    for (const [i, p] of list.entries()) {
       try {
-        const res = await fetch(u, { mode: "cors", credentials: "omit" });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        if (!/^image\//.test(blob.type)) continue;
-        dt.items.add(new File([blob], `photo-${i + 1}.${(blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg")}`, { type: blob.type }));
-      } catch { /* image refusée par son site */ }
-      if (!input.multiple && dt.files.length) break;
+        const bin = atob(p.b64); const buf = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) buf[k] = bin.charCodeAt(k);
+        let blob = new Blob([buf], { type: p.type || "image/jpeg" });
+        if (!/^image\/(jpeg|png)$/.test(blob.type)) {
+          const bmp = await createImageBitmap(blob);
+          const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+          c.getContext("2d").drawImage(bmp, 0, 0);
+          blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.92));
+        }
+        if (blob) files.push(new File([blob], `photo-${i + 1}.${blob.type === "image/png" ? "png" : "jpg"}`, { type: blob.type }));
+      } catch { /* photo illisible */ }
     }
-    if (!dt.files.length) return 0;
-    input.files = dt.files;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return files;
+  }
+  async function addPhotos(urls) {
+    if (!urls?.length) return 0;
+    const input = [...document.querySelectorAll('input[type="file"]')].find((i) => !i.disabled && /image|jpe?g|png|webp|^$/i.test(i.accept || ""));
+    const zone = input ? null : [...document.querySelectorAll("div, label, section, button")]
+      .filter((el) => /glissez|d[ée]posez|ajouter des photos|importer|parcourir|add photos/i.test(el.textContent || "") && el.offsetParent !== null)
+      .sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    if (!input && !zone) return 0;
+    const files = await photoFiles(urls);
+    if (!files.length) return 0;
+    const dt = new DataTransfer();
+    for (const f of input && !input.multiple ? files.slice(0, 1) : files) dt.items.add(f);
+    if (input) {
+      input.files = dt.files;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      for (const type of ["dragenter", "dragover", "drop"]) zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+    }
     return dt.files.length;
+  }
+
+  // Étape « Choisissez une catégorie suggérée » : AliEdge coche la suggestion qui correspond à la catégorie Vinted
+  // de l'annonce (Vêtements, Chaussures, Accessoires…), sinon la première suggestion de Leboncoin. Modifiable ensuite.
+  const LBC_FROM_VINTED = [
+    [/chaussure|basket|botte|sandale|escarpin|sneaker/i, /chaussures/i],
+    [/sac|bagage|valise|portefeuille|ceinture|chapeau|casquette|lunettes|[ée]charpe|accessoire/i, /accessoires|bagagerie/i],
+    [/montre|bijou|bracelet|collier|bague|boucle/i, /montres|bijoux/i],
+    [/b[ée]b[ée]|pu[ée]riculture|poussette/i, /b[ée]b[ée]|pu[ée]riculture/i],
+    [/jouet|jeux|peluche|figurine/i, /jeux|jouets/i],
+    [/maison|d[ée]co|linge|cuisine|tapis|lampe/i, /d[ée]coration|ameublement|linge|maison/i],
+    [/sport|v[ée]lo|fitness|camping/i, /sport/i],
+    [/v[êe]tement|maillot|t-shirt|robe|pull|sweat|veste|manteau|jean|pantalon|jupe|chemise|short|top|gilet/i, /v[êe]tements/i],
+  ];
+  function pickSuggestedCategory(l) {
+    const radios = [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.offsetParent !== null || r.closest("label")?.offsetParent !== null);
+    if (radios.length < 2 || !/cat[ée]gorie/i.test(document.body.innerText || "")) return false;
+    if (radios.some((r) => r.checked)) return true;
+    const labelOf = (r) => (r.closest("label")?.textContent || document.querySelector(`label[for="${r.id}"]`)?.textContent || r.parentElement?.textContent || "").replace(/\s+/g, " ");
+    const source = `${(l.categoryPath || []).join(" ")} ${l.title || ""}`;
+    let pick = null;
+    for (const [from, to] of LBC_FROM_VINTED) {
+      if (!from.test(source)) continue;
+      pick = radios.find((r) => to.test(labelOf(r)));
+      if (pick) break;
+    }
+    pick = pick || radios[0];
+    (pick.closest("label") || document.querySelector(`label[for="${pick.id}"]`) || pick).click();
+    if (!pick.checked) pick.click();
+    return true;
   }
 
   async function mountDeposit() {
@@ -218,7 +269,7 @@
     // est rempli dès qu'il apparaît (seulement s'il est vide), les photos dès que le champ photos est là.
     if (l.from === "vinted") {
       const filled = new Set();
-      let photosDone = false;
+      let photosDone = false, photosBusy = false, catDone = false;
       const tick = async () => {
         if (!document.getElementById("aliedge-lbc-deposit")) return clearInterval(auto);
         for (const k of ["title", "body", "price"]) {
@@ -226,7 +277,13 @@
           const el = findField(k);
           if (el && !el.value) { setValue(el, vals[k]); filled.add(k); }
         }
-        if (!photosDone && (l.photos || []).length && document.querySelector('input[type="file"]')) { photosDone = true; const n = await addPhotos(l.photos); if (n) panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; }
+        if (!catDone) catDone = pickSuggestedCategory(l);
+        if (!photosDone && !photosBusy && (l.photos || []).length && (document.querySelector('input[type="file"]') || /d[ée]posez jusqu|importer|ajouter des photos/i.test(document.body.innerText || ""))) {
+          photosBusy = true;
+          const n = await addPhotos(l.photos);
+          photosBusy = false;
+          if (n) { photosDone = true; panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; }
+        }
       };
       const auto = setInterval(tick, 1500);
       setTimeout(tick, 900);
@@ -266,33 +323,26 @@
     const replies = (r?.ok && Array.isArray(r.data) && r.data.length ? r.data : DEFAULT_REPLIES);
     const host = document.createElement("div");
     host.id = "aliedge-lbc-replies";
-    host.style.cssText = "margin:6px 0;";
+    host.style.cssText = "display:block;width:100%;box-sizing:border-box;margin:6px 0;flex:0 0 100%;";
     const root = host.attachShadow({ mode: "closed" });
-    root.innerHTML = `<style>${CSS}</style>
-      <div class="bar">${replies.map((t, i) => `<button class="chip" type="button" data-r="${i}" title="${esc(t)}">${esc(t.replace(/\{prix\}/g, "…"))}</button>`).join("")}</div>
-      <div class="neg"><span class="msg" style="margin:0">Offre reçue</span><input type="number" min="1" step="1" placeholder="€" aria-label="Montant de l'offre"><span class="msg" data-neg style="margin:0"></span></div>`;
-    let counter = null;
+    // Une seule ligne de réponses, défilable, au-dessus de la zone de saisie (sans la déformer).
+    root.innerHTML = `<style>${CSS}
+      .row{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:thin}
+      .row .chip{flex:0 0 auto;max-width:260px}</style>
+      <div class="row" role="group" aria-label="Réponses toutes prêtes AliEdge">${replies.map((t, i) => `<button class="chip" type="button" data-r="${i}" title="${esc(t)}">${esc(t.replace(/\{prix\}/g, "…"))}</button>`).join("")}</div>`;
     root.querySelectorAll("[data-r]").forEach((b) => b.addEventListener("click", () => {
       const el = messageBox(); if (!el) return;
-      let t = replies[Number(b.dataset.r)];
-      if (t.includes("{prix}")) t = t.replace(/\{prix\}/g, counter ? String(counter) : "…");
-      insertText(el, t);
+      insertText(el, replies[Number(b.dataset.r)].replace(/\{prix\}/g, "…"));
     }));
-    const inp = root.querySelector("input"), out = root.querySelector("[data-neg]");
-    let tmr = null;
-    inp.addEventListener("input", () => {
-      clearTimeout(tmr);
-      tmr = setTimeout(async () => {
-        const offer = Number(inp.value);
-        if (!(offer > 0)) { out.textContent = ""; return; }
-        const res = await send({ type: "lbc:offer", title: convTitle(), offer });
-        const d = res?.ok ? res.data : null;
-        if (!d || d.margin == null) { out.textContent = "Relie le produit fournisseur à cette annonce pour voir ta marge."; counter = null; return; }
-        counter = d.margin >= 5 ? null : d.floor;
-        out.innerHTML = `Si tu acceptes : <span class="${d.margin > 0 ? "good" : "bad"}">${d.margin > 0 ? "+" : ""}${d.margin.toFixed(2).replace(".", ",")} €</span> de marge${counter ? ` · contre-offre conseillée : <b>${counter} €</b>` : " · offre correcte"}`;
-      }, 350);
-    });
-    (box.closest("form") || box.parentElement).insertAdjacentElement("beforebegin", host);
+    // Placé avant le bloc de saisie entier (pas à l'intérieur de sa ligne bouton + / texte / envoyer).
+    let anchor = box.closest("form");
+    if (!anchor) {
+      anchor = box.parentElement;
+      const rowFlex = (el) => { const cs = el && getComputedStyle(el); return !!cs && /flex/.test(cs.display) && !/column/.test(cs.flexDirection); };
+      while (anchor?.parentElement && rowFlex(anchor.parentElement)) anchor = anchor.parentElement;
+      if (rowFlex(anchor) && anchor.parentElement) anchor = anchor;
+    }
+    (anchor || box.parentElement).insertAdjacentElement("beforebegin", host);
   }
 
   // ───────── Résultats de recherche : badge sur les produits déjà repérés dans le catalogue AliEdge

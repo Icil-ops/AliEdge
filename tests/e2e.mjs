@@ -150,7 +150,31 @@ await ctx.route("**/*", async (route) => {
     const card = (id, t, p) => `<a href="/product/${id}" style="display:inline-block;width:150px"><img alt="${t}" src="https://cdn.opla.co/${id}.jpg" style="width:150px;height:150px"><span>${t}</span><span>${p},00 €</span></a>`;
     if (url.pathname.startsWith("/product/")) return html(`<title>Sweat | Opla</title><script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Sweat Nike gris taille M", image: "https://cdn.opla.co/a.jpg", offers: { price: "25.00" } })}</script></head><body>${head}<h1>Sweat Nike gris taille M</h1><a href="/seller/google-oauth2%7C1234567890">Marc V.</a></body></html>`);
     if (url.pathname.startsWith("/seller/")) return html(`<title>Marc V. sur Opla</title></head><body>${head}<h1>Marc V.</h1>${oplaStock.map(([id, t, p]) => card(id, t, p)).join("")}</body></html>`);
-    if (url.pathname.startsWith("/sell/create")) return html(`<title>Vendre | Opla</title></head><body>${head}<h1>Vendre un article</h1><input type="file" accept="image/*" multiple><label>Titre <input name="title"></label><label>Description <textarea name="description"></textarea></label><label>Marque <input name="brand"></label><label>Prix <input name="price"></label><section><p>État</p><div><button type="button" onclick="this.setAttribute('aria-pressed','true')">Neuf</button><button type="button" id="c-tbe" onclick="this.setAttribute('aria-pressed','true')">Très bon état</button></div></section><button type="button">Publier</button></body></html>`);
+    // Formulaire comme sur opla.co : titres au-dessus des champs (pas de <label>), lignes « Sélectionner » qui ouvrent
+    // une liste (catégorie en deux niveaux, marque avec recherche, état), prix pré-rempli à 0,00, photos en zone de dépôt.
+    if (url.pathname.startsWith("/sell/create")) return html(`<title>Vendre | Opla</title><style>.row{display:flex;justify-content:space-between;padding:10px;border:1px solid #ddd}[role=dialog]{position:fixed;inset:20%;background:#fff;border:1px solid #000;padding:10px}</style></head><body>${head}<h1>Importer</h1>
+      <p>Photo (0/20)</p><div class="drop" onclick="this.querySelector('input').click()">Glissez-déposez vos images ou cliquez pour parcourir<input type="file" accept="image/jpeg,image/png,image/webp" multiple style="display:none" id="ph"></div>
+      <p>Titre</p><div><input id="t" placeholder="ex: Veste en jean vintage"></div>
+      <p>Description</p><div><textarea id="d"></textarea></div>
+      <div class="row"><span>Catégorie</span><button type="button" id="cat" onclick="pick('cat')">Sélectionner</button></div>
+      <div class="row"><span>Marque</span><button type="button" id="brand" onclick="pick('brand')">Sélectionner</button></div>
+      <div class="row"><span>État</span><button type="button" id="etat" onclick="pick('etat')">Sélectionner</button></div>
+      <div class="row"><span>Prix (€)</span><input id="p" value="0,00"></div>
+      <button type="button">Publier l'article</button>
+      <script>
+        const LISTS = { cat: [["Femme", "Homme", "Maison"], ["Vêtements", "Chaussures"]], etat: [["Neuf avec étiquette", "Très bon état", "Bon état"]], brand: [["Nike", "adidas", "Zara"]] };
+        function pick(kind, level = 0) {
+          document.querySelector("[role=dialog]")?.remove();
+          const d = document.createElement("div"); d.setAttribute("role", "dialog");
+          d.innerHTML = (kind === "brand" ? '<input placeholder="Rechercher une marque">' : "") + "<ul>" + LISTS[kind][level].map((o) => "<li><button type=button>" + o + "</button></li>").join("") + "</ul>";
+          document.body.appendChild(d);
+          d.querySelectorAll("li button").forEach((b) => b.onclick = () => {
+            const btn = document.getElementById(kind);
+            btn.dataset.v = (btn.dataset.v ? btn.dataset.v + ">" : "") + b.textContent;
+            if (LISTS[kind][level + 1]) pick(kind, level + 1); else { btn.textContent = btn.dataset.v; d.remove(); }
+          });
+        }
+      </script></body></html>`);
     return html(`<title>Opla</title></head><body>${head}<h1>Opla</h1></body></html>`);
   }
   if (h === "www.leboncoin.fr") {
@@ -924,6 +948,17 @@ if (process.env.STORE_SHOTS) {
   await dep?.close();
 }
 
+// « Reposter partout » : Beebs, Opla et Leboncoin s'ouvrent ensemble, chacun avec l'annonce.
+{
+  const before = new Set(ctx.pages());
+  const r = await page.evaluate(() => chrome.runtime.sendMessage({ type: "xpost:all", listing: { title: "Gilet laine bébé", description: "Tout doux.", price: 9, photos: [] } }));
+  await page.waitForTimeout(3000);
+  const opened = ctx.pages().filter((p) => !before.has(p)).map((p) => p.url());
+  check("« Reposter partout » ouvre Beebs, Opla et Leboncoin avec l'annonce", r?.data?.beebs && r?.data?.opla && r?.data?.lbc && opened.length >= 3, JSON.stringify({ r: r?.data, opened }));
+  for (const p of ctx.pages()) if (!before.has(p)) await p.close();
+  for (const ch of ["beebs", "opla", "lbc"]) await page.evaluate((c) => chrome.runtime.sendMessage({ type: `${c}:clearListing`, posted: false }), ch);
+}
+
 // Opla : mêmes outils que Beebs (article, boutique d'un concurrent, « Publier sur Opla » qui remplit /sell/create).
 {
   const op = await ctx.newPage();
@@ -940,14 +975,14 @@ if (process.env.STORE_SHOTS) {
   await op.waitForTimeout(4500);
   const tr = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:trackers" })))?.data?.[0] || {};
   const onShop = await op.locator(".aliedge-beebs-competitor").count();
-  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", photos: ["https://cdn.opla.co/a.jpg"] } }));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:open", listing: { title: "Sweat Nike vintage", description: "Très bon état.", price: 22, brand: "Nike", condition: "Très bon état", categoryPath: ["Hommes", "Vêtements", "Sweats"], photos: ["https://images1.vinted.net/t/0.jpeg"] } }));
   let sellTab = null;
   for (let i = 0; i < 20 && !sellTab; i++) { await page.waitForTimeout(500); sellTab = ctx.pages().find((p) => /opla\.co\/sell\/create/.test(p.url())); }
   if (sellTab) await sellTab.waitForSelector("#aliedge-beebs-sell", { timeout: 9000 }).catch(() => {});
-  await sellTab?.waitForFunction(() => document.querySelector('input[name="title"]')?.value && document.getElementById("c-tbe")?.getAttribute("aria-pressed"), null, { timeout: 8000 }).catch(() => {});
-  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.querySelector('input[name="title"]').value, d: document.querySelector("textarea").value, p: document.querySelector('input[name="price"]').value, b: document.querySelector('input[name="brand"]').value, c: document.getElementById("c-tbe").getAttribute("aria-pressed") })) : {};
+  await sellTab?.waitForFunction(() => document.getElementById("etat")?.dataset.v && document.getElementById("ph")?.files.length, null, { timeout: 15000 }).catch(() => {});
+  const filled = sellTab ? await sellTab.evaluate(() => ({ t: document.getElementById("t").value, d: document.getElementById("d").value, p: document.getElementById("p").value, cat: document.getElementById("cat").dataset.v, b: document.getElementById("brand").dataset.v, c: document.getElementById("etat").dataset.v, ph: document.getElementById("ph").files.length })) : {};
   const beebsIds = (await page.evaluate(() => chrome.runtime.sendMessage({ type: "beebs:trackedIds" })))?.data || [];
-  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit le formulaire, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.b === "Nike" && filled.c === "true" && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
+  check("Opla : fournisseur sur l'article, concurrent suivi (vente probable repérée), « Publier sur Opla » remplit titre, description, prix, catégorie, marque, état et photos, séparé de Beebs", onItem === 1 && onShop === 1 && tr.uid === uid && tr.active_count === 1 && tr.gone_30d === 1 && filled.t === "Sweat Nike vintage" && filled.d === "Très bon état." && filled.p === "22" && filled.cat === "Homme>Vêtements" && filled.b === "Nike" && filled.c === "Très bon état" && filled.ph === 1 && !beebsIds.includes(uid), JSON.stringify({ onItem, onShop, tr, sell: sellTab?.url() || null, filled, beebsIds }));
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing", posted: false }));
   await sellTab?.close();
   await op.close();

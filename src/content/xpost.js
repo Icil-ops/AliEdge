@@ -79,25 +79,46 @@
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
   const visible = (el) => !!el && el.offsetParent !== null && !el.disabled && !el.readOnly;
-  // Photos : récupérées puis déposées dans le champ « photos » de la page, comme si le membre les avait choisies.
-  async function addPhotos(urls) {
-    const input = [...document.querySelectorAll('input[type="file"]')].find((i) => !i.disabled && /image|^$/.test(i.accept || ""));
-    if (!input || !urls.length) return 0;
-    const dt = new DataTransfer();
-    for (const [i, u] of urls.slice(0, 10).entries()) {
+  // Photos : lues par AliEdge (directement, ou par le serveur quand le site d'images refuse), converties en JPEG
+  // si besoin, puis déposées dans le champ photos de la page (ou glissées sur la zone de dépôt).
+  async function photoFiles(urls) {
+    const r = await send({ type: "photos:get", urls: (urls || []).slice(0, 10) });
+    const list = r?.ok && Array.isArray(r.data) ? r.data : [];
+    const files = [];
+    for (const [i, p] of list.entries()) {
       try {
-        const res = await fetch(u, { mode: "cors", credentials: "omit" });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        if (!/^image\//.test(blob.type)) continue;
-        dt.items.add(new File([blob], `photo-${i + 1}.${(blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg")}`, { type: blob.type }));
-      } catch { /* image refusée par son site */ }
-      if (!input.multiple && dt.files.length) break;
+        const bin = atob(p.b64); const buf = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) buf[k] = bin.charCodeAt(k);
+        let blob = new Blob([buf], { type: p.type || "image/jpeg" });
+        if (!/^image\/(jpeg|png)$/.test(blob.type)) {
+          const bmp = await createImageBitmap(blob);
+          const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+          c.getContext("2d").drawImage(bmp, 0, 0);
+          blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.92));
+        }
+        if (blob) files.push(new File([blob], `photo-${i + 1}.${blob.type === "image/png" ? "png" : "jpg"}`, { type: blob.type }));
+      } catch { /* photo illisible */ }
     }
-    if (!dt.files.length) return 0;
-    input.files = dt.files;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return files;
+  }
+  async function addPhotos(urls) {
+    if (!urls?.length) return 0;
+    const input = [...document.querySelectorAll('input[type="file"]')].find((i) => !i.disabled && /image|jpe?g|png|webp|^$/i.test(i.accept || ""));
+    const zone = input ? null : [...document.querySelectorAll("div, label, section, button")]
+      .filter((el) => /glissez|d[ée]posez|ajouter des photos|importer|parcourir|add photos/i.test(el.textContent || "") && el.offsetParent !== null)
+      .sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    if (!input && !zone) return 0;
+    const files = await photoFiles(urls);
+    if (!files.length) return 0;
+    const dt = new DataTransfer();
+    for (const f of input && !input.multiple ? files.slice(0, 1) : files) dt.items.add(f);
+    if (input) {
+      input.files = dt.files;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      for (const type of ["dragenter", "dragover", "drop"]) zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+    }
     return dt.files.length;
   }
 
@@ -199,6 +220,94 @@
     if (kind === "brand") return all.find((el) => el.tagName === "INPUT" && /marque|brand/.test(label(el)));
     return null;
   }
+  // Champ repéré par le titre affiché au-dessus ou à côté (« Titre », « Prix (€) »…) quand il n'a pas de vrai <label>.
+  const FIELD_HEAD = { title: /^(titre|title)\b/, body: /^description\b/, price: /^prix\b/, brand: /^marque\b/ };
+  function fieldNear(kind) {
+    const re = FIELD_HEAD[kind];
+    if (!re) return null;
+    for (const h of document.querySelectorAll("label, p, span, div, h2, h3, h4, legend")) {
+      if (h.children.length > 1 || h.offsetParent === null) continue;
+      const t = norm(h.textContent);
+      if (!t || t.length > 40 || !re.test(t)) continue;
+      let box = h.parentElement;
+      for (let d = 0; box && d < 3; d++, box = box.parentElement) {
+        const el = [...box.querySelectorAll(kind === "body" ? "textarea" : "input:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=hidden])")]
+          .find((x) => visibleField(x) && (h.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING));
+        if (el) return el;
+      }
+    }
+    return null;
+  }
+  const isEmpty = (el) => !el.value || /^0+([.,]0+)?$/.test(el.value.trim());
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Sélecteurs « Catégorie / Marque / État » affichés comme une ligne cliquable (« Sélectionner ») qui ouvre une liste.
+  function openRow(re) {
+    for (const h of document.querySelectorAll("label, p, span, div, h3, h4, button")) {
+      if (h.children.length > 2 || h.offsetParent === null) continue;
+      const t = norm(h.textContent);
+      if (!t || t.length > 40 || !re.test(t)) continue;
+      let row = h;
+      for (let d = 0; row && d < 4; d++, row = row.parentElement) {
+        if (/s[ée]lectionner|choisi(r|ssez)/i.test(row.textContent || "") && (row.textContent || "").length < 160) {
+          const target = row.querySelector('button, [role="button"], [role="combobox"], select') || row;
+          if (target.tagName === "SELECT") return null;
+          target.click();
+          return row;
+        }
+      }
+    }
+    return null;
+  }
+  const layer = () => [...document.querySelectorAll('[role="dialog"], [aria-modal="true"], [role="listbox"], [class*="modal" i], [class*="drawer" i], [class*="sheet" i], [class*="dropdown" i], [class*="popover" i]')].filter((x) => x.offsetParent !== null || x.getClientRects().length).pop() || document.body;
+  const singular = (w) => w.replace(/(?<=..)s$/, "");
+  function optionFor(box, words, loose) {
+    const opts = [...box.querySelectorAll('[role="option"], li, button, label, a, div, span')].filter((x) => x.offsetParent !== null && x.children.length <= 3 && (x.textContent || "").length < 80);
+    for (const w of words) {
+      const hit = opts.find((x) => norm(x.textContent) === w) || opts.find((x) => singular(norm(x.textContent)) === singular(w))
+        || (loose && opts.find((x) => norm(x.textContent).startsWith(w)));
+      if (hit) return hit.matches('button, a, [role="option"], label') ? hit : hit.querySelector('button, a, [role="option"], label, input[type="radio"]') || hit.closest('button, a, [role="option"], label') || hit;
+    }
+    return null;
+  }
+  async function closeLayer() {
+    const box = layer();
+    const x = box !== document.body && [...box.querySelectorAll("button, [role=button]")].find((b) => /fermer|close|annuler|retour|×|✕/i.test(`${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`));
+    if (x) x.click(); else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(300);
+  }
+  /** Choisit une valeur dans une liste ouverte depuis une ligne « Sélectionner » ; recherche tapée pour la marque. */
+  async function pickFromRow(re, words, { search = false } = {}) {
+    if (!words.length || !openRow(re)) return false;
+    await sleep(800);
+    let box = layer();
+    if (search) {
+      const q = [...box.querySelectorAll('input:not([type=checkbox]):not([type=radio])')].find(visibleField);
+      if (q) { setValue(q, words[0]); await sleep(1000); box = layer(); }
+    }
+    const opt = optionFor(box, words, search);
+    if (!opt) { await closeLayer(); return false; }
+    opt.click();
+    await sleep(500);
+    return true;
+  }
+  /** Catégorie en plusieurs niveaux (Homme › Vêtements › …) : à chaque niveau, l'option qui correspond au chemin Vinted. */
+  async function pickCategory(path) {
+    const words = (path || []).map(norm).filter(Boolean);
+    if (!words.length || !openRow(/^cat[ée]gorie\b/)) return false;
+    let picked = 0;
+    for (let level = 0; level < 5; level++) {
+      await sleep(700);
+      const opt = optionFor(layer(), words.slice(picked ? 1 : 0), false) || optionFor(layer(), words, false);
+      if (!opt) break;
+      const txt = norm(opt.textContent);
+      opt.click();
+      picked++;
+      const i = words.findIndex((w) => singular(w) === singular(txt) || w === txt);
+      if (i >= 0) words.splice(0, i + 1);
+      if (!words.length) break;
+    }
+    return picked > 0;
+  }
   // État et taille : l'état Vinted traduit vers les libellés courants (Beebs, Opla), puis choisi dans la liste
   // du site (menu <select>, ou boutons / cases à cocher affichés sous le titre « État » / « Taille »).
   const norm = (t) => clean(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -287,8 +396,15 @@
       const b = e.currentTarget, msg = panel.querySelector("[data-msg]");
       b.textContent = "Remplissage…";
       let n = 0;
-      for (const k of ["title", "body", "price", "brand"]) { const el = vals[k] && field(k); if (el && !el.value) { setValue(el, vals[k]); n++; } }
-      const picked = [l.condition && choose("condition", conditionWords(l.condition)) && "état", l.size && choose("size", [norm(l.size)]) && "taille"].filter(Boolean);
+      for (const k of ["title", "body", "price", "brand"]) { const el = vals[k] && (field(k) || fieldNear(k)); if (el && isEmpty(el)) { setValue(el, vals[k]); n++; } }
+      // Lignes « Sélectionner » (Opla, Beebs) : catégorie, marque, état.
+      const rows = [
+        l.categoryPath?.length && await pickCategory(l.categoryPath) && "catégorie",
+        l.brand && !field("brand") && await pickFromRow(/^marque\b/, [norm(l.brand)], { search: true }) && "marque",
+        l.condition && await pickFromRow(/^(etat|condition)\b/, conditionWords(l.condition)) && "état",
+      ].filter(Boolean);
+      n += rows.length;
+      const picked = [l.condition && !rows.includes("état") && choose("condition", conditionWords(l.condition)) && "état", l.size && choose("size", [norm(l.size)]) && "taille"].filter(Boolean);
       n += picked.length;
       const ph = await addPhotos(l.photos || []);
       b.textContent = "Tout remplir";

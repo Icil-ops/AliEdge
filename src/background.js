@@ -1760,6 +1760,28 @@ const handlers = {
     _sort: filters.sort || "sold", _min_sold: filters.minSold || 0, _limit: filters.limit || 30, _offset: filters.offset || 0,
   }),
   "catalog:items": async ({ productId }) => sb.rpc("aliedge_product_items", { _product_id: productId }),
+  // Photos d'une annonce à déposer sur un autre site : lues directement si le site d'images le permet,
+  // sinon par le serveur Barapics (CDN Vinted et fournisseurs seulement). Renvoyées en base64 (8 max).
+  "photos:get": async ({ urls = [] }) => {
+    const out = [];
+    for (const u of (Array.isArray(urls) ? urls : []).filter((x) => /^https:\/\//.test(String(x))).slice(0, 10)) {
+      let item = null;
+      try {
+        const res = await fetch(u, { credentials: "omit" });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (/^image\//.test(blob.type) && blob.size < 6_000_000) {
+            const buf = new Uint8Array(await blob.arrayBuffer());
+            let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+            item = { type: blob.type, b64: btoa(bin) };
+          }
+        }
+      } catch { /* site d'images qui refuse : on passe par le serveur */ }
+      if (!item) { try { const r = await barapics({ action: "imageproxy", url: u }); if (r?.b64) item = { type: r.type || "image/jpeg", b64: r.b64 }; } catch { /* photo indisponible */ } }
+      if (item) out.push(item);
+    }
+    return out;
+  },
   // Fiche officielle AliExpress (prix France, stock) : lue par le serveur avec la clé de l'app Drop Shipping.
   "ali:official": async ({ url }) => {
     const id = String(url || "").match(/\/item\/(\d{6,20})\.html/)?.[1];
@@ -1805,6 +1827,13 @@ const handlers = {
   },
   // Publier rapidement sur Leboncoin (une annonce Vinted, ou plusieurs l'une après l'autre), comme Beebs et Opla.
   "lbc:open": async ({ listing }) => lbcOpen(listing),
+  // « Reposter partout » : Beebs, Opla et Leboncoin s'ouvrent chacun avec l'annonce (site pas encore activé : le panneau le propose).
+  "xpost:all": async ({ listing }) => {
+    const out = {};
+    for (const ch of Object.keys(CHANNELS)) out[ch] = (await channelHandlerMap[`${ch}:open`]({ listing })).enabled;
+    out.lbc = (await lbcOpen(listing)).enabled;
+    return out;
+  },
   "lbc:myItems": async () => {
     const { market, items } = await ownActiveItems();
     const posted = (await chrome.storage.local.get("ae_lbc_posted")).ae_lbc_posted || {};
@@ -2028,7 +2057,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!h) return false;
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {
