@@ -324,6 +324,37 @@ async function loadProduct() {
     if (route().name === "analyse") render();
   }
   loadSmart();
+  loadSellerHere();
+}
+
+// ───────────────────────── Profil Vinted ouvert : les annonces de ce vendeur déjà dans la base commune
+async function loadSellerHere() {
+  if (state.product?.supported) { if (state.sellerHere) { state.sellerHere = null; if (route().name === "analyse") render(); } return; }
+  const r = await api("vinted:sellerHere").catch(() => null);
+  const before = JSON.stringify(state.sellerHere || null);
+  state.sellerHere = r;
+  if (JSON.stringify(r || null) !== before && route().name === "analyse") render();
+}
+
+function sellerHereCard() {
+  const s = state.sellerHere;
+  if (!s) return "";
+  const head = `<div class="row between"><h2>Ce vendeur dans AliEdge</h2>${s.total ? `<span class="small muted">${s.total} annonce${s.total > 1 ? "s" : ""}</span>` : ""}</div>`;
+  if (s.own) return `<section class="card pad stack">${head}<p class="small muted">C'est ton propre compte : AliEdge ne garde aucune de tes annonces.</p></section>`;
+  if (s.member) return `<section class="card pad stack">${head}<p class="small muted">Ce compte appartient à un membre AliEdge : ses annonces ne sont jamais gardées.</p></section>`;
+  if (s.auth === false) return `<section class="card pad stack">${head}<p class="small muted">Connecte-toi pour voir les annonces de ce vendeur déjà repérées par la communauté.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
+  if (!s.total) return `<section class="card pad stack">${head}<p class="small muted">Aucune ancienne annonce de ce vendeur dans la base pour l'instant. Ajoute-le en concurrent (« + Concurrent » à côté de son pseudo) : AliEdge relèvera ses ventes pendant 14 jours.</p></section>`;
+  const items = (s.items || []).map((it) => {
+    const sold = it.status === "sold";
+    return `<a class="sale" href="${safeUrl(it.url)}" target="_blank" rel="noopener" style="display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line, rgba(255,255,255,.08))">
+      ${it.photo_url ? `<img src="${safeUrl(it.photo_url)}" alt="" referrerpolicy="no-referrer" style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex:none">` : `<div class="ph" style="width:52px;height:52px;flex:none"></div>`}
+      <div style="min-width:0;flex:1"><div class="small" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.title || "Annonce")}</div>
+        <div class="small muted">${sold ? `vendu ${esc(ago(new Date(it.at).getTime()))}${it.days_to_sell != null ? ` · parti en ${esc(String(it.days_to_sell).replace(".", ","))} j` : ""}` : `en vente · vu ${esc(ago(new Date(it.at).getTime()))}`}</div>
+        ${it.product_url ? `<div class="small" style="color:#10b981">Fournisseur ${esc(it.product_platform || "")}${it.product_price != null ? ` · ${esc(eur(it.product_price))}` : ""}</div>` : ""}</div>
+      <b class="small">${it.price != null ? esc(eur(it.price)) : ""}</b></a>
+      ${it.product_url ? `<a class="btn small" href="${safeUrl(it.product_url)}" target="_blank" rel="noopener" style="margin:-2px 0 6px 62px">Voir le fournisseur</a>` : ""}`;
+  }).join("");
+  return `<section class="card pad stack">${head}<p class="small muted">${s.sold || 0} vente${(s.sold || 0) > 1 ? "s" : ""} constatée${(s.sold || 0) > 1 ? "s" : ""}, ${s.linked || 0} avec fournisseur trouvé. Annonces repérées par la communauté, ventes d'abord.</p><div>${items}</div></section>`;
 }
 
 // ───────────────────────── Achat malin : historique des prix, même produit moins cher, avis IA, codes promo
@@ -649,6 +680,7 @@ function viewAnalyse() {
         ${searchControls()}
       </section>`);
   } else {
+    if (state.sellerHere) parts.push(sellerHereCard());
     parts.push(`
       <section class="card pad stack">
         ${p?.error ? `<p class="notice warn">${esc(p.error)}</p>` : `

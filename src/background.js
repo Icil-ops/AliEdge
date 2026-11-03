@@ -1002,6 +1002,19 @@ async function getCompetitorIds() {
   return ids;
 }
 
+/** Profil Vinted ouvert dans l'onglet actif : ses annonces déjà dans la base commune (aucune requête Vinted). */
+async function sellerOnPage() {
+  const tab = await activeTab();
+  const m = String(tab?.url || "").match(/^https:\/\/www\.vinted\.([a-z.]+)\/member\/(\d+)/);
+  if (!m) return null;
+  const sellerId = Number(m[2]);
+  const market = Object.keys(MARKETS).find((k) => MARKETS[k].host === `www.vinted.${m[1]}`) || "fr";
+  if ((await ownSellerIds()).has(sellerId)) return { sellerId, market, own: true, total: 0, items: [] };
+  if (!(await sb.getSession())) return { sellerId, market, auth: false, total: 0, items: [] };
+  const r = await sb.rpc("aliedge_seller_items", { _seller_id: sellerId, _limit: 40 });
+  return { sellerId, market, ...(r || {}) };
+}
+
 async function addTracker({ sellerId, market = "fr", label = null }) {
   if (!(await sb.getSession())) throw new sb.ApiError("Connecte-toi à AliEdge pour suivre un vendeur.", 401, "auth");
   const id = Number(sellerId);
@@ -1946,6 +1959,7 @@ const handlers = {
   "lbc:trackers": async () => sb.rpc("aliedge_lbc_trackers"),
   "lbc:trackerItems": async ({ seller }) => sb.rpc("aliedge_lbc_tracker_items", { _seller: String(seller) }),
   "tracker:add": async (msg) => addTracker(msg),
+  "vinted:sellerHere": async () => sellerOnPage(),
   "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
   "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
   "radar:remove": async ({ id }) => { const st = await radarState(); st.filters = st.filters.filter((f) => f.id !== id); delete st.seen[id]; st.feed = st.feed.filter((x) => x.filterId !== id); await saveRadar(st); await syncRadarAlarm(st); return { filters: st.filters, feed: st.feed }; },
