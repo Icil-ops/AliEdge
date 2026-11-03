@@ -1204,7 +1204,7 @@ function bindCatalogue() {
     btn.textContent = "Lecture de la page…";
     try {
       const r = await api("catalog:importPage");
-      toast(`${r.found} produit${r.found > 1 ? "s" : ""} trouvé${r.found > 1 ? "s" : ""} sur la page. AliEdge cherche maintenant leurs annonces sur Vinted (2 par minute) : ils apparaissent dans le catalogue au fur et à mesure.`);
+      toast(`${r.found} produit${r.found > 1 ? "s" : ""} ajouté${r.found > 1 ? "s" : ""}. Ils sont reliés aux annonces Vinted de la base en comparant les photos, sans aucune recherche sur Vinted : ils apparaissent dans le catalogue dès qu'une annonce correspond.`);
       btn.disabled = false;
       btn.innerHTML = `${ICON.tag}Ajouter les produits de la page ouverte`;
       importStatus();
@@ -1510,14 +1510,14 @@ function sparkline(points) {
   return `<svg class="spark" viewBox="0 0 90 30" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--violet)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
-// ───────────────────────── Concurrents (suivis en continu)
+// ───────────────────────── Concurrents (suivis 14 jours, puis retirés)
 
 function viewTrackers(trackers) {
   const rows = (trackers || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).map((t) => `
       <div class="tracker">
         <button class="tracker-head" type="button" data-tracker="${esc(t.id)}" aria-expanded="false">
           <span class="tracker-dot" aria-hidden="true"></span>
-          <span class="tracker-name"><b>${esc(t.label || `Vendeur ${t.seller_id}`)}</b><span class="small muted">${esc((t.market || "fr").toUpperCase())} · suivi depuis ${esc(ago(new Date(t.created_at).getTime()))}${t.last_checked_at ? ` · vérifié ${esc(ago(new Date(t.last_checked_at).getTime()))}` : " · premier relevé en cours"}</span></span>
+          <span class="tracker-name"><b>${esc(t.label || `Vendeur ${t.seller_id}`)}</b><span class="small muted">${esc((t.market || "fr").toUpperCase())} · suivi depuis ${esc(ago(new Date(t.created_at).getTime()))} · ${(() => { const d = Math.max(0, Math.ceil((new Date(t.expires_at).getTime() - Date.now()) / 86400_000)); return d <= 1 ? "dernier jour" : `encore ${d} j`; })()}${t.last_checked_at ? ` · vérifié ${esc(ago(new Date(t.last_checked_at).getTime()))}` : " · premier relevé en cours"}</span></span>
           <span class="tracker-kpi num"><b>${t.sold_7d ?? 0}</b><span class="small muted">ventes 7 j</span></span>
           <span class="tracker-kpi num"><b>${eur(Number(t.amount_30d ?? t.sold_amount))}</b><span class="small muted">${t.sold_30d ?? t.sold_count} ventes 30 j</span></span>
         </button>
@@ -1526,7 +1526,7 @@ function viewTrackers(trackers) {
   return `
     <section class="stack">
       <div class="row between"><h2>Concurrents</h2><span class="small muted">${rows ? (trackers || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).length : 0} / 30</span></div>
-      <p class="small muted">Colle le lien du profil Vinted d'un concurrent, ou clique sur « + Concurrent » à côté de son pseudo sur Vinted. AliEdge enregistre toutes ses annonces, repère chaque vente et mesure en combien de temps elle est partie.</p>
+      <p class="small muted">Colle le lien du profil Vinted d'un concurrent, ou clique sur « + Concurrent » à côté de son pseudo sur Vinted. Pendant 14 jours, AliEdge relève son dressing plusieurs fois par jour, repère chaque nouvelle vente et mesure en combien de temps elle est partie. Ensuite le suivi s'arrête tout seul.</p>
       <form id="trackform" class="row" style="gap:8px">
         <input class="input" id="trackurl" type="url" inputmode="url" placeholder="https://www.vinted.fr/member/123456-pseudo" aria-label="Lien du profil Vinted" style="flex:1">
         <button class="btn primary" type="submit">Suivre</button>

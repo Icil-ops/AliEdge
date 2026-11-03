@@ -226,7 +226,7 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname === "/api/v2/users/current") return route.fulfill({ json: { user: { id: 4242, login: "moncomptevinted" } } });
     if (url.pathname === "/api/v2/users") return route.fulfill({ json: { users: [{ id: 8800, login: "vendeuse0" }, { id: 9911, login: "vendeuse01" }] } });
     if (/^\/api\/v2\/users\/\d+$/.test(url.pathname)) return route.fulfill({ json: { user: { id: Number(url.pathname.split("/").pop()), login: "moncompte", feedback_reputation: 0.96, feedback_count: 23, followers_count: 12, item_count: 4, photo: { url: "https://images1.vinted.net/t/u.jpeg" }, about: "Articles neufs, envoi rapide depuis l'entrepôt." } } });
-    if (/^\/api\/v2\/users\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
+    if (/^\/api\/v2\/(wardrobe|users)\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/inbox")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Messages | Vinted</title><main><h2><a href=\"/member/9090-gd02840\">gd02840</a></h2><p>Ta vente est finalisée.</p><a href=\"/member/9090-gd02840/feedback\">Évaluer</a></main>" });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
@@ -265,6 +265,7 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "imagesearch") return route.fulfill({ headers: cors, json: { name: "Sac bandoulière cuir noir", supplier: ["women leather crossbody bag black", "small shoulder bag pu leather"], vinted: ["sac bandoulière noir", "petit sac cuir"], brand: null, branded: false, category: "Sacs" } });
     if (body.action === "review") return route.fulfill({ headers: cors, json: { verdict: "go", summary: "Bon sac d'entrée de gamme, bien noté.", good: ["Note de 4,8"], watch: ["Les dimensions sont petites"], save: ["Prends la variante noire, moins chère"], resale: "Vends-le autour de 20 € avec des photos portées." } });
     if (body.action === "compare") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 2).map((c) => [c.id, 0.9])) } });
+    if (body.action === "link") return route.fulfill({ headers: cors, json: { checked: 3, linked: 1 } });
     if (body.action === "suppliers") return route.fulfill({ headers: cors, json: { suppliers: [{ id: "p1", title: "Tapis rond coloré tissé", url: "https://fr.aliexpress.com/item/1005009999.html", price: 9.5, platform: "aliexpress", image_url: null, reason: "photo", score: 0.9 }], queries: ["tapis rond coloré"], checked: 1 } });
     if (body.action === "keywords") return route.fulfill({ headers: cors, json: { queries: ["sac bandoulière noir", "petit sac cuir femme"] } });
     if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
@@ -520,10 +521,8 @@ const before = calls.filter((c) => c.endsWith("aliedge_seen_products")).length;
 const imported = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importPage" }));
 check("catalogue : produits d'une page de résultats ajoutés", imported?.ok && imported.data.found === 5 && calls.filter((c) => c.endsWith("aliedge_seen_products")).length > before, JSON.stringify(imported));
 {
-  const contribBefore = calls.filter((c) => c.endsWith("aliedge_contribute")).length;
-  await page.evaluate(() => chrome.alarms.create("importq", { when: Date.now() + 50 }));
-  await page.waitForTimeout(12000);
-  check("produits ajoutés : recherche Vinted lancée pour chacun (2 par minute)", calls.filter((c) => c.endsWith("aliedge_contribute")).length >= contribBefore + 1);
+  await page.waitForTimeout(1500);
+  check("produits ajoutés : reliés par les photos côté serveur, sans recherche Vinted", barapicsCalls.includes("link") && imported?.data?.queued === 0, barapicsCalls.join(","));
 }
 await listing.close();
 

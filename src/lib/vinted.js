@@ -263,7 +263,7 @@ export function normaliseItem(it, market) {
     market,
     title: it.title || "",
     brand: it.brand_title || it.brand || null,
-    size: it.size_title || null,
+    size: it.size_title || (typeof it.size === "string" ? it.size : null) || null,
     condition: it.status || it.status_title || null,
     price: num(it.price),
     total_price: num(it.total_item_price),
@@ -284,6 +284,7 @@ export function normaliseItem(it, market) {
 
 const CONDITION_IDS = { all: [], new: [6], very_good: [6, 1] };
 
+let catalogApiGoneAt = 0;
 /** Recherche d'annonces actives par mots-clés. */
 export async function searchText(query, { market = "fr", condition = "all", perPage = 96 } = {}) {
   const q = String(query || "").trim();
@@ -295,8 +296,13 @@ export async function searchText(query, { market = "fr", condition = "all", perP
   url.searchParams.set("order", "relevance");
   (CONDITION_IDS[condition] || []).forEach((id) => url.searchParams.append("status_ids[]", String(id)));
   let res = null;
-  try { res = await vFetch(url.toString(), "json", market); }
-  catch (e) { if (["paused", "budget", "rate_limited"].includes(e.code)) throw e; }
+  // L'ancienne recherche JSON de Vinted répond 404 : on ne la retente qu'une fois par jour (une requête de moins
+  // par recherche pour le compte du membre) et on lit directement la page de résultats.
+  if (Date.now() - catalogApiGoneAt > 24 * 3600_000) {
+    try { res = await vFetch(url.toString(), "json", market); }
+    catch (e) { if (["paused", "budget", "rate_limited"].includes(e.code)) throw e; }
+    if (res?.status === 404) catalogApiGoneAt = Date.now();
+  }
   const raw = Array.isArray(res?.body?.items) ? res.body.items : [];
   let items = raw.map((it) => normaliseItem(it, market)).filter((i) => i.vinted_id && i.price != null);
   let total = res?.body?.pagination?.total_entries ?? items.length;
@@ -441,7 +447,8 @@ export async function sellerItems(sellerId, market = "fr", { pages = 1 } = {}) {
   if (!Number.isSafeInteger(id) || id <= 0) return [];
   const out = [];
   for (let page = 1; page <= Math.min(Math.max(1, pages), 12); page++) {
-    const res = await vFetch(`https://${host(market)}/api/v2/users/${id}/items?page=${page}&per_page=96&order=newest_first`, "json", market);
+    // Vinted a déplacé les dressings : /api/v2/users/<id>/items répond 404 depuis fin octobre 2026.
+    const res = await vFetch(`https://${host(market)}/api/v2/wardrobe/${id}/items?page=${page}&per_page=96&order=newest_first`, "json", market);
     const raw = Array.isArray(res.body?.items) ? res.body.items : [];
     out.push(...raw.map((it) => ({ ...normaliseItem(it, market), seller_id: id, status: statusFromJson(it) })).filter((i) => i.vinted_id));
     const total = Number(res.body?.pagination?.total_pages);

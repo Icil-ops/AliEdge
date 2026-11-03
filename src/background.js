@@ -1530,13 +1530,12 @@ async function importPage() {
   for (let i = 0; i < cards.length; i += 20) {
     added += Number(await sb.rpc("aliedge_seen_products", { _products: cards.slice(i, i + 20) }).catch(() => 0)) || 0;
   }
-  // Recherche Vinted de chaque produit ajouté, 2 par minute (garde-fou du compte) : il apparaît au catalogue dès ses annonces trouvées.
-  const { ae_import_queue: q = [] } = await chrome.storage.local.get("ae_import_queue");
-  const keys = new Set(q.map((x) => `${x.platform}:${x.source_id}`));
-  const next = [...q, ...cards.filter((c) => !keys.has(`${c.platform}:${c.source_id}`))].slice(0, 200);
-  await chrome.storage.local.set({ ae_import_queue: next, ae_import_total: next.length });
-  chrome.alarms.create("importq", { periodInMinutes: 1, delayInMinutes: 0.05 });
-  return { found: cards.length, added, queued: next.length };
+  // Plus aucune recherche Vinted par produit : le serveur relie les produits ajoutés aux annonces déjà en base
+  // en comparant les photos (zéro requête Vinted pour le compte du membre).
+  await chrome.storage.local.set({ ae_import_queue: [], ae_import_total: 0 });
+  chrome.alarms.clear("importq").catch(() => {});
+  barapics({ action: "link" }).then((r) => { if (r?.linked) broadcast({ type: "catalog:linked", linked: r.linked }); }).catch(() => {});
+  return { found: cards.length, added, queued: 0 };
 }
 
 let importRunning = false;
