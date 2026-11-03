@@ -1028,7 +1028,7 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "remote") { refreshRemote().then(() => reportHealth()).then(() => vinted.inBackground(resolveSeeds)).catch(() => {}); }
-  if (a.name === "community") { syncOwnSellers().catch(() => {}); flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
+  if (a.name === "community") { syncOwnSellers().then(() => vinted.inBackground(syncOwnItems)).catch(() => {}); flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
   if (a.name === "seeds") vinted.inBackground(resolveSeeds).catch(() => {});
@@ -1079,7 +1079,50 @@ async function syncOwnSellers() {
 }
 async function dropOwn(items) {
   const own = await ownSellerIds();
-  return own.size ? items.filter((i) => !own.has(Number(i?.seller_id))) : items;
+  const mine = await ownItemIds();
+  return items.filter((i) => !own.has(Number(i?.seller_id)) && !mine.has(Number(i?.vinted_id)));
+}
+
+/**
+ * Annonces du membre lui-même (son dressing, vendues comprises) : leurs numéros sont gardés dans l'extension et
+ * déclarés au serveur, qui ne les enregistre jamais dans la base commune et les efface si elles y étaient,
+ * même quand une carte d'annonce ne dit pas qui est le vendeur.
+ */
+const OWN_ITEMS_KEY = "ae_own_item_ids";
+let ownItemsCache = null;
+async function ownItemIds() {
+  if (!ownItemsCache) { const r = await chrome.storage.local.get(OWN_ITEMS_KEY); ownItemsCache = new Set((r[OWN_ITEMS_KEY] || []).map(Number)); }
+  return ownItemsCache;
+}
+async function registerOwnItems(ids, sellerId = null, market = "fr") {
+  const clean = [...new Set((ids || []).map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
+  if (!clean.length) return;
+  const set = await ownItemIds();
+  const fresh = clean.filter((id) => !set.has(id));
+  if (fresh.length) {
+    fresh.forEach((id) => set.add(id));
+    await chrome.storage.local.set({ [OWN_ITEMS_KEY]: [...set].slice(-5000) });
+  }
+  if (!(await sb.getSession().catch(() => null))) return;
+  for (let i = 0; i < clean.length; i += 2000) {
+    await sb.rpc("aliedge_register_own_items", { _ids: clean.slice(i, i + 2000), _seller_id: sellerId ? Number(sellerId) : null, _market: MARKETS[market] ? market : "fr" }).catch((e) => noteError("own:items", e));
+  }
+}
+
+/** Une fois par jour : le dressing du membre (son propre compte, vendues comprises) pour tenir la liste à jour. */
+async function syncOwnItems() {
+  const { ae_own_items_sync: last = 0 } = await chrome.storage.local.get("ae_own_items_sync");
+  if (Date.now() - last < 24 * 3600_000) return;
+  const r = await chrome.storage.local.get(OWN_KEY);
+  const own = (r[OWN_KEY] || []).slice(0, 3);
+  if (!own.length || !(await sb.getSession().catch(() => null))) return;
+  await chrome.storage.local.set({ ae_own_items_sync: Date.now() });
+  for (const x of own) {
+    try {
+      const items = await vinted.sellerItems(Number(x.id), MARKETS[x.market] ? x.market : "fr", { pages: 5 });
+      await registerOwnItems(items.map((i) => i.vinted_id), x.id, x.market);
+    } catch (e) { if (STOP_CODES.has(e.code)) return; }
+  }
 }
 
 // Ventes repérées : leurs photos sont copiées tout de suite par le serveur (les liens Vinted expirent).
@@ -1127,7 +1170,8 @@ async function reportVintedItem(item, raw = null) {
     if (!item.status) return;
     item = { ...item, visited: true, isbn: vinted.cleanIsbn(item.isbn) };
   }
-  if (item.seller_id && (await ownSellerIds()).has(Number(item.seller_id))) return;
+  if (item.seller_id && (await ownSellerIds()).has(Number(item.seller_id))) { registerOwnItems([item.vinted_id], item.seller_id, item.market).catch(() => {}); return; }
+  if ((await ownItemIds()).has(Number(item.vinted_id))) return;
   const last = reported.get(item.vinted_id);
   if (last && Date.now() - last < 6 * 3600_000) return;
   if (!(await sb.getSession())) return;
@@ -1885,6 +1929,7 @@ const handlers = {
     const list = (Array.isArray(items) ? items : []).slice(0, 300).map((i) => ({ vinted_id: Number(i.vinted_id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo_url: /^https:\/\//.test(i.photo_url || "") ? i.photo_url : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, status: i.status === "sold" ? "sold" : "active" })).filter((i) => i.vinted_id > 0);
     if (sellerId) await addOwnSeller(Number(sellerId), MARKETS[market] ? market : "fr");
     if (list.length) await chrome.storage.local.set({ ae_own_items: { at: Date.now(), market: MARKETS[market] ? market : "fr", items: list } });
+    await registerOwnItems(list.map((i) => i.vinted_id), sellerId, market);
     return { saved: list.length };
   },
   "vinted:postedIds": async () => {

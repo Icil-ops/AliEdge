@@ -1,6 +1,6 @@
 {
-  "version": "3.6.4",
-  "notes": "Suivi des concurrents réparé (14 jours par concurrent), fournisseurs d'une vente vérifiés par la photo, produits ajoutés reliés aux annonces Vinted par les photos sans aucune recherche sur Vinted, recherche Vinted plus économe pour ton compte.",
+  "version": "3.6.5",
+  "notes": "Tes propres annonces Vinted ne sont plus jamais ajoutées à la base commune (même vendues), suivi des concurrents réparé (14 jours), fournisseurs vérifiés par la photo, produits reliés par les photos sans recherche Vinted.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-02",
   "minVersion": "3.0.0"

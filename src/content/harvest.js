@@ -55,10 +55,15 @@
   // Son propre profil (Vinted y affiche « Booster » sous ses annonces) : ses annonces servent à « Reposter sur un
   // autre site » et ne partent jamais dans la base commune.
   const ownProfile = () => /^\/member\/\d{3,15}/.test(location.pathname)
-    && [...document.querySelectorAll("button, a")].some((b) => /^(booster|bump|modifier le profil|edit profile)$/i.test((b.textContent || "").replace(/\s+/g, " ").trim()));
+    && (!!document.querySelector('a[href*="/settings/profile"], a[href*="/settings/account"]')
+      || [...document.querySelectorAll("button, a")].some((b) => /^(booster|bump|modifier (le|mon) profil|edit (my )?profile|profil bearbeiten|editar (mi )?perfil|modifica (il )?profilo)$/i.test((b.textContent || "").replace(/\s+/g, " ").trim())));
+  // Pages privées du membre (commandes, messages, porte-monnaie, réglages…) : rien n'est jamais lu.
+  const privatePage = () => /^\/(inbox|my_orders|orders|transaction|transactions|wallet|settings|checkout|notifications|items\/new|items\/\d+\/edit|member\/general|member\/items\/(?!favou?rite)|member\/\d+\/(sold|orders|wallet))/i.test(location.pathname)
+    || /[?&](tab|filter)=(sold|vendu|hidden|masqu)/i.test(location.search);
   let ownSent = "";
   function flush() {
     timer = null;
+    if (privatePage()) return;
     if (ownProfile()) {
       seen.clear();
       const mine = readCards().filter((i) => i.status === "active" || i.status === "sold");
