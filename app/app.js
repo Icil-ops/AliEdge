@@ -1043,7 +1043,7 @@ async function loadSalesFeed(append = false) {
 }
 
 /** Fiche d'une vente : infos, lien vers l'annonce, délai de vente, et fournisseurs probables tirés de la base commune. */
-const SUP_REASON = { linked: "Relié à cette annonce", similar_sale: "Relié à une vente au titre proche", similar_title: "Titre proche" };
+const SUP_REASON = { linked: "Relié à cette annonce", similar_sale: "Relié à une vente au titre proche", similar_title: "Titre proche", photo: "Trouvé par la photo" };
 async function openSaleSheet(r, lbc) {
   document.getElementById("salesheet")?.remove();
   const d = document.createElement("dialog");
@@ -1066,7 +1066,7 @@ async function openSaleSheet(r, lbc) {
       </div>
       <div class="sh-r">
         <h3 style="margin:0;font-size:15px">Fournisseurs probables</h3>
-        <p class="small muted" style="margin:0">Tirés du catalogue AliEdge : le produit relié à cette vente, ceux reliés à des ventes au titre proche, puis les titres proches. Vérifie toujours que c'est le même article.</p>
+        <p class="small muted" style="margin:0">Tirés du catalogue AliEdge, puis vérifiés par la photo : chaque produit est comparé à la photo de la vente. Vérifie toujours que c'est le même article avant de commander.</p>
         <div class="stack" id="shsup" style="gap:8px"><div class="skel" style="height:64px"></div><div class="skel" style="height:64px"></div></div>
         <details class="small"><summary>Chercher ailleurs</summary><div class="row wrap" style="gap:6px;margin-top:6px">${supplierLinks(r).map(([n, u]) => `<a class="btn ghost small" href="${safeUrl(u)}" target="_blank" rel="noopener">${esc(n)}</a>`).join("")}</div></details>
       </div>
@@ -1076,16 +1076,33 @@ async function openSaleSheet(r, lbc) {
   d.addEventListener("close", () => d.remove());
   d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
   d.showModal();
-  const res = await api("sales:suppliers", { platform: lbc ? "lbc" : "vinted", id: Number(r.list_id || r.vinted_id) }).catch(() => null);
+  const platform = lbc ? "lbc" : "vinted";
+  const id = Number(r.list_id || r.vinted_id);
   const box = d.querySelector("#shsup");
-  if (!box) return;
-  const list = res?.suppliers || [];
-  box.innerHTML = list.length ? list.map((p) => {
-    const margin = Number(r.price) && Number(p.price) ? Number(r.price) - Number(p.price) : null;
-    return `<a class="sup" href="${safeUrl(p.url)}" target="_blank" rel="noopener">${p.image_url ? `<img src="${safeUrl(p.image_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
-      <div><div class="t">${esc(p.title)}</div><div class="small muted">${esc(PLATFORM_NAME[p.platform] || p.platform)} · ${esc(SUP_REASON[p.reason] || "")}</div></div>
-      <div class="num" style="text-align:right">${p.price != null ? `<b>${eur(Number(p.price))}</b>` : ""}${margin != null ? `<div class="small" style="color:${margin > 0 ? "var(--gain)" : "var(--loss)"}">${eur(margin, true)}</div>` : ""}</div></a>`;
-  }).join("") : `<p class="small muted" style="margin:0">Aucun fournisseur trouvé dans la base pour l'instant. Cherche-le avec les liens ci-dessous et relie-le depuis la liste des ventes : il servira à tout le monde.</p>`;
+  const paint = (list, visual) => {
+    if (!box?.isConnected) return;
+    box.innerHTML = list.length ? list.map((p) => {
+      const margin = Number(r.price) && Number(p.price) ? Number(r.price) - Number(p.price) : null;
+      const why = visual && p.score ? `Même article à ${Math.round(p.score * 100)} % (photo)` : SUP_REASON[p.reason] || "";
+      return `<a class="sup" href="${safeUrl(p.url)}" target="_blank" rel="noopener">${p.image_url ? `<img src="${safeUrl(p.image_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
+        <div><div class="t">${esc(p.title)}</div><div class="small muted">${esc(PLATFORM_NAME[p.platform] || p.platform)} · ${esc(why)}</div></div>
+        <div class="num" style="text-align:right">${p.price != null ? `<b>${eur(Number(p.price))}</b>` : ""}${margin != null ? `<div class="small" style="color:${margin > 0 ? "var(--gain)" : "var(--loss)"}">${eur(margin, true)}</div>` : ""}</div></a>`;
+    }).join("") : `<p class="small muted" style="margin:0">${visual ? "Aucun produit du catalogue ne ressemble vraiment à cette photo. Essaie Google Lens ci-dessous : il cherche par l'image." : "Aucun fournisseur trouvé dans la base pour l'instant. Cherche-le avec les liens ci-dessous et relie-le depuis la liste des ventes : il servira à tout le monde."}</p>`;
+  };
+  // 1. Par le titre, tout de suite (base commune). 2. Par la photo : chaque candidat est comparé à la photo de la vente.
+  const res = await api("sales:suppliers", { platform, id }).catch(() => null);
+  const byTitle = res?.suppliers || [];
+  paint(byTitle, false);
+  if (!r.photo_url || !box?.isConnected) return;
+  box.insertAdjacentHTML("beforebegin", '<p class="small muted" id="shvis" style="margin:0">Recherche par image en cours…</p>');
+  try {
+    const v = await api("barapics", { body: { action: "suppliers", platform, id, photo: r.photo_url, title: r.title || "" } });
+    d.querySelector("#shvis")?.remove();
+    paint(v.suppliers || [], true);
+  } catch {
+    const s = d.querySelector("#shvis");
+    if (s) s.textContent = "Recherche par image indisponible pour le moment : résultats par le titre.";
+  }
 }
 
 async function loadPicks() {

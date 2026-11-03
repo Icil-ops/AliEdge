@@ -265,6 +265,7 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "imagesearch") return route.fulfill({ headers: cors, json: { name: "Sac bandoulière cuir noir", supplier: ["women leather crossbody bag black", "small shoulder bag pu leather"], vinted: ["sac bandoulière noir", "petit sac cuir"], brand: null, branded: false, category: "Sacs" } });
     if (body.action === "review") return route.fulfill({ headers: cors, json: { verdict: "go", summary: "Bon sac d'entrée de gamme, bien noté.", good: ["Note de 4,8"], watch: ["Les dimensions sont petites"], save: ["Prends la variante noire, moins chère"], resale: "Vends-le autour de 20 € avec des photos portées." } });
     if (body.action === "compare") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 2).map((c) => [c.id, 0.9])) } });
+    if (body.action === "suppliers") return route.fulfill({ headers: cors, json: { suppliers: [{ id: "p1", title: "Tapis rond coloré tissé", url: "https://fr.aliexpress.com/item/1005009999.html", price: 9.5, platform: "aliexpress", image_url: null, reason: "photo", score: 0.9 }], queries: ["tapis rond coloré"], checked: 1 } });
     if (body.action === "keywords") return route.fulfill({ headers: cors, json: { queries: ["sac bandoulière noir", "petit sac cuir femme"] } });
     if (body.action === "match") return route.fulfill({ headers: cors, json: { scores: Object.fromEntries(body.candidates.slice(0, 4).map((c) => [c.id, 0.9])) } });
     if (body.action === "brief") return route.fulfill({ headers: cors, json: { category: "sac", title: "Sac", colors: ["noir"], materials: ["cuir PU"], keyDetails: [], textAndLogos: [], parts: "1 sac", scale: "25 cm", texture: "grain fin" } });
@@ -485,8 +486,9 @@ await page.waitForSelector("#salesfeed .sale-row", { timeout: 6000 }).catch(() =
 check("catalogue : ventes Vinted sans fournisseur affichées, avec recherche du fournisseur", (await page.locator("#salesfeed .sale-row").count()) === 1 && (await page.locator("#salesfeed details.supplier").count()) === 1);
 await page.click("#salesfeed [data-sale]").catch(() => {});
 await page.waitForSelector("#salesheet .sup", { timeout: 6000 }).catch(() => {});
+await page.waitForFunction(() => /Même article à 90/.test(document.getElementById("salesheet")?.innerText || ""), null, { timeout: 6000 }).catch(() => {});
 const sheet = await page.evaluate(() => { const d = document.getElementById("salesheet"); return d ? { open: d.open, text: d.innerText.replace(/\s+/g, " ").slice(0, 1200), sup: d.querySelectorAll(".sup").length, link: d.querySelector('a.btn.primary')?.href } : null; });
-check("catalogue : fiche d'une vente (délai, lien vers l'annonce, fournisseurs probables de la base)", sheet?.open && sheet.sup === 1 && /14 j/.test(sheet.text) && /Tapis rond/.test(sheet.text) && /vinted\.fr\/items\/7101/.test(sheet.link || ""), JSON.stringify(sheet));
+check("catalogue : fiche d'une vente (délai, lien vers l'annonce, fournisseurs vérifiés par la photo)", sheet?.open && sheet.sup === 1 && /Même article à 90/.test(sheet.text) && /14 j/.test(sheet.text) && /Tapis rond/.test(sheet.text) && /vinted\.fr\/items\/7101/.test(sheet.link || ""), JSON.stringify(sheet));
 await page.evaluate(() => document.getElementById("salesheet")?.close());
 check("catalogue affiché", (await page.locator("main").innerText()).includes("Sac bandoulière cuir femme"));
 await page.waitForSelector(".pick", { timeout: 6000 }).catch(() => {});
