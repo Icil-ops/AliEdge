@@ -1,6 +1,6 @@
 {
   "version": "3.6.4",
-  "notes": "Indicateurs par produit (taux de vente, saturation, délai de vente, prix qui fait vendre, tendance), ventes probables, photos des ventes conservées, produits des recherches fournisseurs ajoutés avec leur photo. Plus discret pour ton compte Vinted. ISBN des livres relevé automatiquement.",
+  "notes": "Suivi des concurrents réparé (14 jours par concurrent), fournisseurs d'une vente vérifiés par la photo, produits ajoutés reliés aux annonces Vinted par les photos sans aucune recherche sur Vinted, recherche Vinted plus économe pour ton compte.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-02",
   "minVersion": "3.0.0"
