@@ -329,7 +329,7 @@ if (await email.count()) {
 await page.screenshot({ path: `${shots}/2-compte-connecte.png`, fullPage: true });
 check("connecté avec l'accès complet", /Pro|Accès complet/.test((await page.locator("#plan").textContent()) || ""), await page.locator("#plan").textContent());
 
-// 1b. Prise en main au premier lancement : pays, analyse d'exemple, Radar
+// 1b. Prise en main au premier lancement : pays, analyse d'exemple, catalogue
 await page.waitForSelector(".onboard", { timeout: 8000 }).catch(() => {});
 check("prise en main affichée au premier lancement", (await page.locator(".onboard").count()) === 1);
 await page.screenshot({ path: `${shots}/2b-bienvenue-1.png`, fullPage: true });
@@ -543,24 +543,10 @@ await listing.close();
 const imp = await page.evaluate(() => chrome.runtime.sendMessage({ type: "catalog:importVinted", links: "https://www.vinted.fr/items/9000-sac\nhttps://www.vinted.fr/items/9001-sac" }));
 check("catalogue : annonces Vinted ajoutées par lien", imp?.ok && imp.data.added === 2, JSON.stringify(imp));
 
-// 3b. Radar : un filtre, puis de nouvelles annonces détectées
+// 3b. Radar supprimé (3.6.11) : plus d'onglet, l'ancienne adresse ouvre le catalogue
 await page.goto(app("/radar"));
-await page.waitForSelector("#radarform", { timeout: 8000 }).catch(() => {});
-await page.fill('#radarform input[name="link"]', "https://www.vinted.fr/catalog?search_text=sac%20bandouli%C3%A8re&brand_ids[]=53&brand_ids[]=88&catalog[]=1242&price_to=25&order=relevance").catch(() => {});
-await page.fill('#radarform input[name="lname"]', "Sacs Zara").catch(() => {});
-await page.click('#radarform button[type="submit"]').catch(() => {});
-await page.waitForSelector(".radar-filter", { timeout: 8000 }).catch(() => {});
-check("radar : filtre enregistré", (await page.locator(".radar-filter").count()) === 1);
-await page.waitForSelector("#alertsbody .alert-row", { timeout: 6000 }).catch(() => {});
-check("radar : réglages des alertes téléphone", (await page.locator("#alertsbody .alert-row").count()) === 2 && barapicsCalls.includes("alerts:get"));
-await page.waitForTimeout(1500);
-await page.evaluate(() => chrome.runtime.sendMessage({ type: "radar:tick" }));
-await page.goto(app("/radar"));
-await page.waitForSelector(".radar-item", { timeout: 8000 }).catch(() => {});
-check("radar : lien de recherche Vinted repris (marques, catégorie, prix)", radarUrls.some((q) => q.includes("brand_ids=53%2C88") && q.includes("catalog_ids=1242") && q.includes("price_to=25") && q.includes("order=newest_first")), radarUrls[0] || "aucune requête");
-check("radar : nouvelles annonces dans le flux", (await page.locator(".radar-item").count()) === 2, `${await page.locator(".radar-item").count()} annonce(s)`);
-check("radar : alerte envoyée sur le téléphone", barapicsCalls.includes("alerts:send"));
-await page.screenshot({ path: `${shots}/7b-radar.png`, fullPage: true });
+await page.waitForTimeout(1200);
+check("radar supprimé : plus d'onglet, l'adresse ouvre le catalogue", (await page.locator('nav a[href="#/radar"]').count()) === 0 && (await page.locator("#radarform").count()) === 0);
 
 // 4. Concurrents : suivi en continu et récap
 await page.goto(app("/concurrents"));
@@ -629,11 +615,11 @@ await page.waitForTimeout(2500);
 check("réglages à distance lus et santé envoyée", calls.some((c) => c.endsWith("aliedge_remote_config")) && calls.some((c) => c.endsWith("aliedge_report_health")));
 const remoteState = await page.evaluate(async () => (await chrome.storage.local.get("ae_remote")).ae_remote);
 check("réglages à distance enregistrés", remoteState?.radar_seconds === "45");
-await page.goto(app("/radar"));
+await page.goto(app("/catalogue"));
 await page.waitForSelector(".update-banner", { timeout: 6000 }).catch(() => {});
 check("message de l'admin affiché dans l'extension", (await page.locator(".update-banner").first().innerText().catch(() => "")).includes("Maintenance Vinted"));
 const radarAlarm = await page.evaluate(() => chrome.alarms.get("radar"));
-check("rythme du Radar réglé à distance (45 s)", Math.abs((radarAlarm?.periodInMinutes ?? 0) - 0.75) < 0.01, JSON.stringify(radarAlarm?.periodInMinutes));
+check("radar supprimé : aucune alarme Radar", !radarAlarm, JSON.stringify(radarAlarm));
 
 // 5. Page d'une annonce Vinted vendue
 const v = await ctx.newPage();

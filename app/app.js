@@ -91,8 +91,9 @@ function announce(msg) {
 
 function route() {
   const h = location.hash.replace(/^#\/?/, "");
-  const [name, qs] = h.split("?");
-  return { name: ["analyse", "catalogue", "radar", "concurrents", "suivis", "compte", "bienvenue", "image", "balade"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  let [name, qs] = h.split("?");
+  if (name === "radar") name = "catalogue"; // le Radar a été supprimé
+  return { name: ["analyse", "catalogue", "concurrents", "suivis", "compte", "bienvenue", "image", "balade"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -104,173 +105,6 @@ const ICON = {
   tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/></svg>',
   chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M6 16l4-5 3 3 5-7"/></svg>',
 };
-
-// ───────────────────────── Radar
-
-const CONDITIONS = { all: "Tous états", new: "Neuf avec étiquette", very_good: "Neuf ou très bon" };
-let radarEdit = null;
-
-function radarFeedHtml(feed) {
-  if (!feed.length) return `<div class="card empty">${ICON.search}<h2>En attente de nouvelles annonces</h2><p class="muted">Dès qu'une annonce correspondant à un filtre est publiée sur Vinted, elle apparaît ici et tu reçois une notification. Garde Chrome ouvert.</p></div>`;
-  return `<div class="items">${feed.slice(0, 120).map((i) => `
-    <a class="item radar-item" href="${safeUrl(i.url)}" target="_blank" rel="noopener" style="grid-template-columns:56px 1fr auto">
-      ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
-      <div><div class="t">${esc(i.title || "Annonce")}</div><div class="m">${esc(i.filterName || "")} · ${esc(ago(i.at))}${i.brand ? ` · ${esc(i.brand)}` : ""}${i.size ? ` · ${esc(i.size)}` : ""}</div></div>
-      <div class="stack" style="align-items:flex-end;gap:4px"><span class="p num">${eur(Number(i.price))}</span><span class="btn small primary">Voir</span></div>
-    </a>`).join("")}</div>`;
-}
-
-const radarMode = (f) => (f.id ? (f.params ? "link" : "query") : radarModePref);
-let radarModePref = "link";
-
-async function viewRadar() {
-  if (!state.me) return `<section class="card pad stack"><h2>Radar</h2><p class="muted">Connecte-toi pour surveiller les nouvelles annonces Vinted.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
-  const { filters, feed } = await api("radar:state").catch(() => ({ filters: [], feed: [] }));
-  const guard = null; // plus aucune requête à Vinted : le radar ne tourne plus
-  return `<section class="card pad stack"><h2>Radar</h2><div class="notice info">Le radar est arrêté : il interrogeait Vinted avec ton compte, et des comptes ont été bloqués. AliEdge n'envoie plus aucune requête à Vinted. Les nouvelles ventes repérées par la communauté sont dans le Catalogue.</div><a class="btn" href="#/catalogue">Voir le catalogue</a></section>`;
-  const guardLine = !guard ? "" : guard.pausedUntil
-    ? `<p class="small guard paused">Protection du compte : pause jusqu'à ${new Date(guard.pausedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Vinted a ralenti les réponses, AliEdge reprend tout seul.</p>`
-    : `<p class="small guard">Protection du compte active : ${guard.lastHour}/${guard.budget.perHour} vérifications cette heure, rythme humain, pause automatique au moindre signal de Vinted.</p>`;
-  const f = radarEdit ? filters.find((x) => x.id === radarEdit) || {} : {};
-  const marketOpts = Object.entries(MARKETS).map(([k, x]) => `<option value="${k}" ${(f.market || state.settings?.market || "fr") === k ? "selected" : ""}>${x.label}</option>`).join("");
-  const condOpts = Object.entries(CONDITIONS).map(([k, l]) => `<option value="${k}" ${(f.condition || "all") === k ? "selected" : ""}>${l}</option>`).join("");
-  return `
-    <section class="stack">
-      <div class="row between"><h2>Radar des nouvelles annonces</h2><span class="radar-live"><i></i>en direct</span></div>
-      <p class="small muted">${state.me?.skool ? "Jusqu'à 10 filtres (membre du Skool)." : "Jusqu'à 5 filtres (10 pour les membres du Skool)."} AliEdge regarde les nouvelles annonces Vinted à tour de rôle, toutes les 30 secondes environ, et te prévient. L'achat se fait toujours toi-même, sur Vinted.</p>
-      ${guardLine}
-      <form id="radarform" class="card pad stack">
-        <input type="hidden" name="id" value="${esc(f.id || "")}">
-        <input type="hidden" name="mode" value="${radarMode(f)}">
-        <div class="seg" role="tablist" aria-label="Type de filtre">
-          <button type="button" role="tab" data-rmode="link" aria-selected="${radarMode(f) === "link"}">Lien de recherche Vinted</button>
-          <button type="button" role="tab" data-rmode="query" aria-selected="${radarMode(f) === "query"}">Mots-clés</button>
-        </div>
-        <div class="stack" data-rpane="link" ${radarMode(f) === "link" ? "" : "hidden"}>
-          <label class="field"><span>Lien de la recherche</span><input class="input" name="link" type="url" inputmode="url" value="${esc(f.link || "")}" placeholder="https://www.vinted.fr/catalog?search_text=…&brand_ids[]=…"></label>
-          <p class="small muted">Fais ta recherche sur Vinted avec tous tes filtres (marque, catégorie, taille, état, couleur, prix), puis copie l'adresse de la page ici. AliEdge surveille exactement cette recherche.</p>
-          <label class="field"><span>Nom du filtre</span><input class="input" name="lname" value="${esc(f.name || "")}" placeholder="ex. Nike Tech taille M"></label>
-        </div>
-        <div class="stack" data-rpane="query" ${radarMode(f) === "query" ? "" : "hidden"}>
-          <div class="grid2">
-            <label class="field"><span>Mots-clés</span><input class="input" name="query" value="${esc(f.query || "")}" placeholder="ex. sac bandoulière cuir"></label>
-            <label class="field"><span>Nom du filtre</span><input class="input" name="name" value="${esc(f.name || "")}" placeholder="facultatif"></label>
-          </div>
-          <div class="grid2">
-            <label class="field"><span>Prix min.</span><div class="input-euro"><input class="input num" name="priceMin" inputmode="decimal" value="${f.priceMin ?? ""}"></div></label>
-            <label class="field"><span>Prix max.</span><div class="input-euro"><input class="input num" name="priceMax" inputmode="decimal" value="${f.priceMax ?? ""}"></div></label>
-          </div>
-          <div class="grid2">
-            <label class="field"><span>Pays</span><select class="input" name="market">${marketOpts}</select></label>
-            <label class="field"><span>État</span><select class="input" name="condition">${condOpts}</select></label>
-          </div>
-        </div>
-        <label class="switch small"><span>Notification à chaque nouvelle annonce</span><input type="checkbox" name="notify" ${f.notify === false ? "" : "checked"}></label>
-        <div id="radarerr" role="alert"></div>
-        <div class="row" style="gap:8px"><button class="btn primary" type="submit">${f.id ? "Enregistrer" : "Ajouter le filtre"}</button>${f.id ? '<button class="btn ghost" type="button" id="radarcancel">Annuler</button>' : ""}</div>
-      </form>
-      ${filters.length ? `<div class="radar-filters">${filters.map((x) => `
-        <div class="radar-filter ${x.active ? "" : "off"}">
-          <div><b>${esc(x.name)}</b><div class="small muted">${x.params ? `Recherche Vinted${x.params.brand_ids ? " · marque" : ""}${x.params.catalog_ids ? " · catégorie" : ""}${x.params.size_ids ? " · taille" : ""}${x.params.price_from || x.params.price_to ? " · prix" : ""}` : esc(x.query)}${x.priceMin != null ? ` · dès ${eur(x.priceMin)}` : ""}${x.priceMax != null ? ` · jusqu'à ${eur(x.priceMax)}` : ""} · ${esc((x.market || "fr").toUpperCase())}</div></div>
-          <div class="row" style="gap:6px">
-            <button class="btn ghost small" type="button" data-rtoggle="${esc(x.id)}">${x.active ? "Pause" : "Reprendre"}</button>
-            <button class="btn ghost small" type="button" data-redit="${esc(x.id)}">Modifier</button>
-            <button class="btn ghost small" type="button" data-rdel="${esc(x.id)}" aria-label="Supprimer ${esc(x.name)}">×</button>
-          </div>
-        </div>`).join("")}</div>` : ""}
-    </section>
-    <details class="card pad phone-alerts" id="phonealerts" ${filters.length ? "" : "open"}>
-      <summary><b>Recevoir les alertes sur mon téléphone</b><span class="small muted" id="alertstatus">Telegram, Discord</span></summary>
-      <div class="stack" id="alertsbody" style="margin-top:10px"><div class="skel" style="height:56px"></div></div>
-    </details>
-    <section class="stack" style="margin-top:22px">
-      <div class="row between"><h2>Flux</h2>${feed.length ? '<button class="btn ghost small" type="button" id="radarclear">Vider</button>' : ""}</div>
-      <div id="radarfeed">${radarFeedHtml(feed)}</div>
-    </section>`;
-}
-
-async function refreshRadarFeed() {
-  const box = document.getElementById("radarfeed");
-  if (!box) return;
-  const { feed } = await api("radar:state").catch(() => ({ feed: [] }));
-  box.innerHTML = radarFeedHtml(feed);
-  box.querySelector(".radar-item")?.classList.add("flash");
-}
-
-function alertsHtml(a) {
-  const on = (x) => (x ? '<span class="pill-on">Activé</span>' : "");
-  return `
-    <div class="alert-row">
-      <div><b>Telegram</b> ${on(a.telegram)}<p class="small muted">Une notification sur ton téléphone avec la photo, le prix et le lien, même quand tu n'es pas devant l'ordinateur.</p></div>
-      ${a.telegramAvailable ? (a.telegram ? '<button class="btn ghost small" type="button" data-alert="tg-off">Arrêter</button>' : '<button class="btn primary small" type="button" data-alert="tg-on">Recevoir sur Telegram</button>') : '<span class="small muted">Bientôt disponible</span>'}
-    </div>
-    <div class="alert-row">
-      <div><b>Discord</b> ${on(a.discord)}<p class="small muted">Colle le lien d'un webhook de ton serveur (Paramètres du salon → Intégrations → Webhooks).</p></div>
-    </div>
-    <form class="row" id="discordform" style="gap:8px">
-      <input class="input" id="discordurl" type="url" placeholder="${a.discord ? "Webhook enregistré · colle un nouveau lien pour le changer" : "https://discord.com/api/webhooks/…"}" aria-label="Webhook Discord" style="flex:1">
-      <button class="btn small" type="submit">Enregistrer</button>
-      ${a.discord ? '<button class="btn ghost small" type="button" data-alert="dc-off">Retirer</button>' : ""}
-    </form>
-    ${a.skoolAvailable ? `<label class="switch small"><span>Partager mes trouvailles dans le salon Radar du Skool VintedDrop</span><input type="checkbox" id="shareskool" ${a.shareSkool ? "checked" : ""}></label>` : ""}
-    ${a.telegram || a.discord ? '<button class="btn ghost small" type="button" data-alert="test">Envoyer une alerte de test</button>' : ""}
-    <p class="small muted">Les alertes partent pendant que Chrome est ouvert sur un ordinateur, même s'il n'est pas devant toi.</p>`;
-}
-
-async function loadAlerts() {
-  const body = document.getElementById("alertsbody");
-  if (!body) return;
-  let a;
-  try { a = await api("alerts:get"); } catch (e) { body.innerHTML = `<p class="small muted">${esc(e.message)}</p>`; return; }
-  body.innerHTML = alertsHtml(a);
-  const st = document.getElementById("alertstatus");
-  if (st) st.textContent = [a.telegram && "Telegram", a.discord && "Discord", a.shareSkool && "Skool"].filter(Boolean).join(" · ") || "désactivées";
-  const set = async (patch, msg) => { try { await api("alerts:set", { patch }); toast(msg); loadAlerts(); } catch (e) { toast(e.message); } };
-  body.querySelector('[data-alert="tg-on"]')?.addEventListener("click", async () => {
-    try { const { url } = await api("alerts:telegramLink"); window.open(url, "_blank", "noopener"); toast("Dans Telegram, appuie sur « Démarrer » pour connecter ton Radar"); setTimeout(loadAlerts, 15000); }
-    catch (e) { toast(e.message); }
-  });
-  body.querySelector('[data-alert="tg-off"]')?.addEventListener("click", () => set({ telegram: false }, "Alertes Telegram arrêtées"));
-  body.querySelector('[data-alert="dc-off"]')?.addEventListener("click", () => set({ discordWebhook: null }, "Webhook Discord retiré"));
-  body.querySelector("#discordform")?.addEventListener("submit", (e) => { e.preventDefault(); const v = document.getElementById("discordurl").value.trim(); if (v) set({ discordWebhook: v }, "Webhook Discord enregistré"); });
-  body.querySelector("#shareskool")?.addEventListener("change", (e) => set({ shareSkool: e.target.checked }, e.target.checked ? "Tes trouvailles seront partagées dans le salon du Skool" : "Partage arrêté"));
-  body.querySelector('[data-alert="test"]')?.addEventListener("click", async () => {
-    try { const r = await api("alerts:test"); toast(r.discord || r.telegram ? "Alerte de test envoyée" : "Aucun canal n'a répondu : vérifie tes réglages"); } catch (e) { toast(e.message); }
-  });
-}
-
-function bindRadar() {
-  loadAlerts();
-  document.getElementById("radarform")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const num = (v) => (String(v || "").trim() === "" ? null : Number(String(v).replace(",", ".")));
-    const link = fd.get("mode") === "link";
-    if (link && !String(fd.get("link") || "").trim()) { document.getElementById("radarerr").innerHTML = `<div class="notice err">Colle le lien d'une recherche Vinted.</div>`; return; }
-    if (!link && !String(fd.get("query") || "").trim()) { document.getElementById("radarerr").innerHTML = `<div class="notice err">Indique des mots-clés à surveiller.</div>`; return; }
-    const filter = link
-      ? { id: fd.get("id") || undefined, link: String(fd.get("link")).trim(), name: fd.get("lname"), notify: fd.get("notify") === "on", active: true }
-      : { id: fd.get("id") || undefined, query: fd.get("query"), name: fd.get("name"), priceMin: num(fd.get("priceMin")), priceMax: num(fd.get("priceMax")), market: fd.get("market"), condition: fd.get("condition"), notify: fd.get("notify") === "on", active: true };
-    try { await api("radar:save", { filter }); radarEdit = null; toast("Filtre enregistré : surveillance lancée"); render(); }
-    catch (x) { document.getElementById("radarerr").innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
-  });
-  document.querySelectorAll("[data-rmode]").forEach((b) => b.addEventListener("click", () => {
-    const mode = b.dataset.rmode;
-    radarModePref = mode;
-    document.querySelector('#radarform [name="mode"]').value = mode;
-    document.querySelectorAll("[data-rmode]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-    document.querySelectorAll("[data-rpane]").forEach((p) => { p.hidden = p.dataset.rpane !== mode; });
-  }));
-  document.getElementById("radarcancel")?.addEventListener("click", () => { radarEdit = null; render(); });
-  document.getElementById("radarclear")?.addEventListener("click", async () => { await api("radar:clear"); render(); });
-  document.querySelectorAll("[data-redit]").forEach((b) => b.addEventListener("click", () => { radarEdit = b.dataset.redit; render(); }));
-  document.querySelectorAll("[data-rdel]").forEach((b) => b.addEventListener("click", async () => { await api("radar:remove", { id: b.dataset.rdel }); render(); }));
-  document.querySelectorAll("[data-rtoggle]").forEach((b) => b.addEventListener("click", async () => {
-    const { filters } = await api("radar:state");
-    const f = filters.find((x) => x.id === b.dataset.rtoggle);
-    if (f) { await api("radar:save", { filter: { ...f, active: !f.active } }); render(); }
-  }));
-}
 
 // ───────────────────────── Compte
 
@@ -974,7 +808,7 @@ function viewCatalogue() {
         <div class="img">
           ${r.image_url ? `<img src="${safeUrl(r.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : (r.vinted_photos?.[0] ? `<img src="${safeUrl(r.vinted_photos[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : "")}
           ${chip(r.platform)}
-          <span class="sold num">${r.sold_30d} vendu${r.sold_30d > 1 ? "s" : ""} / 30 j</span>
+          <span class="sold num">${r.sold_30d ? `${r.sold_30d} vendu${r.sold_30d > 1 ? "s" : ""} / 30 j` : r.sold_total ? `${r.sold_total} vendu${r.sold_total > 1 ? "s" : ""}` : `${r.active_count} en vente`}</span>
         </div>
         <div class="body">
           <div class="title">${esc(r.title)}</div>
@@ -1641,7 +1475,7 @@ function salesFeedHtml(s) {
           ${r.photo_url ? `<img src="${safeUrl(r.photo_url)}" alt="" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
           <div><div class="t">${esc(r.title || "Annonce")}</div><div class="m">${esc(r.label || "Concurrent")} · vendu ${esc(ago(new Date(r.sold_at).getTime()))}${r.days_to_sell != null ? ` · parti en ${esc(String(r.days_to_sell).replace(".", ","))} j` : ""}${r.product_url ? " · fournisseur connu" : ""}</div></div>
           <div class="p num">${eur(Number(r.price))}</div>
-        </a>`).join("")}</div>` : `<p class="small muted" style="margin:0">AliEdge relève les dressings de tes concurrents plusieurs fois par jour. Chaque vente constatée s'affiche ici et déclenche une notification (et une alerte sur ton téléphone si tu l'as réglée dans le Radar).</p>`}
+        </a>`).join("")}</div>` : `<p class="small muted" style="margin:0">AliEdge relève les dressings de tes concurrents plusieurs fois par jour. Chaque vente constatée s'affiche ici et déclenche une notification.</p>`}
     </div>`;
 }
 
@@ -2271,12 +2105,9 @@ function viewBienvenue(params) {
       <button class="btn block" type="button" data-next="3">Continuer</button>`;
   } else {
     body = `
-      <h2>Ton premier filtre Radar</h2>
-      <p class="muted">Le Radar surveille les nouvelles annonces Vinted et te prévient dès qu'une bonne affaire sort. L'achat se fait toujours toi-même.</p>
-      <div class="stack" style="gap:8px">
-        <input id="ob-rq" class="input" value="${esc(EXAMPLE_QUERY)}" aria-label="Mots-clés à surveiller">
-        <div class="row" style="gap:8px"><input id="ob-rmax" class="input" inputmode="decimal" placeholder="Prix max (€)" aria-label="Prix maximum" style="flex:1"><button id="ob-radar" class="btn primary" type="button">Créer le filtre</button></div>
-      </div>
+      <h2>Trouve des produits qui se vendent</h2>
+      <p class="muted">L'onglet Catalogue liste les produits AliExpress, Temu et Shein déjà repérés sur Vinted par la communauté, les plus vendus en premier. Choisis-en un, ouvre sa fiche fournisseur et clique sur « Analyser sur Vinted ».</p>
+      <button class="btn primary block" type="button" data-cat>Voir le catalogue</button>
       <button class="btn ghost block" type="button" data-done>Passer et commencer</button>`;
   }
   return `<section class="card pad stack onboard" aria-label="Prise en main"><div class="ob-dots">${dots}<span class="small muted">Étape ${step} sur 3</span></div>${body}</section>`;
@@ -2308,20 +2139,7 @@ function bindBienvenue(params) {
       e.currentTarget.disabled = false;
     }
   });
-  document.getElementById("ob-radar")?.addEventListener("click", async (e) => {
-    const query = document.getElementById("ob-rq").value.trim();
-    if (!query) return;
-    e.currentTarget.disabled = true;
-    try {
-      const max = parseFloat(document.getElementById("ob-rmax").value.replace(",", "."));
-      await api("radar:save", { filter: { query, name: query, market: state.settings?.market || "fr", priceMax: Number.isFinite(max) ? max : null } });
-      toast("Filtre créé : le Radar te prévient des nouvelles annonces");
-      finishOnboarding("#/radar");
-    } catch (err) {
-      toast(err.message);
-      e.currentTarget.disabled = false;
-    }
-  });
+  document.querySelector("[data-cat]")?.addEventListener("click", () => finishOnboarding("#/catalogue"));
 }
 
 // ───────────────────────── Leboncoin dans l'analyse : ventes Leboncoin repérées par la communauté pour la même recherche
@@ -2732,7 +2550,6 @@ async function render() {
   else if (name === "catalogue") html = viewCatalogue();
   else if (name === "suivis") html = await viewSuivis();
   else if (name === "concurrents") html = await viewConcurrents();
-  else if (name === "radar") html = await viewRadar();
   else if (name === "bienvenue") html = viewBienvenue(params);
   else if (name === "image") html = viewImage();
   else if (name === "balade") html = await viewBalade();
@@ -2761,7 +2578,6 @@ async function render() {
   else if (name === "catalogue") bindCatalogue();
   else if (name === "suivis") bindSuivis();
   else if (name === "concurrents") bindTrackers();
-  else if (name === "radar") bindRadar();
   else if (name === "bienvenue") bindBienvenue(params);
   else if (name === "image") bindImage();
   else if (name === "balade") bindBalade();
@@ -2793,7 +2609,6 @@ window.addEventListener("hashchange", () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "tab:changed" && !isTab) { if (route().name === "balade") render(); else loadProduct(); }
   if (msg?.type === "pending") takePending();
-  if (msg?.type === "radar:new" && route().name === "radar") refreshRadarFeed();
   if (msg?.type === "sales:new" && route().name === "concurrents" && !document.activeElement?.matches?.("input")) render();
   if (msg?.type === "import:progress" && route().name === "catalogue") importStatus();
   if (msg?.type === "update:ready") render();

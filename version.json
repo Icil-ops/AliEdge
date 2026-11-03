@@ -1,6 +1,6 @@
 {
-  "version": "3.6.10",
-  "notes": "Facebook Marketplace : catégorie, état, marque, couleur et description remplis. Leboncoin : les photos ne sont plus envoyées plusieurs fois. La balade Shein ouvre de nouveau des articles. Protection des comptes Vinted : AliEdge n'envoie plus AUCUNE requête à Vinted avec ton compte (radar et relevés en arrière-plan arrêtés, prix tirés de la base commune). Nouveau : bouton « Désactiver AliEdge complètement » dans les réglages.",
+  "version": "3.6.11",
+  "notes": "Plus simple : le Radar est supprimé (il n'interrogeait plus Vinted). Le catalogue affiche maintenant près de 300 produits fournisseur repérés sur Vinted (vendus en premier, puis en vente) au lieu de 5.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-03",
   "minVersion": "3.0.0"

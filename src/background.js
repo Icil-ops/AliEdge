@@ -41,17 +41,14 @@ async function syncAlarms(settings) {
   chrome.alarms.create("watch", { periodInMinutes: 360, delayInMinutes: 30 });
   chrome.alarms.create("remote", { periodInMinutes: 360, delayInMinutes: 1 });
   chrome.alarms.create("lbc-review", { periodInMinutes: 7 * 24 * 60, delayInMinutes: 24 * 60 });
-  await syncRadarAlarm();
+  chrome.alarms.clear("radar"); // Radar supprimé (3.6.11)
+  chrome.storage.local.remove("ae_radar").catch(() => {});
 }
 
 // ───────────────────────── Réglages à distance, santé et erreurs (Phase 0)
 // L'admin Barapics peut ralentir ou couper une fonction chez tous les membres sans nouvelle version.
 let remote = {};
 chrome.storage.local.get("ae_remote").then((r) => { remote = r.ae_remote || {}; vinted.applyRemoteBudget(remote); }).catch(() => {});
-function radarPeriodMinutes() {
-  const s = Number(remote.radar_seconds);
-  return (Number.isFinite(s) && s > 0 ? Math.min(300, Math.max(20, s)) : 30) / 60;
-}
 async function refreshRemote() {
   if (!(await sb.getSession())) return;
   const cfg = await sb.rpc("aliedge_remote_config").catch(() => null);
@@ -59,7 +56,6 @@ async function refreshRemote() {
   remote = cfg;
   vinted.applyRemoteBudget(remote);
   await chrome.storage.local.set({ ae_remote: remote });
-  await syncRadarAlarm();
 }
 /** Compte admin : retrouve les pseudos de concurrents de référence et les suit (amorçage de la base commune). */
 async function resolveSeeds() {
@@ -82,10 +78,9 @@ async function resolveSeeds() {
 async function reportHealth() {
   if (!(await sb.getSession())) return;
   const g = await vinted.guardStatus();
-  const st = await radarState().catch(() => ({ filters: [] }));
   await sb.rpc("aliedge_report_health", {
     _version: chrome.runtime.getManifest().version, _requests: g.lastDay, _pauses: g.pausesToday || 0,
-    _reason: g.lastPauseReason || null, _filters: st.filters.filter((f) => f.active).length,
+    _reason: g.lastPauseReason || null, _filters: 0,
   }).catch(() => {});
 }
 // Erreurs inattendues regroupées puis envoyées toutes les 30 min (20 envois par jour au plus côté serveur).
@@ -714,69 +709,6 @@ async function refreshProducts() {
   }
 }
 
-// ───────────────────────── Radar : nouvelles annonces Vinted selon des filtres (sans achat automatique)
-
-const RADAR_KEY = "ae_radar";          // { filters: [...], feed: [...], seen: { [filterId]: [ids] } }
-const RADAR_MAX_FILTERS = 10; // plafond absolu (membres du Skool)
-/** Filtres Radar autorisés : 10 pour les membres du Skool VintedDrop, 5 sinon. */
-async function radarLimit() { const m = await me().catch(() => null); return m?.skool ? 10 : 5; }
-async function radarState() {
-  const r = await chrome.storage.local.get(RADAR_KEY);
-  return { filters: [], feed: [], seen: {}, ...(r[RADAR_KEY] || {}) };
-}
-async function saveRadar(st) { await chrome.storage.local.set({ [RADAR_KEY]: st }); }
-async function syncRadarAlarm(st) {
-  const active = (st || (await radarState())).filters.some((f) => f.active);
-  if (active && remote.radar_enabled !== "off") chrome.alarms.create("radar", { periodInMinutes: radarPeriodMinutes(), delayInMinutes: 0.1 });
-  else chrome.alarms.clear("radar");
-}
-
-let radarRunning = false;
-async function radarTick() {
-  if (radarRunning || remote.radar_enabled === "off") return;
-  radarRunning = true;
-  try {
-    const st = await radarState();
-    const all = st.filters.filter((f) => f.active).slice(0, RADAR_MAX_FILTERS);
-    // Un seul filtre par passage, à tour de rôle : 2 requêtes par minute au plus, quel que soit le nombre de filtres.
-    st.cursor = ((st.cursor ?? -1) + 1) % Math.max(1, all.length);
-    const active = all.length ? [all[st.cursor]] : [];
-    let fresh = 0;
-    for (const f of active) {
-      let items;
-      try { items = await vinted.searchNewest({ query: f.query, market: f.market, condition: f.condition, priceMin: f.priceMin, priceMax: f.priceMax, params: f.params || null }); }
-      catch (e) { if (["blocked", "rate_limited", "paused", "budget", "busy"].includes(e.code)) break; continue; }
-      const seen = new Set(st.seen[f.id] || []);
-      const first = seen.size === 0;            // premier passage : on mémorise sans notifier
-      const news = items.filter((i) => !seen.has(i.vinted_id));
-      for (const i of items) seen.add(i.vinted_id);
-      st.seen[f.id] = [...seen].slice(-400);
-      if (first) continue;
-      for (const i of news.slice(0, 10)) {
-        st.feed.unshift({ ...i, filterId: f.id, filterName: f.name, at: Date.now() });
-        fresh++;
-        if (f.notify !== false) {
-          chrome.notifications.create(`radar-${i.vinted_id}`, {
-            type: "basic", iconUrl: "icons/icon128.png",
-            title: `${eur0(i.price)} · ${f.name}`.slice(0, 80),
-            message: (i.title || "Nouvelle annonce").slice(0, 120),
-            priority: 2,
-          });
-        }
-      }
-      await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
-    }
-    st.feed = st.feed.slice(0, 200);
-    await saveRadar(st);
-    if (fresh) sendPhoneAlerts(st.feed.slice(0, fresh)).catch(() => {});
-    if (fresh) {
-      const prev = Number((await chrome.action.getBadgeText({})) || 0);
-      chrome.action.setBadgeBackgroundColor({ color: "#0fa968" });
-      chrome.action.setBadgeText({ text: String(Math.min(99, prev + fresh)) });
-      broadcast({ type: "radar:new" });
-    }
-  } finally { radarRunning = false; }
-}
 /** Alertes sur téléphone (Telegram, Discord, salon du Skool) : seulement si le membre en a configuré. */
 async function sendPhoneAlerts(items) {
   const { ae_alerts: cfg } = await chrome.storage.local.get("ae_alerts");
@@ -947,47 +879,7 @@ chrome.notifications.onClicked.addListener(async (id) => {
     chrome.tabs.create({ url: it?.url || chrome.runtime.getURL("app/app.html?mode=tab#/concurrents") });
     return;
   }
-  if (!id.startsWith("radar-")) return;
-  const vid = id.slice(6);
-  const st = await radarState();
-  const it = st.feed.find((x) => String(x.vinted_id) === vid);
-  if (it?.url) chrome.tabs.create({ url: it.url });
-  chrome.notifications.clear(id);
 });
-
-async function radarSave({ filter }) {
-  const st = await radarState();
-  // Lien de recherche Vinted (marque, catégorie, taille…) : repris tel quel par le Radar.
-  const link = filter.link ? vinted.parseSearchUrl(filter.link) : null;
-  if (filter.link && !link) throw new sb.ApiError("Ce lien n'est pas une recherche Vinted : fais ta recherche sur Vinted avec tes filtres, puis copie l'adresse de la page.", 400, "invalid");
-  const linkQuery = link?.params?.search_text || "";
-  const f = {
-    id: filter.id || `f${Date.now().toString(36)}`,
-    name: String(filter.name || filter.query || linkQuery || "Recherche Vinted").slice(0, 40),
-    query: link ? "" : String(filter.query || "").slice(0, 120),
-    link: link ? String(filter.link).slice(0, 1000) : null,
-    params: link ? link.params : null,
-    market: link ? link.market : MARKETS[filter.market] ? filter.market : "fr",
-    condition: ["all", "new", "very_good"].includes(filter.condition) ? filter.condition : "all",
-    priceMin: filter.priceMin === "" || filter.priceMin == null ? null : Math.max(0, Number(filter.priceMin) || 0),
-    priceMax: filter.priceMax === "" || filter.priceMax == null ? null : Math.max(0, Number(filter.priceMax) || 0),
-    notify: filter.notify !== false,
-    active: filter.active !== false,
-  };
-  if (!f.query && !f.params) throw new sb.ApiError("Indique des mots-clés ou colle un lien de recherche Vinted.", 400, "invalid");
-  const i = st.filters.findIndex((x) => x.id === f.id);
-  if (i >= 0) st.filters[i] = f;
-  else {
-    const max = await radarLimit();
-    if (st.filters.length >= max) throw new sb.ApiError(max < 10 ? `5 filtres au maximum : supprime-en un, ou passe à 10 filtres en rejoignant le Skool VintedDrop.` : `10 filtres au maximum : supprime-en un avant d'en ajouter.`, 400, "limit");
-    st.filters.push(f);
-    st.seen[f.id] = [];
-  }
-  await saveRadar(st);
-  await syncRadarAlarm(st);
-  vinted.inBackground(radarTick).catch(() => {});
-  return st;
-}
 
 // ───────────────────────── Trackers de vendeurs (14 jours)
 
@@ -1049,10 +941,9 @@ chrome.storage.onChanged.addListener((ch) => { if (ch.ae_disabled) aeDisabled = 
 chrome.alarms.onAlarm.addListener((a) => {
   if (aeDisabled) return;
   // Tâches qui interrogeaient Vinted avec le compte du membre : arrêtées définitivement.
-  if (vinted.REQUESTS_OFF && ["radar", "importq", "seeds"].includes(a.name)) return;
+  if (vinted.REQUESTS_OFF && ["importq", "seeds"].includes(a.name)) return;
   if (a.name === "remote") { refreshRemote().then(() => reportHealth()).catch(() => {}); }
   if (a.name === "community") { syncOwnSellers().catch(() => {}); flushErrors().catch(() => {}); if (!vinted.REQUESTS_OFF && remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
-  if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
   if (a.name === "seeds") vinted.inBackground(resolveSeeds).catch(() => {});
   if (a.name === "watch") refreshWatches();
@@ -1978,9 +1869,6 @@ const handlers = {
   "lbc:trackerItems": async ({ seller }) => sb.rpc("aliedge_lbc_tracker_items", { _seller: String(seller) }),
   "tracker:add": async (msg) => addTracker(msg),
   "vinted:sellerHere": async () => sellerOnPage(),
-  "radar:state": async () => { chrome.action.setBadgeText({ text: "" }); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
-  "radar:save": async (msg) => { const st = await radarSave(msg); return { filters: st.filters, feed: st.feed }; },
-  "radar:remove": async ({ id }) => { const st = await radarState(); st.filters = st.filters.filter((f) => f.id !== id); delete st.seen[id]; st.feed = st.feed.filter((x) => x.filterId !== id); await saveRadar(st); await syncRadarAlarm(st); return { filters: st.filters, feed: st.feed }; },
   "guard:status": () => vinted.guardStatus(),
   "update:state": async () => {
     const r = await chrome.storage.local.get(["ae_update_ready", "ae_whatsnew"]);
@@ -1988,8 +1876,6 @@ const handlers = {
   },
   "update:apply": async () => { setTimeout(() => chrome.runtime.reload(), 300); return {}; },
   "update:seen": async () => { await chrome.storage.local.remove("ae_whatsnew"); return {}; },
-  "radar:tick": async () => { await vinted.inBackground(radarTick); const st = await radarState(); return { filters: st.filters, feed: st.feed }; },
-  "radar:clear": async () => { const st = await radarState(); st.feed = []; await saveRadar(st); return { filters: st.filters, feed: [] }; },
   "tracker:list": async () => sb.rpc("aliedge_trackers"),
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
@@ -2032,7 +1918,6 @@ const handlers = {
   "alerts:test": async () => barapics({ action: "alerts:send", test: true, alerts: [] }),
   "picks": async () => sb.rpc("aliedge_picks_feed"),
   "challenge": async () => sb.rpc("aliedge_skool_challenge"),
-  "radar:limit": async () => ({ max: await radarLimit() }),
   "trends": async ({ days = 30 }) => sb.rpc("aliedge_market_trends", { _days: days }),
   "product:history": async ({ productId }) => sb.rpc("aliedge_product_history", { _product_id: productId }),
   "catalog:stats": async ({ ids = [] }) => sb.rpc("aliedge_product_stats", { _ids: (ids || []).map(String).slice(0, 50) }),
