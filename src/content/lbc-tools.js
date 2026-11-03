@@ -432,13 +432,26 @@
         // Étape « Dites-nous en plus » : état (obligatoire) puis marque (ignorée si Leboncoin ne la connaît pas).
         if (!condDone && l.condition && rowTrigger(/^etat\b/)) { condDone = true; if (await pickValue(/^etat\b/, condWords(l.condition))) note("état"); }
         if (!brandDone && l.brand && rowTrigger(/^marque\b/)) { brandDone = true; if (await pickValue(/^marque\b/, [l.brand], { search: true })) note("marque"); }
-        if (!photosDone && !photosBusy && (l.photos || []).length && (document.querySelector('input[type="file"]') || /d[ée]posez jusqu|importer|ajouter des photos/i.test(document.body.innerText || ""))) {
+        // Photos : une seule fois par annonce, même si l'aide est relancée par une nouvelle étape (verrou posé AVANT
+        // le téléchargement, qui prend quelques secondes) ; jamais si des photos sont déjà dans l'annonce ou une fois publiée.
+        if (!photosDone && !photosBusy && !published && (l.photos || []).length && (document.querySelector('input[type="file"]') || /d[ée]posez jusqu|importer|ajouter des photos/i.test(document.body.innerText || ""))) {
+          let lock = 0;
+          try { lock = Number(sessionStorage.getItem(`${key}_photos_lock`) || 0); } catch { /* rien */ }
+          if (Date.now() - lock < 120_000 || document.querySelector('img[src^="blob:"]')) { photosDone = true; mark("photos"); return; }
+          try { sessionStorage.setItem(`${key}_photos_lock`, String(Date.now())); } catch { /* rien */ }
           photosBusy = true;
           const n = await addPhotos(l.photos);
           photosBusy = false;
-          if (n) { photosDone = true; mark("photos"); panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; }
+          photosDone = true; mark("photos");
+          if (n) panel.querySelector("[data-fillmsg]").textContent = `${n} photo${n > 1 ? "s" : ""} ajoutée${n > 1 ? "s" : ""}. Relis tout avant de publier : c'est toi qui publies l'annonce.`;
         }
       };
+      // Dès que tu publies (ou valides une étape de publication), plus rien n'est rempli ni ajouté.
+      let published = false;
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest?.('button, [role="button"], input[type="submit"]');
+        if (btn && /^(publier|d[ée]poser|valider)( l.annonce| mon annonce)?$/i.test((btn.textContent || btn.value || "").replace(/\s+/g, " ").trim()) && !panel.contains(btn)) { published = true; clearInterval(auto); }
+      }, true);
       const auto = setInterval(tick, 1500);
       setTimeout(tick, 900);
     }

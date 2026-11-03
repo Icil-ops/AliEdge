@@ -249,7 +249,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // ───────── Listes déroulantes du site (catégorie, marque, état, taille) : on ouvre la ligne, on repère les choix
   // apparus après le clic (différence avant / après), on tape la recherche s'il y a un champ, on clique le bon choix.
-  const pnorm = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const pnorm = (t) => String(t || "").replace(/[’‘]/g, "'").replace(/\s+/g, " ").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   const psleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const isVis = (el) => !!el && (el.offsetParent !== null || el.getClientRects().length > 0);
   const psing = (w) => w.replace(/(?<=..)s$/, "");
@@ -380,7 +380,7 @@
     [/neuf sans etiquette|new without tags/, ["neuf sans etiquette", "neuf sans etiquettes", "etat neuf", "comme neuf", "neuf"]],
     [/tres bon etat|very good/, ["tres bon etat", "excellent etat", "comme neuf", "d'occasion - comme neuf"]],
     [/bon etat|good/, ["bon etat", "d'occasion - bon etat"]],
-    [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen"]],
+    [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen", "d'occasion - assez bon etat"]],
   ];
   const condWords = (v) => COND_WORDS.find(([re]) => re.test(pnorm(v)))?.[1] || [pnorm(v)];
   /** Adresse (Beebs…) : celle enregistrée dans AliEdge (Compte), puis la première suggestion du site. */
@@ -437,6 +437,56 @@
     }
     return false;
   }
+  // ───────── Facebook Marketplace : liste de catégories à un seul niveau (« Sacs et bagages », « Vêtements et
+  // chaussures pour femmes »…, suivie de « Livraison possible »), description repliée sous « Plus de détails ».
+  const FB_CATS = [
+    [/sac|bagage|valise|sacoche|pochette|cartable|trousse/, "sacs et bagages"],
+    [/bijou|collier|bracelet|bague|boucle|montre|lunette|ceinture|chapeau|casquette|bonnet|echarpe|foulard|gant|accessoire/, "bijoux et accessoires"],
+    [/bebe|enfant|fille|garcon|puericulture|poussette/, "puericulture et enfants"],
+    [/beaute|maquillage|soin|parfum|cosmetique|coiffure/, "sante et beaute"],
+    [/jouet|jeu de societe|peluche|figurine|lego|puzzle/, "jouets et jeux"],
+    [/jeux? video|console|manette/, "jeux video"],
+    [/telephone|smartphone|iphone|coque/, "telephones mobiles"],
+    [/electronique|ordinateur|ecouteur|casque audio|enceinte|tablette|montre connectee|camera/, "electronique et ordinateurs"],
+    [/livre|film|dvd|musique|vinyle|cd\b/, "livres, films et musique"],
+    [/sport|velo|fitness|randonnee|camping|ski|yoga/, "sports et activites exterieures"],
+    [/animal|chien|chat|animaux/, "produits pour animaux"],
+    [/maison|deco|linge de lit|couette|housse|tapis|coussin|rideau|cuisine|vaisselle|lampe|bougie|rangement|plaid/, "pour la maison"],
+    [/homme|men\b/, "vetements et chaussures pour hommes"],
+    [/femme|women|robe|jupe|chaussure|vetement|veste|manteau|pull|jean|pantalon|top|t-shirt/, "vetements et chaussures pour femmes"],
+  ];
+  function fbCategory(l) {
+    const path = (l.categoryPath || []).map(pnorm);
+    const all = `${path.join(" ")} ${pnorm(l.title)}`;
+    // Le genre du fil d'Ariane Vinted décide pour les vêtements et chaussures.
+    if (/^(homme|hommes|men)/.test(path[0] || "") && !/sac|bijou|accessoire|beaute/.test(path.slice(1).join(" "))) return "vetements et chaussures pour hommes";
+    if (/^(enfant|enfants|bebe)/.test(path[0] || "")) return "puericulture et enfants";
+    for (const [re, cat] of FB_CATS) if (re.test(all)) return cat;
+    return "divers";
+  }
+  async function fbPickCategory(l) {
+    const trig = rowTrigger(/^categorie\b/);
+    if (!trig) return false;
+    if (pnorm(trig.textContent).replace(/^categorie\s*/, "")) return true; // déjà choisie
+    const target = fbCategory(l);
+    press(trig);
+    await psleep(1100);
+    const opt = [...document.querySelectorAll('[role="dialog"] [role="button"], [role="dialog"] [role="option"], [role="listbox"] [role="option"]')]
+      .filter((x) => isVis(x) && pnorm(x.textContent).startsWith(target)).sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    if (!opt) { await closeOpen(trig); return false; }
+    press(opt);
+    await psleep(1200); // Facebook ajoute alors Marque, Couleur, Matériau…
+    return true;
+  }
+  function fbOpenDetails() {
+    if ([...document.querySelectorAll("textarea")].some(visibleField)) return;
+    const h = [...document.querySelectorAll("span, div")].find((x) => x.children.length === 0 && /^plus de d[ée]tails$/i.test(clean(x.textContent)) && isVis(x));
+    if (h) press(h.closest('[role="button"]') || h);
+  }
+  function textFieldByLabel(re) {
+    return [...document.querySelectorAll("label input[type=text], label textarea")].find((el) => visibleField(el) && re.test(pnorm(el.closest("label")?.textContent || "")));
+  }
+
   const isSellForm = () => S.sellPage() || (!!document.querySelector('input[type="file"]') && !!field("body"));
   let submittedAt = 0;
   async function mountSell(l) {
@@ -484,12 +534,23 @@
       const b = e.currentTarget, msg = panel.querySelector("[data-msg]");
       b.textContent = "Remplissage…";
       let n = 0;
+      // Facebook : catégorie d'abord (elle fait apparaître Marque et Couleur), et description dépliée.
+      const fbRows = [];
+      if (CH === "facebook") {
+        if (await fbPickCategory(l)) fbRows.push("catégorie");
+        fbOpenDetails();
+        await psleep(700);
+        for (const [re, v] of [[/^marque\b/, l.brand], [/^couleur\b/, l.color]]) {
+          const el = v && textFieldByLabel(re);
+          if (el && isEmpty(el)) { setValue(el, String(v).slice(0, 60)); n++; }
+        }
+      }
       for (const k of ["title", "body", "price"]) { const el = vals[k] && (field(k) || fieldNear(k)); if (el && isEmpty(el)) { setValue(el, vals[k]); n++; } }
       const brandInput = vals.brand && field("brand");
       if (brandInput && isEmpty(brandInput)) { setValue(brandInput, vals.brand); n++; }
       // Listes du site : la catégorie d'abord (elle fait apparaître taille, marque, état), puis le reste.
-      const rows = [];
-      if (l.categoryPath?.length && await pickCategory(l.categoryPath)) { rows.push("catégorie"); await psleep(1200); }
+      const rows = [...fbRows];
+      if (CH !== "facebook" && l.categoryPath?.length && await pickCategory(l.categoryPath)) { rows.push("catégorie"); await psleep(1200); }
       if (l.size && (await pickValue(/^taille\b/, [l.size]) || choose("size", [norm(l.size)]))) rows.push("taille");
       if (l.brand && !brandInput && await pickValue(/^marque\b/, [l.brand], { search: true })) rows.push("marque");
       if (l.condition && (await pickValue(/^(etat|condition)\b/, condWords(l.condition), { loose: CH === "facebook" }) || choose("condition", condWords(l.condition)))) rows.push("état");

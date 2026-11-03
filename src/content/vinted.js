@@ -159,6 +159,7 @@
       brand: raw?.brand_title || raw?.brand || domDetail(/^(marque|brand)$/i),
       size: raw?.size_title || raw?.size || domDetail(/^(taille|size)$/i),
       condition: raw?.status || raw?.condition || domDetail(/^(état|etat|condition)$/i),
+      color: domDetail(/^(couleur|couleurs|color|colour)$/i),
     };
     let posted = {};
     try { const r = await chrome.runtime.sendMessage({ type: "vinted:postedIds" }); posted = r?.data || {}; } catch { /* rien */ }
