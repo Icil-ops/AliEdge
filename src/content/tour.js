@@ -202,8 +202,30 @@
     '[class*="product-card"]', '[class*="productCard"]', 'section[role="listitem"]',
   ].join(',');
 
+  // La plus grande boîte autour du lien qui ne contient qu'UN produit et une photo (la carte entière, pas un morceau).
+  function cardOf(a) {
+    const id = (a.href.match(/-p-(\d+)/) || [])[1];
+    let box = null;
+    for (let el = a, i = 0; el && el !== document.body && i < 8; el = el.parentElement, i++) {
+      const ids = new Set([...el.querySelectorAll('a[href*="-p-"]')].map((x) => (x.href.match(/-p-(\d+)/) || [])[1]).filter(Boolean));
+      if (ids.size > 1 || (ids.size === 1 && !ids.has(id))) break;
+      if (el.querySelector('img')) box = el;
+    }
+    return box;
+  }
+
+  // Cartes produit à partir des liens vers une fiche (« -p-123.html ») : la carte retenue CONTIENT toujours le lien.
+  // (Les sélecteurs de classe seuls attrapaient aussi des morceaux de carte sans lien : rien ne s'ouvrait jamais.)
   function visibleCards() {
-    let cards = [...document.querySelectorAll(CARD_SEL)];
+    const seen = new Set();
+    let cards = [];
+    for (const a of document.querySelectorAll('a[href*="-p-"]')) {
+      if (!/-p-\d+/.test(a.href)) continue;
+      const box = cardOf(a);
+      if (!box || seen.has(box)) continue;
+      seen.add(box);
+      cards.push(box);
+    }
     if (!cards.length) cards = [...document.querySelectorAll('a[href*="-p-"] img')].map((i) => i.closest('a'));
     const vh = window.innerHeight;
     return cards.filter((c) => {
@@ -474,8 +496,8 @@
   async function openCard() {
     const card = chooseCard();
     if (!card) return false;
-    const a = card.matches('a[href]') ? card : card.querySelector('a[href*="-p-"]');
-    if (!a || !/-p-\d+/.test(a.href)) return false;
+    const a = card.matches('a[href*="-p-"]') ? card : card.querySelector('a[href*="-p-"]');
+    if (!a || !/-p-\d+/.test(a.href)) { S.seen.add(card); return false; }
     await lookAt(card, true); // on regarde d'abord, le curseur reste sur la photo
     if (!alive()) return true;
     await wait(500, 1300);
