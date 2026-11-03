@@ -1,7 +1,8 @@
 // Pages de résultats AliExpress, Temu et Shein.
 // 1) Les prix affichés alimentent l'historique des prix de la communauté (aucune requête en plus).
 // 2) Après « Trouver moins cher » dans AliEdge : les annonces du même article sont repérées et classées.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeSearch) return;
   window.__aliedgeSearch = true;
 

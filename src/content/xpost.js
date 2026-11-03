@@ -4,7 +4,8 @@
 // - Boutique : « + Concurrent » ; boutique d'un concurrent suivi relevée (annonces disparues = ventes probables).
 // - Vente : l'annonce préparée dans AliEdge (annonce Vinted du membre) est remplie automatiquement, photos
 //   comprises ; le membre vérifie et clique lui-même sur le bouton de mise en vente. En série, la suivante s'ouvre.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeXpost) return;
   window.__aliedgeXpost = true;
   const SITES = {

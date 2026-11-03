@@ -1039,9 +1039,19 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
   return { id: trackerId };
 }
 
+vinted.setBaseSearch((q, market, limit) => sb.rpc("aliedge_base_search", { _q: q, _market: market, _limit: Math.min(200, Number(limit) || 96) }));
+
+/** Interrupteur « Désactiver AliEdge complètement » (Réglages) : plus rien ne tourne, sur aucun site. */
+let aeDisabled = false;
+chrome.storage.local.get("ae_disabled").then((r) => { aeDisabled = !!r.ae_disabled; }).catch(() => {});
+chrome.storage.onChanged.addListener((ch) => { if (ch.ae_disabled) aeDisabled = !!ch.ae_disabled.newValue; });
+
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "remote") { refreshRemote().then(() => reportHealth()).then(() => vinted.inBackground(resolveSeeds)).catch(() => {}); }
-  if (a.name === "community") { syncOwnSellers().then(() => vinted.inBackground(syncOwnItems)).catch(() => {}); flushErrors().catch(() => {}); if (remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
+  if (aeDisabled) return;
+  // Tâches qui interrogeaient Vinted avec le compte du membre : arrêtées définitivement.
+  if (vinted.REQUESTS_OFF && ["radar", "importq", "seeds"].includes(a.name)) return;
+  if (a.name === "remote") { refreshRemote().then(() => reportHealth()).catch(() => {}); }
+  if (a.name === "community") { syncOwnSellers().catch(() => {}); flushErrors().catch(() => {}); if (!vinted.REQUESTS_OFF && remote.community_enabled !== "off") vinted.inBackground(communityCheck).catch(() => {}); checkForUpdate().catch(() => {}); }
   if (a.name === "radar") vinted.inBackground(radarTick).catch(() => {});
   if (a.name === "importq") vinted.inBackground(importQueueTick).catch(() => {});
   if (a.name === "seeds") vinted.inBackground(resolveSeeds).catch(() => {});
@@ -1815,6 +1825,14 @@ const handlers = {
   "auth:google": async () => { await sb.signInWithGoogle(); syncOwnSellers().catch(() => {}); return { me: await me(true) }; },
   "auth:signOut": async () => { await sb.signOut(); meCache = { at: 0, value: null }; return {}; },
   "settings:set": async ({ patch }) => ({ settings: await setSettings(patch) }),
+  "ae:state": async () => ({ disabled: aeDisabled, vintedRequests: !vinted.REQUESTS_OFF }),
+  "ae:setDisabled": async ({ disabled }) => {
+    aeDisabled = !!disabled;
+    await chrome.storage.local.set({ ae_disabled: aeDisabled });
+    if (aeDisabled) { await chrome.alarms.clearAll(); chrome.action.setBadgeText({ text: "OFF" }).catch(() => {}); }
+    else { chrome.action.setBadgeText({ text: "" }).catch(() => {}); chrome.runtime.reload(); }
+    return { disabled: aeDisabled };
+  },
   "product:current": async () => currentProduct(),
   "analyze": async (msg) => runAnalysis(msg),
   "recompute": async (msg) => recompute(msg),
@@ -2133,6 +2151,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const h = handlers[msg?.type];
   if (!h) return false;
+  // Extension désactivée : seuls les réglages et l'état répondent (pour pouvoir la réactiver).
+  if (aeDisabled && !["ae:state", "ae:setDisabled", "settings:get", "auth:state", "update:state"].includes(msg.type)) { sendResponse({ ok: false, error: "AliEdge est désactivé (Réglages).", code: "disabled" }); return false; }
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
   if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;

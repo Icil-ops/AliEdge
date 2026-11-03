@@ -1,5 +1,6 @@
 // Bouton AliEdge sur les fiches produit AliExpress, Temu et Shein.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgePill) return;
   window.__aliedgePill = true;
 

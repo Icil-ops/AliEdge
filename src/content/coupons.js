@@ -1,7 +1,8 @@
 // Page de paiement AliExpress, Temu ou Shein : les codes promo partagés par la communauté AliEdge.
 // Rien n'est fait tout seul : le membre choisit un code, AliEdge le remplit et clique sur « Appliquer »,
 // puis le membre dit si le code a marché (ça classe les codes pour tout le monde).
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeCoupons) return;
   window.__aliedgeCoupons = true;
   const platform = /aliexpress/.test(location.hostname) ? "aliexpress" : /temu/.test(location.hostname) ? "temu" : /shein/.test(location.hostname) ? "shein" : null;

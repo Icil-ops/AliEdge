@@ -1,6 +1,7 @@
 // Vinted : AliEdge reconnaît le compte Vinted connecté pour ne JAMAIS publier ses annonces
 // dans la base commune (ni les suivre comme concurrent). Une seule lecture par jour, sur la page déjà ouverte.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeWhoami) return;
   window.__aliedgeWhoami = true;
   const KEY = "ae_whoami_at";
@@ -10,6 +11,7 @@
       const r = await chrome.storage.local.get(KEY);
       const last = (r[KEY] || {})[location.hostname] || 0;
       if (Date.now() - last < 12 * 3600_000) return;
+      return; // plus aucune requête à Vinted : ton compte est reconnu quand tu ouvres ton profil (« Modifier mon profil »)
       const res = await fetch(`${location.origin}/api/v2/users/current`, { credentials: "include", headers: { Accept: "application/json" } });
       const all = { ...(r[KEY] || {}), [location.hostname]: Date.now() };
       await chrome.storage.local.set({ [KEY]: all });

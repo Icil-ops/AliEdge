@@ -1,7 +1,8 @@
 // Page d'une annonce Vinted : « Trouver le fournisseur » + statut de l'annonce pour le catalogue.
 // Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » et « Publier sur Beebs / Opla » (texte, prix et
 // photos repris dans l'assistant de dépôt de chaque site ; le membre vérifie et publie lui-même).
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeVinted) return;
   window.__aliedgeVinted = true;
 
@@ -187,6 +188,8 @@
   // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.
   // Une seule lecture des détails publics, comme la page elle-même (même origine, mêmes cookies).
   async function details(id) {
+    return null; // plus aucune requête à Vinted : seules les informations affichées par la page sont lues
+    // eslint-disable-next-line no-unreachable
     try {
       const res = await fetch(`${location.origin}/api/v2/items/${id}/details`, { credentials: "include", headers: { Accept: "application/json" } });
       if (!res.ok) return null;

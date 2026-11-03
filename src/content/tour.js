@@ -10,7 +10,8 @@
 // c'est la personne qui la fait, puis clique « Reprendre ». La balade ne touche jamais à la vérification.
 // Garde-fous : 45 min maximum par balade, 20 articles ouverts maximum par heure.
 // Si tu fais défiler toi-même, la balade te laisse la main quelques secondes puis reprend.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aeSheinTour) return;
 
   // ---------- outils ----------

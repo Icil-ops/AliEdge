@@ -1,6 +1,7 @@
 // Sur Vinted : un bouton « + Concurrent » à côté de chaque profil (annonces, résultats, page vendeur)
 // pour l'ajouter en un clic aux concurrents suivis par AliEdge.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeCompetitors) return;
   window.__aliedgeCompetitors = true;
 
@@ -101,10 +102,10 @@
       btn.dataset.busy = "1"; btn.textContent = "Ajout…";
       try {
         if (!sellerId) {
-          const res = await fetch(`${location.origin}/api/v2/items/${itemId}/details`, { credentials: "include", headers: { Accept: "application/json" } });
-          const it = res.ok ? (await res.json())?.item : null;
-          sellerId = Number(it?.user?.id ?? it?.user_id) || 0;
-          sellerName = String(it?.user?.login || "").slice(0, 80);
+          // Vendeur lu sur la page affichée (lien vers son profil), sans requête à Vinted.
+          const a = [...document.querySelectorAll('a[href*="/member/"]')].find((x) => /\/member\/\d+/.test(x.getAttribute("href") || "") && !x.closest("header, nav"));
+          sellerId = Number((a?.getAttribute("href") || "").match(/\/member\/(\d+)/)?.[1]) || 0;
+          sellerName = String((a?.textContent || "").trim()).slice(0, 80);
         }
         if (!sellerId) throw new Error("Vendeur introuvable sur cette annonce");
         const r = await send({ type: "tracker:add", sellerId, market, label: sellerName || null });

@@ -2,7 +2,8 @@
 // sont ajoutées à la base commune. AUCUNE requête vers Leboncoin : on lit seulement ce que la page affiche.
 // Données gardées : identifiant, titre, prix, catégorie, département, photo, lien, livraison, identifiant public
 // du vendeur (pour le suivi des concurrents). Jamais le nom de la ville, le téléphone ni les messages.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeLbc) return;
   window.__aliedgeLbc = true;
   const seen = new Set();

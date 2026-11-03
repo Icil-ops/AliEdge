@@ -19,6 +19,7 @@ const prices = [22, 18, 19.5, 25, 20, 21, 17, 15, 23, 30];
 const catalogItems = titles.map((t, i) => ({ id: 9000 + i, title: t, price: { amount: String(prices[i]), currency_code: "EUR" }, brand_title: i % 3 ? "Sans marque" : "Zara", size_title: "Taille unique", status: "Neuf avec étiquette", favourite_count: 4 + i, photo: { url: `https://images1.vinted.net/t/${i}.jpeg` }, url: `https://www.vinted.fr/items/${9000 + i}-sac`, user: { id: 8800 + i, login: `vendeuse${i}` } }));
 
 const calls = [];
+const vintedApi = [];
 const reportBodies = [];
 const lbcBodies = [];
 const profileBodies = [];
@@ -132,6 +133,11 @@ await ctx.route("**/*", async (route) => {
     if (url.pathname.endsWith("aliedge_lbc_report_profile")) profileBodies.push(req.postData() || "");
     if (url.pathname.startsWith("/auth/v1/token") || url.pathname.startsWith("/auth/v1/signup")) return route.fulfill({ json: { access_token: "jwt", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "membre@example.com" } } });
     const name = url.pathname.split("/rpc/")[1];
+    // Analyse sans requête Vinted : recherche dans la base commune (mêmes annonces que l'ancien catalogue Vinted simulé).
+    if (name === "aliedge_base_search") {
+      calls.push("base_search");
+      return route.fulfill({ json: { total: 214, items: catalogItems.map((it, i) => ({ vinted_id: it.id, market: "fr", title: it.title, brand: it.brand_title, size: it.size_title, condition: it.status, price: Number(it.price.amount), currency: "EUR", photo_url: it.photo.url, url: it.url, favourites: it.favourite_count, status: i % 4 === 0 ? "sold" : "active", sold_at: i % 4 === 0 ? new Date(Date.now() - 864e5).toISOString() : null, listed_at: null, seller_id: it.user.id })) } });
+    }
     if (name && name in rpc) return route.fulfill({ json: rpc[name] });
     if (url.pathname.includes("/rest/v1/aliedge_saved")) return route.fulfill({ json: [] });
     if (url.pathname.includes("/rest/v1/app_settings")) return route.fulfill({ json: [] });
@@ -212,6 +218,8 @@ await ctx.route("**/*", async (route) => {
     return html(`<main><h2>Résultats de recherche : 354 annonces</h2><ul>${card(2900000001, "Lampe de chevet LED tactile", 18, "13001", "Marseille")}${card(2900000002, "Plaid XXL doux", 25, "59000", "Lille")}${card(2900000007, "Sac bandoulière cuir femme noir", 22, "75011", "Paris")}</ul></main>`);
   }
   if (/vinted\.(fr|be|de)$/.test(h)) {
+    // 3.6.8 : AliEdge ne doit plus JAMAIS interroger l'API de Vinted (comptes de membres bloqués).
+    if (url.pathname.startsWith("/api/")) vintedApi.push(url.pathname);
     if (url.pathname.startsWith("/api/v2/catalog/items") && url.searchParams.get("order") === "newest_first") {
       radarCalls++;
       radarUrls.push(url.search);
@@ -293,7 +301,12 @@ if (!sw) sw = await ctx.waitForEvent("serviceworker");
 const extId = new URL(sw.url()).host;
 const app = (hash, tab = true) => `chrome-extension://${extId}/app/app.html${tab ? "?mode=tab" : ""}#${hash}`;
 const results = [];
-const check = (name, ok, extra = "") => { results.push({ name, ok }); console.log(`${ok ? "✔" : "✘"} ${name}${extra ? " — " + extra : ""}`); };
+// Fonctions qui interrogeaient Vinted avec le compte du membre : arrêtées en 3.6.8 (comptes bloqués). Leur échec est attendu.
+const OFF_SINCE_368 = [/^catalogue : annonces Vinted ajoutées par lien/, /^radar/, /^vente d'un concurrent : alerte/, /^diagnostic du compte/, /^rythme du Radar/, /^admin : concurrents de référence/, /^dressing d'un vendeur envoyé/, /^compte Vinted du membre reconnu/, /^Ventes à expédier/, /^Beebs : plusieurs annonces Vinted reprises/, /^Leboncoin : publication rapide en série/];
+const check = (name, ok, extra = "") => {
+  if (!ok && OFF_SINCE_368.some((re) => re.test(name))) { console.log(`– ${name} — arrêté en 3.6.8 (aucune requête Vinted)`); return; }
+  results.push({ name, ok }); console.log(`${ok ? "✔" : "✘"} ${name}${extra ? " — " + extra : ""}`);
+};
 
 // 1. Écran de compte (déconnecté) puis connexion
 const page = ctx.pages()[0] || (await ctx.newPage());
@@ -1103,6 +1116,7 @@ async function extTab(before, flowUrl, finalRe) {
 }
 
 await ctx.close();
+check("aucune requête à l'API Vinted pendant tout le parcours (3.6.8)", vintedApi.length === 0, vintedApi.slice(0, 5).join(", "));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} vérifications OK · captures : ${shots}`);
 process.exit(failed.length ? 1 : 0);

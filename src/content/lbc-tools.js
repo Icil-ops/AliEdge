@@ -5,7 +5,8 @@
 //   prête à copier, ou à remplir d'un clic, photos comprises. Le membre relit et publie lui-même.
 // - Messagerie : réponses toutes prêtes à insérer (jamais envoyées par AliEdge) et aide à la négociation.
 // - Résultats de recherche : badge sur les produits déjà repérés dans le catalogue AliEdge (fournisseur, prix Vinted).
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeLbcTools) return;
   window.__aliedgeLbcTools = true;
   const WAREHOUSE = "https://ivanbara.com/warehouse/";

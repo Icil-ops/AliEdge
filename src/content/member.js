@@ -1,6 +1,7 @@
 // Profil d'un vendeur Vinted : son dressing met à jour les annonces que suit le catalogue AliEdge.
 // Lecture identique à celle de la page (même origine, mêmes cookies), une fois par profil.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeMember) return;
   window.__aliedgeMember = true;
 
@@ -11,6 +12,7 @@
     const sellerId = Number(location.pathname.match(/\/member\/(\d+)/)?.[1]);
     if (!sellerId || done.has(sellerId)) return;
     done.add(sellerId);
+    return; // plus aucune requête à Vinted : les annonces affichées par le profil sont lues par harvest.js
     try {
       const res = await fetch(`${location.origin}/api/v2/users/${sellerId}/items?page=1&per_page=96&order=newest_first`, {
         credentials: "include",

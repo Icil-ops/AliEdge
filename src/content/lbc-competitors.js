@@ -1,5 +1,6 @@
 // Sur Leboncoin (si activé) : bouton « + Concurrent » à côté du vendeur, sur une annonce et sur sa page.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeLbcComp) return;
   window.__aliedgeLbcComp = true;
   const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;

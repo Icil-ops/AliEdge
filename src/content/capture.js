@@ -1,6 +1,7 @@
 // Capture d'une zone de l'écran (clic droit « Capturer une zone » ou Alt+Maj+S) :
 // la page est figée, le membre trace un rectangle, AliEdge cherche le produit dans cette zone.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeCapture) return;
   window.__aliedgeCapture = true;
   const host = document.createElement("div");

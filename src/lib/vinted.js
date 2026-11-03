@@ -83,6 +83,7 @@ function host(market) {
 }
 
 async function directFetch(url, kind) {
+  if (REQUESTS_OFF) throw new VintedError("AliEdge n'envoie plus de requêtes à Vinted, pour protéger ton compte.", "disabled");
   if (Date.now() < directBlockedUntil) return null;
   try {
     const res = await fetch(url, {
@@ -119,6 +120,7 @@ function waitComplete(tabId, timeout = 20_000) {
 }
 
 async function getBridgeTab(market) {
+  if (REQUESTS_OFF) throw new VintedError("AliEdge n'envoie plus de requêtes à Vinted, pour protéger ton compte.", "disabled");
   const h = host(market);
   if (bridgeTab) {
     try {
@@ -200,7 +202,14 @@ async function bridgeFetch(url, kind, market) {
   return out;
 }
 
+/**
+ * DÉSACTIVÉ (03/11/2026) : des membres ont eu leur compte Vinted bloqué. AliEdge n'envoie plus AUCUNE requête à Vinted
+ * avec le compte du membre (ni API, ni page, ni onglet ouvert en arrière-plan). Seules les pages que le membre ouvre
+ * lui-même sont lues, sans requête en plus. Ne jamais réactiver.
+ */
+export const REQUESTS_OFF = true;
 async function vFetch(url, kind, market) {
+  if (REQUESTS_OFF) throw new VintedError("AliEdge n'envoie plus de requêtes à Vinted, pour protéger ton compte.", "disabled");
   await beforeRequest();
   const direct = await directFetch(url, kind);
   if (direct) return direct;
@@ -286,9 +295,20 @@ const CONDITION_IDS = { all: [], new: [6], very_good: [6, 1] };
 
 let catalogApiGoneAt = 0;
 /** Recherche d'annonces actives par mots-clés. */
+/** Recherche dans la base commune AliEdge (annonces vues par les membres) : fournie par le service d'arrière-plan. */
+let baseSearch = null;
+export function setBaseSearch(fn) { baseSearch = fn; }
+
 export async function searchText(query, { market = "fr", condition = "all", perPage = 96 } = {}) {
   const q = String(query || "").trim();
   if (!q) throw new VintedError("Indique des mots-clés à chercher.", "empty_query");
+  if (REQUESTS_OFF) {
+    // Aucune requête Vinted : les annonces et ventes déjà repérées par la communauté.
+    if (!baseSearch) return { items: [], total: 0 };
+    const r = await baseSearch(q, market, perPage);
+    const items = (r?.items || []).filter((i) => i.vinted_id && i.price != null).map((i) => ({ ...i, price: Number(i.price), relevance: relevance(q, i.title) }));
+    return { items, total: Number(r?.total) || items.length, fromBase: true };
+  }
   const url = new URL(`https://${host(market)}/api/v2/catalog/items`);
   url.searchParams.set("search_text", q);
   url.searchParams.set("per_page", String(perPage));
@@ -324,6 +344,7 @@ export let lastSearchIssue = null;
  * « title » le titre, la marque, l'état, la taille et le prix (« Sac cuir, marque: Zara, état: Très bon état, 15,00 € »).
  */
 async function searchFromPage(q, market) {
+  if (REQUESTS_OFF) throw new VintedError("AliEdge n'envoie plus de requêtes à Vinted, pour protéger ton compte.", "disabled");
   const tabId = await getBridgeTab(market);
   const pageUrl = `https://${host(market)}/catalog?search_text=${encodeURIComponent(q)}&order=relevance`;
   const [res] = await chrome.scripting.executeScript({

@@ -1,7 +1,8 @@
 // Sur Vinted : les annonces déjà affichées par la page (résultats, fil d'accueil, dressings, favoris) sont ajoutées
 // à la base commune. AUCUNE requête en plus vers Vinted : on lit seulement ce que le navigateur affiche déjà.
 // Les annonces de la page « Favoris » du membre sont marquées comme intéressantes : leurs ventes sont surveillées.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeHarvest) return;
   window.__aliedgeHarvest = true;
   const market = location.hostname.endsWith(".co.uk") ? "uk" : location.hostname.split(".").pop();

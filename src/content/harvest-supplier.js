@@ -2,7 +2,8 @@
 // les produits déjà affichés par la page (résultats, accueil, catégories, au fil du défilement) sont ajoutés au catalogue commun d'AliEdge.
 // AUCUNE requête en plus vers le site : on lit seulement ce que la page affiche. Les ventes Vinted de ces produits
 // sont ensuite repérées par le serveur et par les analyses des membres.
-(() => {
+(async () => {
+  try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeSupplierHarvest) return;
   window.__aliedgeSupplierHarvest = true;
   const PATS = [

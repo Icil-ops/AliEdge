@@ -126,7 +126,8 @@ let radarModePref = "link";
 async function viewRadar() {
   if (!state.me) return `<section class="card pad stack"><h2>Radar</h2><p class="muted">Connecte-toi pour surveiller les nouvelles annonces Vinted.</p><a class="btn primary" href="#/compte">Se connecter</a></section>`;
   const { filters, feed } = await api("radar:state").catch(() => ({ filters: [], feed: [] }));
-  const guard = await api("guard:status").catch(() => null);
+  const guard = null; // plus aucune requête à Vinted : le radar ne tourne plus
+  return `<section class="card pad stack"><h2>Radar</h2><div class="notice info">Le radar est arrêté : il interrogeait Vinted avec ton compte, et des comptes ont été bloqués. AliEdge n'envoie plus aucune requête à Vinted. Les nouvelles ventes repérées par la communauté sont dans le Catalogue.</div><a class="btn" href="#/catalogue">Voir le catalogue</a></section>`;
   const guardLine = !guard ? "" : guard.pausedUntil
     ? `<p class="small guard paused">Protection du compte : pause jusqu'à ${new Date(guard.pausedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Vinted a ralenti les réponses, AliEdge reprend tout seul.</p>`
     : `<p class="small guard">Protection du compte active : ${guard.lastHour}/${guard.budget.perHour} vérifications cette heure, rythme humain, pause automatique au moindre signal de Vinted.</p>`;
@@ -274,6 +275,7 @@ function bindRadar() {
 // ───────────────────────── Compte
 
 async function loadAuth() {
+  state.aeDisabled = await api("ae:state").then((r) => !!r.disabled).catch(() => false);
   try {
     const r = await api("auth:state");
     state.me = r.me;
@@ -1558,7 +1560,7 @@ function viewTrackers(trackers) {
   return `
     <section class="stack">
       <div class="row between"><h2>Concurrents</h2><span class="small muted">${rows ? (trackers || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).length : 0} / 30</span></div>
-      <p class="small muted">Colle le lien du profil Vinted d'un concurrent, ou clique sur « + Concurrent » à côté de son pseudo sur Vinted. Pendant 14 jours, AliEdge relève son dressing plusieurs fois par jour, repère chaque nouvelle vente et mesure en combien de temps elle est partie. Ensuite le suivi s'arrête tout seul.</p>
+      <p class="small muted">Colle le lien du profil Vinted d'un concurrent, ou clique sur « + Concurrent » à côté de son pseudo sur Vinted. Pendant 14 jours, chaque fois que toi ou un autre membre ouvrez son profil, AliEdge relève les annonces affichées et repère ses ventes (aucune requête à Vinted en arrière-plan). Ensuite le suivi s'arrête tout seul.</p>
       <form id="trackform" class="row" style="gap:8px">
         <input class="input" id="trackurl" type="url" inputmode="url" placeholder="https://www.vinted.fr/member/123456-pseudo" aria-label="Lien du profil Vinted" style="flex:1">
         <button class="btn primary" type="submit">Suivre</button>
@@ -2056,6 +2058,12 @@ function viewCompte(params) {
       <p class="small muted">Recommande Barapics et AliEdge : tu touches une commission sur chaque abonnement de tes filleuls.</p>
       <a class="btn block" href="https://barapics.com/parrainage" target="_blank" rel="noopener">Mon lien d'affiliation</a>
     </section>
+    <section class="card pad stack" style="margin-top:12px">
+      <h2 style="margin-bottom:0">Protection de ton compte Vinted</h2>
+      <p class="small muted">AliEdge n'envoie aucune requête à Vinted avec ton compte : il lit seulement les pages que tu ouvres toi-même. Les prix et les ventes viennent de la base commune.</p>
+      <button class="btn block" type="button" id="aeoff">Désactiver AliEdge complètement</button>
+      <p class="small muted" style="margin:0">Coupe tout, sur tous les sites (Vinted, AliExpress, Temu, Shein, Leboncoin). Tu pourras le réactiver ici. Recharge tes onglets ouverts après.</p>
+    </section>
     <section class="card pad" style="margin-top:12px">
       <h2 style="margin-bottom:6px">Réglages</h2>
       <div class="grid2" style="margin:8px 0">
@@ -2204,6 +2212,11 @@ function bindCompte(params) {
     if (!email) { err.innerHTML = `<p class="notice warn">Saisis ton email ci-dessus, puis clique à nouveau.</p>`; return; }
     try { await api("auth:recover", { email }); err.innerHTML = `<p class="notice ok">Email envoyé : suis le lien pour choisir un nouveau mot de passe.</p>`; }
     catch (e) { err.innerHTML = `<p class="notice err">${esc(e.message)}</p>`; }
+  });
+  document.getElementById("aeoff")?.addEventListener("click", async () => {
+    if (!confirm("Désactiver AliEdge complètement ? Plus rien ne tournera, sur aucun site, jusqu'à ce que tu le réactives.")) return;
+    await api("ae:setDisabled", { disabled: true }).catch(() => {});
+    state.aeDisabled = true; render();
   });
   document.querySelectorAll("[data-set]").forEach((el) => el.addEventListener("change", async () => {
     const k = el.dataset.set;
@@ -2700,6 +2713,12 @@ let renderSeq = 0;
 async function render() {
   const seq = ++renderSeq;
   let { name, params } = route();
+  // Extension désactivée (Réglages) : un seul écran, pour la réactiver.
+  if (state.aeDisabled) {
+    $view.innerHTML = `<div class="view"><section class="card pad stack" style="text-align:center"><h2>AliEdge est désactivé</h2><p class="muted">Plus rien ne tourne : aucune lecture des pages, aucun ajout au catalogue, aucune tâche en arrière-plan, sur aucun site.</p><button class="btn primary block" type="button" id="aeon">Réactiver AliEdge</button></section></div>`;
+    document.getElementById("aeon")?.addEventListener("click", async () => { await api("ae:setDisabled", { disabled: false }).catch(() => {}); });
+    return;
+  }
   // Compte obligatoire : sans compte connecté, AliEdge s'ouvre sur la création de compte (gratuite).
   if (!state.authReady && name !== "compte") { $view.innerHTML = `<div class="view"><div class="skel" style="height:120px"></div></div>`; return; }
   if (!state.me && name !== "compte") { location.hash = "#/compte?mode=signup&gate=1"; return; }
