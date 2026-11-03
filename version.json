@@ -1,6 +1,6 @@
 {
-  "version": "3.6.6",
-  "notes": "Sur le profil Vinted d'un vendeur, AliEdge affiche ses anciennes annonces déjà repérées (ventes d'abord, avec le fournisseur s'il est trouvé). Tes propres annonces Vinted ne sont plus jamais ajoutées à la base commune (même vendues), suivi des concurrents réparé (14 jours), fournisseurs vérifiés par la photo, produits reliés par les photos sans recherche Vinted.",
+  "version": "3.6.7",
+  "notes": "Photos des produits Shein et Temu mieux enregistrées (chargées au défilement). Sur le profil Vinted d'un vendeur, AliEdge affiche ses anciennes annonces déjà repérées (ventes d'abord, avec le fournisseur s'il est trouvé). Tes propres annonces Vinted ne sont plus jamais ajoutées à la base commune (même vendues), suivi des concurrents réparé (14 jours), fournisseurs vérifiés par la photo, produits reliés par les photos sans recherche Vinted.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-03",
   "minVersion": "3.0.0"

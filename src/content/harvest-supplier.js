@@ -50,8 +50,8 @@
         const img = card.querySelector("img");
         const src = bestSrc(card);
         if (noImage.has(key)) {
-          // Déjà envoyé sans photo : on ne le renvoie que si la photo est enfin chargée (3 essais au plus).
-          if (!src) { const n = noImage.get(key) + 1; if (n >= 3) noImage.delete(key); else noImage.set(key, n); break; }
+          // Déjà envoyé sans photo : renvoyé dès que la photo est chargée (au défilement), tant que la page reste ouverte.
+          if (!src) { const n = noImage.get(key) + 1; if (n >= 60) noImage.delete(key); else noImage.set(key, n); break; }
           noImage.delete(key);
         }
         const title = clean(a.getAttribute("title") || card.querySelector("[title]")?.getAttribute("title") || img?.alt || a.textContent || card.querySelector("h1,h2,h3")?.textContent);
@@ -79,5 +79,7 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
   new MutationObserver(() => schedule()).observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("scroll", () => schedule(2000), { passive: true });
+  // Une photo de carte qui finit de se charger (chargement au défilement) : le produit est renvoyé avec elle.
+  document.addEventListener("load", (e) => { if (noImage.size && e.target instanceof HTMLImageElement) schedule(1500); }, true);
   schedule(2000);
 })();
