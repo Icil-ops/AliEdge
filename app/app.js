@@ -754,6 +754,15 @@ async function loadCatalog(append = false) {
   }
 }
 
+/** Onglet Produits : deux vues, le catalogue commun et les produits du membre. */
+function productsNav(cur) {
+  return `<div class="seg subnav" role="tablist" aria-label="Produits">
+    <button type="button" role="tab" data-goto="#/catalogue" aria-selected="${cur === "catalogue"}">Trouver des produits</button>
+    <button type="button" role="tab" data-goto="#/suivis" aria-selected="${cur === "suivis"}">Mes produits</button>
+  </div>`;
+}
+document.addEventListener("click", (e) => { const b = e.target.closest?.("[data-goto]"); if (b) location.hash = b.dataset.goto; });
+
 function viewCatalogue() {
   if (!state.me) {
     return `<div class="card empty">${ICON.chart}<h2>Les produits qui se vendent déjà</h2><p class="muted">Connecte-toi pour voir les produits AliExpress, Temu et Shein déjà vendus sur Vinted, avec leur marge.</p><a class="btn primary" style="margin-top:12px" href="#/compte">Se connecter</a></div>`;
@@ -763,6 +772,8 @@ function viewCatalogue() {
   const sorts = [["sold", "Plus vendus"], ["trend", "Tendance 7 j"], ["margin", "Meilleure marge"], ["recent", "Récents"]];
   const head = `
     <div class="stack">
+      ${productsNav("catalogue")}
+      <p class="small muted intro">Les produits AliExpress, Temu et Shein repérés sur Vinted par la communauté, les plus vendus d'abord. Clique sur un produit pour voir ses ventes, sa marge et son fournisseur.</p>
       <div class="filters">
         <label class="sr-only" for="csearch">Rechercher</label>
         <input id="csearch" class="input" type="search" placeholder="Rechercher un produit…" value="${esc(f.search)}">
@@ -780,17 +791,13 @@ function viewCatalogue() {
         <div id="trendsbody" style="margin-top:10px"><div class="skel" style="height:60px"></div></div>
       </details>
       <details class="card pad import-vinted fold">
-        <summary><b>Ajouter au catalogue</b></summary>
+        <summary><b>Ajouter des produits au catalogue</b></summary>
         <div class="stack" style="margin-top:10px">
           <div class="import-row">
             <button id="import-page" class="btn block" type="button">${ICON.tag}Ajouter les produits de la page ouverte</button>
             <p id="import-status" class="small muted" aria-live="polite"></p>
             <span class="small muted">Sur une recherche AliExpress, Temu ou Shein : AliEdge ajoute les produits affichés et vérifie leurs ventes Vinted.</span>
           </div>
-          <form id="vintedimport" class="stack">
-            <textarea class="input" id="vintedlinks" rows="3" placeholder="Liens d'annonces Vinted, un par ligne (20 au plus)" aria-label="Liens d'annonces Vinted"></textarea>
-            <button class="btn" type="submit">Ajouter ces annonces</button>
-          </form>
         </div>
       </details>
       ${!state.me.pro ? `<div class="notice info row between wrap"><span>Version gratuite : les 3 premiers produits sont visibles.</span><a class="btn primary" href="${BUY_URL}" target="_blank" rel="noopener">Tout débloquer</a></div>` : ""}
@@ -1151,7 +1158,7 @@ async function openProduct(row) {
   d.querySelector("[data-close]").addEventListener("click", close);
   d.querySelector("[data-close]").focus();
   d.querySelector("[data-save]").addEventListener("click", async () => {
-    try { await api("saved:add", { productId: row.product_id }); toast("Produit enregistré dans Suivis"); } catch (e) { toast(e.message); }
+    try { await api("saved:add", { productId: row.product_id }); toast("Produit enregistré dans Mes produits"); } catch (e) { toast(e.message); }
   });
   api("catalog:stats", { ids: [row.product_id] }).then((rows) => {
     const box = d.querySelector("#dstats");
@@ -1413,7 +1420,8 @@ async function viewConcurrents() {
     const on = (await api(`${ch}:status`).catch(() => ({ enabled: false }))).enabled;
     chRows.push([ch, on ? await api(`${ch}:trackers`).catch(() => []) : [], on]);
   }
-  return `${viewTrackers(trackers)}
+  return `<p class="small muted intro">Suis les vendeurs qui vendent les mêmes produits que toi : AliEdge note leurs ventes pour te montrer ce qui part.</p>
+    ${viewTrackers(trackers)}
     ${viewLbcTrackers(lbcRows, lbcOn)}
     ${chRows.map(([ch, rows, on]) => viewChannelTrackers(ch, rows, on)).join("")}
     <section class="stack" style="margin-top:22px">${salesFeedHtml(sales)}</section>
@@ -1591,10 +1599,12 @@ async function viewSuivis() {
       <div class="p num" style="color:${(e.result.margin ?? 0) > 0 ? "var(--gain)" : "var(--loss)"}">${eur(e.result.margin, true)}</div>
     </button>`).join("") : `<p class="muted">Tes analyses apparaîtront ici.</p>`;
   return `
+    ${productsNav("suivis")}
+    <p class="small muted intro">Tes ventes à expédier, les produits que tu suis et tes dernières analyses.</p>
     ${salesSectionHtml()}
     ${repostHtml()}
-    <section class="stack" style="margin-top:22px"><h2>Produits suivis</h2><div class="items">${w}</div></section>
-    <section class="stack" style="margin-top:22px"><div class="row between"><h2>Historique</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
+    <section class="stack" style="margin-top:22px"><h2>Produits suivis</h2><p class="small muted" style="margin:0">Après une analyse, « Suivre » : AliEdge te prévient si le prix Vinted bouge.</p><div class="items">${w}</div></section>
+    <section class="stack" style="margin-top:22px"><div class="row between"><h2>Mes analyses</h2>${hist.length ? '<button class="btn ghost small" type="button" id="clearhist">Effacer</button>' : ""}</div><div class="items">${h}</div></section>`;
 }
 
 
@@ -1905,6 +1915,8 @@ function viewCompte(params) {
         <label class="field"><span>Coût par vente</span><div class="input-euro"><input class="input num" data-set="costPerSale" inputmode="decimal" value="${String(s.costPerSale ?? 0.5).replace(".", ",")}"></div></label>
       </div>
       <p class="small muted">Coût par vente : emballage, étiquette, petits frais. Vinted ne prend pas de commission au vendeur.</p>
+      <details class="fold" data-fold="advanced" ${state.smart.open.advanced ? "open" : ""} style="margin-top:10px"><summary><b>Réglages avancés</b> <span class="small muted">sites de revente, partage, Leboncoin</span></summary>
+      <div class="stack" style="margin-top:8px">
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Ajouter les produits des recherches fournisseurs</b><br><span class="small muted">Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).</span></span><input type="checkbox" data-set="autoSupplier" ${s.autoSupplier !== false ? "checked" : ""}></label>
@@ -1920,6 +1932,8 @@ function viewCompte(params) {
       </details>
       <label class="field" style="margin-top:6px"><span><b>Adresse pour reposter</b> <span class="small muted">· demandée par certains sites (Beebs…) pour calculer la distance avec les acheteurs. AliEdge la remplit pour toi ; elle reste dans ce navigateur.</span></span><input class="input" type="text" data-set="sellAddress" value="${esc(s.sellAddress || "")}" placeholder="Ex : 12 rue de la République, 30000 Nîmes" autocomplete="street-address" maxlength="200"></label>
       <label class="switch"><span><b>Bouton sur les fiches produit</b><br><span class="small muted">Affiche « Analyser sur Vinted » sur AliExpress, Temu et Shein.</span></span><input type="checkbox" data-set="showPill" ${s.showPill ? "checked" : ""}></label>
+      </div>
+      </details>
     </section>
     <div class="row between" style="margin-top:12px">
       <span class="small muted">AliEdge ${esc(chrome.runtime.getManifest().version)} · by Ivan Bara · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Confidentialité</a></span>
@@ -2011,7 +2025,7 @@ function bindCompte(params) {
   const after = async () => {
     await loadAuth();
     const next = params.get("next");
-    location.hash = next === "analyse" || !next ? "#/analyse" : `#/${next}`;
+    location.hash = !next ? "#/catalogue" : `#/${next}`;
     render();
   };
   form?.addEventListener("submit", async (e) => {
@@ -2106,7 +2120,7 @@ function viewBienvenue(params) {
   } else {
     body = `
       <h2>Trouve des produits qui se vendent</h2>
-      <p class="muted">L'onglet Catalogue liste les produits AliExpress, Temu et Shein déjà repérés sur Vinted par la communauté, les plus vendus en premier. Choisis-en un, ouvre sa fiche fournisseur et clique sur « Analyser sur Vinted ».</p>
+      <p class="muted">L'onglet Produits liste les produits AliExpress, Temu et Shein déjà repérés sur Vinted par la communauté, les plus vendus en premier. Choisis-en un, ouvre sa fiche fournisseur et clique sur « Analyser sur Vinted ».</p>
       <button class="btn primary block" type="button" data-cat>Voir le catalogue</button>
       <button class="btn ghost block" type="button" data-done>Passer et commencer</button>`;
   }
@@ -2119,7 +2133,7 @@ function bindBienvenue(params) {
     if (step === 1) await saveSettings({ market: document.getElementById("ob-market").value });
     location.hash = `#/bienvenue?s=${b.dataset.next}`;
   }));
-  document.querySelector("[data-done]")?.addEventListener("click", () => finishOnboarding());
+  document.querySelector("[data-done]")?.addEventListener("click", () => finishOnboarding("#/catalogue"));
   document.getElementById("ob-run")?.addEventListener("click", async (e) => {
     const out = document.getElementById("ob-result");
     const q = document.getElementById("ob-query").value.trim();
@@ -2542,7 +2556,7 @@ async function render() {
   if (!state.me && name !== "compte") { location.hash = "#/compte?mode=signup&gate=1"; return; }
   // Premier lancement, compte connecté : prise en main avant tout le reste.
   if (state.me && !onboarded && name !== "bienvenue" && name !== "compte") { location.hash = "#/bienvenue"; return; }
-  document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" ? "analyse" : name}`));
+  document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" || name === "image" ? "analyse" : name === "suivis" ? "catalogue" : name}`));
   document.querySelectorAll(".tabs a[aria-current]").forEach((a) => a.setAttribute("aria-current", "page"));
   document.getElementById("account")?.classList.toggle("on", name === "compte" || name === "bienvenue");
   let html;
@@ -2641,9 +2655,13 @@ async function takePending() {
   langPref = (await chrome.storage.local.get("ae_lang")).ae_lang || "auto";
   document.documentElement.lang = (await globalThis.AE_I18N?.start([document.body])) || "fr";
   await Promise.all([loadAuth(), loadOnboarded(), loadLbcAsk()]);
+  const fresh = !location.hash.replace(/^#\/?/, "");
+  if (fresh) history.replaceState(null, "", "#/catalogue");
   lastRoute = route().name;
   render();
   if (!isTab) await loadProduct();
+  // Ouvert sur une fiche AliExpress, Temu ou Shein : on va droit à l'analyse.
+  if (fresh && state.product?.supported && route().name === "catalogue") { location.hash = "#/analyse"; lastRoute = "analyse"; }
   if (lastRoute === "catalogue") loadCatalog();
   await takePending();
 })();

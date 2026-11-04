@@ -9,7 +9,15 @@
   // Textes exacts (espaces normalisés). Une phrase absente reste en français.
   const EN = {
     // ── En-tête, onglets, barre du bas
-    "Analyse": "Analyze", "Catalogue": "Catalog", "Radar": "Radar", "Concurrents": "Competitors", "Suivis": "Tracked", "Compte": "Account",
+    "Analyse": "Analyze", "Catalogue": "Catalog", "Produits": "Products", "Concurrents": "Competitors", "Suivis": "Tracked", "Compte": "Account",
+    "Trouver des produits": "Find products", "Mes produits": "My products", "Mes analyses": "My analyses", "Réglages avancés": "Advanced settings",
+    "sites de revente, partage, Leboncoin": "resale sites, sharing, Leboncoin", "Ajouter des produits au catalogue": "Add products to the catalog",
+    "Les produits AliExpress, Temu et Shein repérés sur Vinted par la communauté, les plus vendus d'abord. Clique sur un produit pour voir ses ventes, sa marge et son fournisseur.": "AliExpress, Temu and Shein products spotted on Vinted by the community, best sellers first. Click a product to see its sales, margin and supplier.",
+    "Tes ventes à expédier, les produits que tu suis et tes dernières analyses.": "Your sales to ship, the products you track and your latest analyses.",
+    "Après une analyse, « Suivre » : AliEdge te prévient si le prix Vinted bouge.": "After an analysis, click “Track”: AliEdge tells you if the Vinted price moves.",
+    "Suis les vendeurs qui vendent les mêmes produits que toi : AliEdge note leurs ventes pour te montrer ce qui part.": "Follow sellers who sell the same products as you: AliEdge records their sales to show you what sells.",
+    "Trouve des produits qui se vendent": "Find products that sell", "Voir le catalogue": "See the catalog",
+    "L'onglet Produits liste les produits AliExpress, Temu et Shein déjà repérés sur Vinted par la communauté, les plus vendus en premier. Choisis-en un, ouvre sa fiche fournisseur et clique sur « Analyser sur Vinted ».": "The Products tab lists AliExpress, Temu and Shein products already spotted on Vinted by the community, best sellers first. Pick one, open its supplier page and click “Analyze on Vinted”.",
     "Gratuit": "Free", "Accès complet": "Full access", "Ouvrir en plein écran": "Open full screen", "Sections": "Sections",
     "Photos": "Photos", "Skool": "Skool", "Outils de la méthode": "Method tools",
     "Créer des photos réalistes du produit avec Barapics": "Create realistic product photos with Barapics",

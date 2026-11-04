@@ -567,3 +567,8 @@ dialog.salesheet::backdrop{background:rgba(18,16,25,.55)}
 
 .img-off { display: grid; place-items: center; flex: none; background: var(--soft); color: var(--muted); min-width: 32px; min-height: 32px; }
 .img-off svg { width: 40%; max-width: 40px; height: auto; opacity: .7; }
+
+/* Onglet Produits : sous-onglets et phrases d'aide */
+.subnav { margin-bottom: 2px; }
+.subnav button { font-size: 13px; }
+.intro { margin: 0 0 4px; }

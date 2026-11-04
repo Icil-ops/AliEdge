@@ -349,6 +349,7 @@ check("prise en main terminée", await page.evaluate(async () => !!(await chrome
 // 1c. Mise à jour : bandeau « Nouvelle version prête » puis nouveautés
 await page.evaluate(() => chrome.storage.local.set({ ae_update_ready: { version: "9.9.9", at: Date.now() } }));
 await page.goto(app("/catalogue"));
+await page.reload(); // la prise en main se termine déjà sur le catalogue : même adresse, on recharge
 await page.waitForSelector(".update-banner.ready", { timeout: 6000 }).catch(() => {});
 check("mise à jour : bandeau pour installer la nouvelle version", (await page.locator('.update-banner.ready [data-update="apply"]').count()) === 1);
 await page.evaluate(() => chrome.storage.local.set({ ae_update_ready: null, ae_whatsnew: { version: "3.2.0", notes: "Radar et alertes sur téléphone.", at: Date.now() } }));
@@ -704,6 +705,7 @@ rpc.aliedge_me.admin = false;
   check("Leboncoin : aucune requête d'AliEdge vers Leboncoin", lbcRequests.every((p) => ["/recherche", "/ad/accessoires_bagagerie/2900000005", "/profile/20f25f94-11be-4ddd-9fe0-20891b9db732/offers", "/ad/accessoires_bagagerie/2900000003"].includes(p)), lbcRequests.join(","));
   await lbc.close();
   await page.goto(app("/catalogue"));
+  await page.reload();
   await page.waitForSelector("#salesfeed [data-plat='lbc']", { timeout: 8000 }).catch(() => {});
   await page.click("#salesfeed [data-plat='lbc']").catch(() => {});
   await page.waitForSelector("#salesfeed .sale-row", { timeout: 6000 }).catch(() => {});
@@ -1061,7 +1063,7 @@ async function extTab(before, flowUrl, finalRe) {
   const badge = await sh.evaluate(() => document.getElementById("ae-shein-tour-badge")?.innerText || "");
   const siteTitle = await sh.evaluate(() => document.querySelector("h1")?.textContent || "");
   await page.evaluate((id) => chrome.runtime.sendMessage({ type: "tour:stop", tabId: id }), tabId);
-  check("version anglaise : panneau et éléments ajoutés sur les sites traduits, site intact", /Analyze/.test(tabs) && /Catalog/.test(tabs) && /Sales to ship/.test(body) && /Tour/.test(badge) && /Stop/.test(badge) && siteTitle === "Crochet", JSON.stringify({ tabs: tabs.replace(/\s+/g, " ").slice(0, 60), badge: badge.replace(/\s+/g, " ") }));
+  check("version anglaise : panneau et éléments ajoutés sur les sites traduits, site intact", /Analyze/.test(tabs) && /Products/.test(tabs) && /Sales to ship/.test(body) && /Tour/.test(badge) && /Stop/.test(badge) && siteTitle === "Crochet", JSON.stringify({ tabs: tabs.replace(/\s+/g, " ").slice(0, 60), badge: badge.replace(/\s+/g, " ") }));
   await page.screenshot({ path: `${shots}/english.png`, fullPage: true });
   const left = new Set();
   const harvest = async () => (await page.evaluate(() => {
