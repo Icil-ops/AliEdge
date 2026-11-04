@@ -1,6 +1,6 @@
 {
-  "version": "3.6.14",
-  "notes": "Les boutons « Reposter » s'affichent de nouveau sur tes annonces déjà vendues. Produits AliExpress ajoutés au catalogue avec leur vrai titre.",
+  "version": "3.6.15",
+  "notes": "Catalogue plus fiable : seuls les produits dont la vente est prouvée (même photo, confirmation d'un membre ou vérification stricte par l'IA) y figurent. Sur la fiche d'un produit, « Ventes du même produit » et « Annonces similaires » (estimation de prix) sont séparées ; les grandes marques sont écartées.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-03",
   "minVersion": "3.0.0"

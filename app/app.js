@@ -1149,7 +1149,6 @@ async function openProduct(row) {
       <p class="small muted">Ouvre la fiche puis clique sur « Analyser sur Vinted » pour le calcul complet avec ton prix.</p>
       <div id="dstats"></div>
       <div id="dhistory"></div>
-      <h3>Annonces Vinted</h3>
       <div class="items" id="ditems"><div class="skel" style="height:72px"></div><div class="skel" style="height:72px"></div></div>
     </div>`;
   document.body.append(bg, d);
@@ -1178,13 +1177,19 @@ async function openProduct(row) {
   }).catch(() => {});
   try {
     const items = await api("catalog:items", { productId: row.product_id });
-    d.querySelector("#ditems").innerHTML = items.length ? items.map((i) => `
+    const card = (i) => `
       <div class="item">
         ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
         <div><a class="t" href="${safeUrl(i.url)}" target="_blank" rel="noopener">${esc(i.title || "Annonce Vinted")}</a>
         <div class="m">${i.status === "sold" ? `<span class="badge-sold">Vendu</span> ${esc(ago(i.sold_at))}` : i.status === "active" ? "En vente" : "Retirée"}</div></div>
         <div class="p num">${eur(i.price)}</div>
-      </div>`).join("") : `<p class="muted">Aucune annonce enregistrée.</p>`;
+      </div>`;
+    // Deux listes distinctes : le même produit (lien prouvé) et les annonces qui se ressemblent (estimation de prix).
+    const same = items.filter((i) => i.same !== false), similar = items.filter((i) => i.same === false);
+    d.querySelector("#ditems").innerHTML = `
+      <h3>Ventes du même produit</h3>
+      ${same.length ? same.map(card).join("") : `<p class="small muted">Aucune annonce de ce produit exact repérée pour l'instant.</p>`}
+      ${similar.length ? `<h3 style="margin-top:16px">Annonces similaires</h3><p class="small muted" style="margin:0 0 6px">Pas forcément le même produit : elles servent seulement à estimer le prix.</p>${similar.map(card).join("")}` : ""}`;
   } catch (e) {
     d.querySelector("#ditems").innerHTML = `<p class="notice err">${esc(e.message)}</p>`;
   }

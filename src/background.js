@@ -497,10 +497,13 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
   let productId = null;
   let sold = [];
   // Base commune : TOUTES les annonces trouvées par l'analyse y sont ajoutées (leurs ventes seront suivies).
-  // Seules les annonces vraiment du même article sont reliées au produit fournisseur : même photo,
-  // ou très proches sans grande marque (le serveur écarte aussi les grandes marques).
+  // Annonces trouvées → « annonces similaires » du produit (estimation de prix). Seules celles que l'IA reconnaît
+  // comme le même modèle exact (≥ 0,9) deviennent des ventes du même produit (le serveur écarte les grandes marques).
   const NO_BRAND = /^(sans marque|marque inconnue|no brand|unbranded|autre|other|fait main|handmade|vintage dressing)$/i;
+  // « same » : l'IA a reconnu le même modèle exact (note visuelle ≥ 0,9) sur une annonce sans grande marque.
+  // Le serveur ne relie au produit comme « même produit » que celles-là ; les autres restent des annonces similaires.
   const toRow = (i) => ({
+    ...((i.visual ?? 0) >= 0.9 && (!i.brand || NO_BRAND.test(String(i.brand).trim())) ? { same: true, visual: i.visual } : {}),
     vinted_id: i.vinted_id, market, title: i.title, brand: i.brand, size: i.size, condition: i.condition,
     price: i.price, currency: i.currency, photo_url: i.photo_url, url: i.url, favourites: i.favourites, seller_id: i.seller_id, status: "active",
     ...(i.listed_at ? { listed_at: i.listed_at } : {}),
@@ -525,7 +528,7 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
         const m = await me();
         if (m?.pro && productId) {
           const rows = await sb.rpc("aliedge_product_items", { _product_id: productId });
-          sold = (rows || []).filter((r) => r.status === "sold").map((r) => ({ ...r, price: Number(r.price) }));
+          sold = (rows || []).filter((r) => r.same !== false && r.status === "sold").map((r) => ({ ...r, price: Number(r.price) }));
         }
       } catch { /* le partage ne doit jamais bloquer l'analyse */ }
     }

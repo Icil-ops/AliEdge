@@ -38,6 +38,8 @@ const rpc = {
   aliedge_start_analysis: { allowed: true, used: 4, limit: 500, pro: true },
   aliedge_contribute: "c3f50103-f4a4-414b-b502-74634864fe06",
   aliedge_product_items: [
+    // Annonce similaire (pas le même produit) : jamais comptée comme une vente du produit.
+    { vinted_id: 7009, title: "Pull Ralph Lauren", price: 45, photo_url: "https://images1.vinted.net/t/s9.jpeg", url: "https://www.vinted.fr/items/7009", status: "sold", sold_at: new Date(Date.now() - 864e5).toISOString(), same: false },
     { vinted_id: 7001, title: "Sac bandoulière cuir noir", price: 21, photo_url: "https://images1.vinted.net/t/s1.jpeg", url: "https://www.vinted.fr/items/7001", status: "sold", sold_at: new Date(Date.now() - 2 * 864e5).toISOString() },
     { vinted_id: 7002, title: "Sac cuir femme", price: 19, photo_url: "https://images1.vinted.net/t/s2.jpeg", url: "https://www.vinted.fr/items/7002", status: "sold", sold_at: new Date(Date.now() - 5 * 864e5).toISOString() },
     { vinted_id: 7003, title: "Sac bandoulière", price: 20, photo_url: "https://images1.vinted.net/t/s3.jpeg", url: "https://www.vinted.fr/items/7003", status: "sold", sold_at: new Date(Date.now() - 9 * 864e5).toISOString() },
