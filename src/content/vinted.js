@@ -108,7 +108,8 @@
 
   // Annonce du membre : Vinted affiche ses boutons de vendeur (« Modifier l'annonce », « Indiquer comme vendu »…).
   // Reconnu ainsi même quand la lecture des détails échoue ou que le compte n'est pas encore enregistré.
-  const OWNER_BTN = /^(modifier l.annonce|indiquer comme vendu|marquer comme r[ée]serv[ée]|booster|edit listing|mark as sold|bump)$/i;
+  // Annonce vendue : Vinted n'affiche plus que « Supprimer » (absent sur les annonces des autres).
+  const OWNER_BTN = /^(modifier l.annonce|indiquer comme vendu|marquer comme r[ée]serv[ée]|booster|supprimer|edit listing|mark as sold|bump|delete)$/i;
   // Aussi les statistiques réservées au vendeur (« Impressions », « membres ont vu cet article »), affichées même vendue.
   const ownerControls = () => [...document.querySelectorAll("button, a")].some((b) => OWNER_BTN.test((b.textContent || "").replace(/\s+/g, " ").trim()))
     || /membres ont vu cet article|clic\(s\) sur cet article|members viewed this item/i.test(document.body.innerText || "");
@@ -136,7 +137,12 @@
 
   async function crossPost(item, raw, retry = 6) {
     if (!mountedMenu || mountedMenu.dataset.lbc) return;
-    const sellerId = Number(raw?.user_id ?? raw?.user?.id) || null;
+    // Vendeur : lien de son profil dans l'encadré de l'annonce (jamais l'avatar de l'en-tête, qui est le membre connecté).
+    const domSeller = [...document.querySelectorAll('a[href*="/member/"]')]
+      .filter((x) => !x.closest('header, nav, [class*="header" i], a[href*="/items/"], [data-testid*="item-box"], [class*="feed" i]'))
+      .map((x) => Number((x.getAttribute("href") || "").match(/\/member\/(\d+)/)?.[1]))
+      .find(Boolean) || null;
+    const sellerId = Number(raw?.user_id ?? raw?.user?.id) || domSeller;
     const byPage = ownerControls();
     let own = byPage;
     if (!own && sellerId) { try { const r = await chrome.runtime.sendMessage({ type: "vinted:isOwn", sellerId }); own = !!r?.data?.own; } catch { return; } }
@@ -184,6 +190,7 @@
         pill(`${done(ch) ? "✓ " : ""}Reposter sur ${label}`, done(ch) ? "done" : "", () => chrome.runtime.sendMessage({ type: `${ch}:open`, listing: full }).catch(() => {}))),
     );
     mountedRoot?.querySelector(".btn")?.before(stack);
+    document.getElementById("aliedge-source")?.setAttribute("data-repost", String(stack.children.length));
   }
 
   // Chaque annonce ouverte enrichit la base commune : vendeur, marque, taille, favoris, date de mise en ligne.

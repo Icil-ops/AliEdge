@@ -1,6 +1,6 @@
 {
-  "version": "3.6.12",
-  "notes": "AliEdge plus simple : 3 onglets. Produits (trouver des produits qui se vendent + tes produits), Analyser (la fiche fournisseur ouverte), Concurrents. AliEdge s'ouvre sur les produits, ou sur l'analyse si tu es sur une fiche AliExpress, Temu ou Shein. Réglages avancés repliés. Radar supprimé, catalogue de près de 300 produits.",
+  "version": "3.6.13",
+  "notes": "Les boutons « Reposter » s'affichent de nouveau sur tes annonces déjà vendues.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-03",
   "minVersion": "3.0.0"

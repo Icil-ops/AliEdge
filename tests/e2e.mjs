@@ -237,6 +237,8 @@ await ctx.route("**/*", async (route) => {
     if (/^\/api\/v2\/(wardrobe|users)\/\d+\/items/.test(url.pathname)) return route.fulfill({ json: { items: catalogItems.slice(0, 4).map((it, i) => ({ ...it, is_closed: i === 0, item_closing_action: i === 0 ? "sold" : null })) } });
     if (url.pathname.startsWith("/inbox")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Messages | Vinted</title><main><h2><a href=\"/member/9090-gd02840\">gd02840</a></h2><p>Ta vente est finalisée.</p><a href=\"/member/9090-gd02840/feedback\">Évaluer</a></main>" });
     if (url.pathname.startsWith("/member/")) return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Profil | Vinted</title><main><h1>vendeuse</h1><section><a href=\"/member/777-autrevendeuse\">autrevendeuse</a></section></main>" });
+    // Sa propre annonce déjà vendue : Vinted n'affiche plus que « Vendu » et « Supprimer ».
+    if (url.pathname.startsWith("/items/9999-")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><head><title>Veste technique Y2K rouge | Vinted</title><meta property="og:title" content="Veste technique Y2K rouge"></head><body><header><a href="/member/4242-moncompte">moi</a></header><main><div data-testid="item-photos"><img src="https://images1.vinted.net/t/0.jpeg" width="400" height="500"></div><aside><div>Vendu</div><h1>Veste technique Y2K rouge</h1><div itemprop="price">46,99 €</div><div><div>Marque</div><div>OVERSIZE</div></div><div><div>Taille</div><div>L</div></div><div itemprop="description">Veste technique au look unique.</div><button>Supprimer</button><a href="/member/4242-moncompte">moncompte</a></aside></main></body></html>` });
     if (url.pathname.startsWith("/items/")) return route.fulfill({ contentType: "text/html", body: fx("vinted-item.html") });
     // Page d'accueil (fil d'actu) : beaucoup de cartes, sans attribut title (texte dans l'alt de la photo, ou prix affiché).
     if (url.pathname === "/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><title>Vinted</title><main><div class="feed-grid">${Array.from({ length: 130 }, (_, i) => `<div class="feed-grid__item"><a href="/items/${5100000 + i}-article"><img src="https://images1.vinted.net/t/h${i}.jpeg" alt="${i % 2 ? `Article accueil ${i}, marque: Zara, état: Neuf, taille: M, ${10 + i},00 €` : `Article accueil ${i}`}"></a><p>${10 + i},00 €</p></div>`).join("")}</div></main>` });
@@ -630,6 +632,16 @@ await v.waitForTimeout(1500);
 check("bouton « Trouver le fournisseur » sur Vinted", (await v.locator("#aliedge-source").count()) === 1);
 check("vente signalée au catalogue", calls.filter((c) => c.endsWith("aliedge_report_items")).length >= 1);
 await v.screenshot({ path: `${shots}/9-vinted.png` });
+
+// 5b0. Sa propre annonce déjà vendue : les boutons « Reposter » restent proposés
+{
+  const own = await ctx.newPage();
+  await own.goto("https://www.vinted.fr/items/9999-veste-technique");
+  await own.waitForTimeout(5000);
+  const n = Number(await own.locator("#aliedge-source").getAttribute("data-repost").catch(() => 0)) || 0;
+  check("annonce vendue du membre : boutons « Reposter » affichés", n >= 5, `${n} bouton(s)`);
+  await own.close();
+}
 
 // 5a0. Compte admin : les pseudos de concurrents de référence sont retrouvés et suivis
 rpc.aliedge_me.admin = true;
