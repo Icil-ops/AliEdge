@@ -33,6 +33,7 @@
   }
   let timer = null;
   const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
+  const JUNK_TITLE = /^(report fraud item|report item|signaler (un |l.)?(article|produit|fraude)|add to cart|ajouter au panier|choice|sponsored|sponsoris)/i;
 
   function readCards() {
     const out = [];
@@ -55,7 +56,9 @@
           if (!src) { const n = noImage.get(key) + 1; if (n >= 60) noImage.delete(key); else noImage.set(key, n); break; }
           noImage.delete(key);
         }
-        const title = clean(a.getAttribute("title") || card.querySelector("[title]")?.getAttribute("title") || img?.alt || a.textContent || card.querySelector("h1,h2,h3")?.textContent);
+        // Premier vrai titre : jamais un libellé d'interface (AliExpress a ajouté « Report fraud item » dans ses cartes).
+        const title = [a.getAttribute("title"), ...[...card.querySelectorAll("[title]")].map((x) => x.getAttribute("title")), card.querySelector("h1,h2,h3")?.textContent, img?.alt, a.textContent]
+          .map(clean).find((x) => x.length >= 8 && !JUNK_TITLE.test(x)) || "";
         const pm = clean(card.textContent).match(/(\d{1,4}[.,]\d{2})\s?€|€\s?(\d{1,4}[.,]\d{2})/);
         const price = pm ? Number((pm[1] || pm[2]).replace(",", ".")) : null;
         if (title.length >= 8 && title.length <= 400) {
