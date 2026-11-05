@@ -123,7 +123,7 @@ async function loadAuth() {
 }
 
 function renderPlan() {
-  if (!state.me) { $plan.textContent = "Se connecter"; $plan.className = "plan"; return; }
+  if (!state.me || state.me.anonymous) { $plan.textContent = state.me ? "Créer un compte" : "Se connecter"; $plan.className = "plan"; return; }
   $plan.textContent = state.me.free_launch ? "Accès complet" : state.me.pro ? "Pro" : "Gratuit";
   $plan.className = state.me.pro ? "plan pro" : "plan";
 }
@@ -1851,12 +1851,10 @@ function bindSuivis(hist) {
 
 // ───────────────────────── Compte
 
-function viewCompte(params) {
-  const welcome = params.get("welcome");
-  if (!state.me) {
-    const mode = params.get("mode") === "signin" ? "signin" : "signup";
-    return `
-      ${params.get("gate") && !welcome ? `<div class="notice info" style="max-width:440px;margin:0 auto 12px"><b>Crée ton compte gratuit pour utiliser AliEdge.</b> C'est 10 secondes, sans carte bancaire. Avec Google, c'est un clic.</div>` : ""}
+function authFormHtml(params, welcome, anonymous = false) {
+  const mode = params.get("mode") === "signin" ? "signin" : "signup";
+  return `${anonymous ? `<div class="notice info" style="max-width:440px;margin:0 auto 12px"><b>AliEdge marche déjà sans compte.</b> Crée un compte gratuit (ou connecte-toi) pour retrouver tes analyses partout et passer à Pro.</div>` : ""}
+      ${!anonymous && params.get("gate") && !welcome ? `<div class="notice info" style="max-width:440px;margin:0 auto 12px"><b>Crée ton compte gratuit pour utiliser AliEdge.</b> C'est 10 secondes, sans carte bancaire. Avec Google, c'est un clic.</div>` : ""}
       ${welcome ? `<div class="notice ok" style="margin-bottom:12px">AliEdge est installé. Épingle-le dans la barre de Chrome (icône puzzle), puis crée ton compte gratuit. Chaque analyse que tu lances enrichit le catalogue de toute la communauté.</div>` : ""}
       <section class="card pad stack" style="max-width:440px;margin:0 auto">
         <div class="seg" role="tablist">
@@ -1874,13 +1872,17 @@ function viewCompte(params) {
         <button id="google" class="btn block" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.6-2.5l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"/><path fill="#FBBC05" d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3.1a10 10 0 0 0 0 9z"/><path fill="#EA4335" d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A10 10 0 0 0 3.1 7.5l3.3 2.6C7.2 7.8 9.4 6 12 6z"/></svg>Continuer avec Google</button>
         ${mode === "signin" ? `<button id="forgot" class="btn ghost small" type="button">Mot de passe oublié ?</button>` : ""}
       </section>`;
-  }
+}
+
+function viewCompte(params) {
+  const welcome = params.get("welcome");
+  if (!state.me) return authFormHtml(params, welcome);
   const m = state.me;
   const s = state.settings || {};
   const pct = Math.min(100, Math.round(((m.used_today || 0) / (m.daily_limit || 5)) * 100));
-  return `
+  return `${m.anonymous ? authFormHtml(params, welcome, true) + `<div style="height:12px"></div>` : ""}
     <section class="card pad stack">
-      <div class="row between"><div><h2>${esc(m.email || "Mon compte")}</h2><p class="small muted">${m.free_launch ? "Accès complet offert pendant le lancement" : m.pro ? `AliEdge Pro${m.expires_at ? ` jusqu'au ${new Date(m.expires_at).toLocaleDateString("fr-FR")}` : ""}${m.source === "skool" ? " · offert aux membres Skool" : ""}` : "Offre gratuite"}</p></div><span class="plan ${m.pro ? "pro" : ""}" style="margin:0">${m.free_launch ? "Complet" : m.pro ? "Pro" : "Gratuit"}</span></div>
+      <div class="row between"><div><h2>${esc(m.anonymous ? "Sans compte" : m.email || "Mon compte")}</h2><p class="small muted">${m.free_launch ? "Accès complet offert pendant le lancement" : m.pro ? `AliEdge Pro${m.expires_at ? ` jusqu'au ${new Date(m.expires_at).toLocaleDateString("fr-FR")}` : ""}${m.source === "skool" ? " · offert aux membres Skool" : ""}` : "Offre gratuite"}</p></div><span class="plan ${m.pro ? "pro" : ""}" style="margin:0">${m.free_launch ? "Complet" : m.pro ? "Pro" : "Gratuit"}</span></div>
       ${m.pro ? `<p class="small"><b class="num">${m.used_today || 0}</b> analyse${(m.used_today || 0) > 1 ? "s" : ""} aujourd'hui · <b class="num">${m.contributed || 0}</b> produit${(m.contributed || 0) > 1 ? "s" : ""} ajouté${(m.contributed || 0) > 1 ? "s" : ""} au catalogue par toi</p>` : `<div><div class="row between small"><span>Analyses aujourd'hui</span><span class="num">${m.used_today || 0} / ${m.daily_limit}</span></div><div class="quota" style="margin-top:6px"><i style="width:${pct}%"></i></div></div>`}
       ${state.community ? `<p class="small muted">Catalogue commun : <b class="num">${state.community.products}</b> produits, <b class="num">${state.community.sold}</b> ventes repérées, <b class="num">${state.community.contributors}</b> membres contributeurs.</p>` : ""}
       ${m.offline ? `<p class="notice warn">Serveur AliEdge injoignable : ton offre sera vérifiée à la reconnexion.</p>` : ""}
@@ -1943,7 +1945,7 @@ function viewCompte(params) {
     </section>
     <div class="row between" style="margin-top:12px">
       <span class="small muted">AliEdge ${esc(chrome.runtime.getManifest().version)} · by Ivan Bara · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Confidentialité</a></span>
-      <button id="signout" class="btn ghost" type="button">Se déconnecter</button>
+      ${m.anonymous ? "" : `<button id="signout" class="btn ghost" type="button">Se déconnecter</button>`}
     </div>`;
 }
 

@@ -56,13 +56,15 @@ async function call(path, { method = "GET", body, token, headers = {} } = {}) {
   return data;
 }
 
-async function saveSession(raw) {
+async function saveSession(raw, anonymous = false) {
   if (!raw?.access_token) return null;
   const session = {
     access_token: raw.access_token,
     refresh_token: raw.refresh_token,
-    expires_at: raw.expires_at ? raw.expires_at * 1000 : Date.now() + (raw.expires_in || 3600) * 1000,
-    user: raw.user ? { id: raw.user.id, email: raw.user.email } : null,
+    // Durée relative à l'horloge du PC : une horloge en avance ou en retard ne fait plus expirer la session.
+    expires_at: Date.now() + (raw.expires_in || 3600) * 1000,
+    user: raw.user ? { id: raw.user.id, email: raw.user.email || null } : null,
+    anonymous: !!(anonymous || raw.user?.is_anonymous),
   };
   await chrome.storage.local.set({ [SESSION_KEY]: session });
   return session;
@@ -77,26 +79,57 @@ async function loadSession() {
   return res[SESSION_KEY] || null;
 }
 
-/** Session valide (rafraîchie si besoin) ou null. */
-export async function getSession() {
-  const s = await loadSession();
-  if (!s) return null;
-  if (s.expires_at - Date.now() > 90_000) return s;
+/**
+ * Rafraîchit la session. Un seul rafraîchissement à la fois (verrou partagé entre les pages de l'extension).
+ * Si le jeton a déjà été remplacé entre-temps, on garde le nouveau. Jeton vraiment refusé : session anonyme.
+ */
+async function refresh(s) {
   if (!refreshing) {
     refreshing = (async () => {
-      try {
-        const raw = await call("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: s.refresh_token } });
-        return await saveSession(raw);
-      } catch (e) {
-        // Jeton révoqué ou expiré : on déconnecte proprement. Erreur réseau : on garde la session.
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) { await clearSession(); return null; }
-        return s;
-      } finally {
-        setTimeout(() => { refreshing = null; }, 0);
-      }
+      const run = async () => {
+        const cur = await loadSession();
+        if (!cur) return null;
+        if (cur.refresh_token !== s.refresh_token && cur.expires_at - Date.now() > 90_000) return cur;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const raw = await call("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: cur.refresh_token } });
+            return await saveSession(raw, cur.anonymous);
+          } catch (e) {
+            if (!(e instanceof ApiError) || e.status === 0 || e.status >= 500 || e.status === 429) return cur; // réseau : on garde la session
+            const again = await loadSession();
+            if (again && again.refresh_token !== cur.refresh_token) return again;
+            if (attempt === 0) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+            await clearSession();
+            return await anonymousSession();
+          }
+        }
+        return cur;
+      };
+      try { return navigator.locks ? await navigator.locks.request("ae-auth-refresh", run) : await run(); }
+      finally { setTimeout(() => { refreshing = null; }, 0); }
     })();
   }
   return refreshing;
+}
+
+let anonFailedAt = 0;
+/** AliEdge sans compte : session anonyme Supabase (si activée côté Supabase). Sinon null. */
+async function anonymousSession() {
+  if (Date.now() - anonFailedAt < 30 * 60_000) return null;
+  try {
+    const raw = await call("/auth/v1/signup", { method: "POST", body: { data: { signup_source: "aliedge" } } });
+    const s = await saveSession(raw, true);
+    if (!s) anonFailedAt = Date.now();
+    return s;
+  } catch { anonFailedAt = Date.now(); return null; }
+}
+
+/** Session valide (rafraîchie si besoin), session anonyme si personne n'est connecté, ou null. */
+export async function getSession() {
+  const s = await loadSession();
+  if (!s) return anonymousSession();
+  if (s.expires_at - Date.now() > 90_000) return s;
+  return refresh(s);
 }
 
 export async function signIn(email, password) {
@@ -145,7 +178,8 @@ export async function signInWithGoogle() {
 
 export async function signOut() {
   const s = await loadSession();
-  if (s) call("/auth/v1/logout", { method: "POST", token: s.access_token }).catch(() => {});
+  // scope=local : ne déconnecte que l'extension (pas Barapics ni les autres appareils).
+  if (s && !s.anonymous) call("/auth/v1/logout?scope=local", { method: "POST", token: s.access_token }).catch(() => {});
   await clearSession();
 }
 
@@ -156,7 +190,9 @@ async function authed(fn) {
     return await fn(s.access_token);
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
-      await clearSession();
+      // Jeton refusé (souvent expiré plus tôt que prévu) : on rafraîchit une fois et on réessaie, sans déconnecter.
+      const fresh = await refresh({ ...s, expires_at: 0 });
+      if (fresh && fresh.access_token !== s.access_token) return await fn(fresh.access_token);
       throw new ApiError("Session expirée. Reconnecte-toi.", 401, "auth");
     }
     throw e;

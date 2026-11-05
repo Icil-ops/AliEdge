@@ -322,7 +322,7 @@ await page.screenshot({ path: `${shots}/1-compte.png`, fullPage: true });
 const email = page.locator('input[type="email"]').first();
 check("formulaire de connexion affiché", (await email.count()) > 0);
 await page.goto(app("/catalogue")); await page.waitForTimeout(1200);
-check("compte obligatoire : sans compte, AliEdge s'ouvre sur la création de compte", /#\/compte\?mode=signup&gate=1/.test(page.url()) && /Crée ton compte gratuit pour utiliser AliEdge/.test(await page.locator("#view").innerText()), page.url());
+check("sans compte : AliEdge marche quand même (session anonyme), pas de mur de connexion", !/gate=1/.test(page.url()) && !/Crée ton compte gratuit pour utiliser AliEdge/.test(await page.locator("#view").innerText()), page.url());
 await page.goto(app("/compte")); await page.waitForTimeout(600);
 if (await email.count()) {
   await page.locator("main button", { hasText: "Se connecter" }).first().click();

@@ -377,13 +377,15 @@ async function me(force = false) {
   if (!session) { meCache = { at: 0, value: null }; return null; }
   if (!force && meCache.value && Date.now() - meCache.at < ME_TTL) return meCache.value;
   try {
-    const value = await sb.rpc("aliedge_me");
+    const raw = await sb.rpc("aliedge_me");
+    // Sans compte (session anonyme) : AliEdge marche quand même, l'interface propose juste de créer un compte.
+    const value = raw ? { ...raw, anonymous: !!session.anonymous } : raw;
     meCache = { at: Date.now(), value };
     return value;
   } catch (e) {
     if (e.code === "auth") return null;
     // Serveur injoignable : compte connu mais offre inconnue.
-    return { email: session.user?.email, pro: false, offline: true, used_today: 0, daily_limit: 5 };
+    return { email: session.user?.email, pro: false, offline: true, used_today: 0, daily_limit: 5, anonymous: !!session.anonymous };
   }
 }
 
