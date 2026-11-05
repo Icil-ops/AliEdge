@@ -773,7 +773,7 @@ function viewCatalogue() {
   const head = `
     <div class="stack">
       ${productsNav("catalogue")}
-      <p class="small muted intro">Les produits AliExpress, Temu et Shein repérés sur Vinted par la communauté, les plus vendus d'abord. Clique sur un produit pour voir ses ventes, sa marge et son fournisseur.</p>
+      <p class="small muted intro">Seulement des produits AliExpress, Temu et Shein dont la vente sur Vinted est prouvée : même photo, confirmation d'un membre ou vérification stricte. La liste grandit chaque jour.</p>
       <div class="filters">
         <label class="sr-only" for="csearch">Rechercher</label>
         <input id="csearch" class="input" type="search" placeholder="Rechercher un produit…" value="${esc(f.search)}">
@@ -808,7 +808,7 @@ function viewCatalogue() {
   } else if (c.error) {
     body = `<div class="notice err">${esc(c.error)}</div>`;
   } else if (!c.rows.length) {
-    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Ici s'affichent les produits fournisseurs déjà vendus sur Vinted (les ventes sans fournisseur identifié sont listées plus bas). Chaque fiche consultée par les membres est suivie, et apparaît ici dès sa première vente constatée. Pour accélérer, ouvre une page de résultats AliExpress, Temu ou Shein et clique sur « Ajouter les produits de la page ouverte ».</p></div>`;
+    body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Un produit n'apparaît ici que si sa vente est prouvée, pour ne jamais te montrer une fausse piste. Tu peux l'aider : sur une vente Vinted (liste « Ventes Vinted constatées » plus bas), clique « Trouver le fournisseur » puis relie le bon produit. Il sert ensuite à tous les membres.</p></div>`;
   } else {
     body = `<div class="cat-grid">${c.rows.map((r, i) => `
       <button type="button" class="pcard ${r.locked ? "locked" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms">

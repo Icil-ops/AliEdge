@@ -35,6 +35,27 @@
   const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
   const JUNK_TITLE = /^(report fraud item|report item|signaler (un |l.)?(article|produit|fraude)|add to cart|ajouter au panier|choice|sponsored|sponsoris)/i;
 
+  // Prix de la carte : jamais un prix barré, une économie (« -0,87 € »), un paiement en plusieurs fois ou un prix
+  // « club » ; parmi les prix restants, le plus élevé est le prix réel (le reste est une remise ou une mensualité).
+  const PRICE_RE = /(\d{1,4}(?:[ \u202f]\d{3})?[.,]\d{2})\s?€|€\s?(\d{1,4}(?:[ \u202f]\d{3})?[.,]\d{2})/g;
+  const NOT_PRICE = /(économ|economi|save|off\b|réduc|reduc|remise|coupon|club|klarna|paypal|x\s?\d|\d\s?x\b|\/\s?mois|par mois|-\s*$)/i;
+  function cardPrice(card) {
+    const found = [];
+    const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement;
+      if (!el || el.closest("del, s, strike") || /line-through/.test(getComputedStyle(el).textDecorationLine || "")) continue;
+      const ctx = clean((el.parentElement || el).textContent).slice(0, 80);
+      for (const m of String(n.textContent).matchAll(PRICE_RE)) {
+        const before = ctx.slice(0, Math.max(0, ctx.indexOf(m[0]))).slice(-14);
+        if (NOT_PRICE.test(before) || NOT_PRICE.test(ctx.replace(m[0], "").slice(0, 30)) && ctx.length < 40) continue;
+        const v = Number((m[1] || m[2]).replace(/[ \u202f]/g, "").replace(",", "."));
+        if (v >= 0.5 && v <= 500) found.push(v);
+      }
+    }
+    return found.length ? Math.max(...found) : null;
+  }
+
   function readCards() {
     const out = [];
     for (const a of document.querySelectorAll("a[href]")) {
@@ -59,8 +80,7 @@
         // Premier vrai titre : jamais un libellé d'interface (AliExpress a ajouté « Report fraud item » dans ses cartes).
         const title = [a.getAttribute("title"), ...[...card.querySelectorAll("[title]")].map((x) => x.getAttribute("title")), card.querySelector("h1,h2,h3")?.textContent, img?.alt, a.textContent]
           .map(clean).find((x) => x.length >= 8 && !JUNK_TITLE.test(x)) || "";
-        const pm = clean(card.textContent).match(/(\d{1,4}[.,]\d{2})\s?€|€\s?(\d{1,4}[.,]\d{2})/);
-        const price = pm ? Number((pm[1] || pm[2]).replace(",", ".")) : null;
+        const price = cardPrice(card);
         if (title.length >= 8 && title.length <= 400) {
           sent.add(key);
           if (!src) noImage.set(key, 0);
