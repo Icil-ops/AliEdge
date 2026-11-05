@@ -335,6 +335,8 @@
     "Crée ton compte gratuit pour utiliser AliEdge.": "Create your free account to use AliEdge.", "C'est 10 secondes, sans carte bancaire. Avec Google, c'est un clic.": "It takes 10 seconds, no credit card. With Google, it's one click.",
     "Ajouter les produits des recherches fournisseurs": "Add products from supplier searches",
     "Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).": "Products shown in your AliExpress, Temu and Shein searches join the shared catalog (no extra requests to these sites).",
+    "Liens partenaires AliExpress, Temu et Shein": "AliExpress, Temu and Shein partner links",
+    "Quand tu cliques sur un lien fournisseur dans AliEdge, il passe par notre lien partenaire : ton prix ne change pas et ça aide à financer AliEdge. Ctrl + clic ouvre le lien tel quel.": "When you click a supplier link in AliEdge, it goes through our partner link: your price doesn't change and it helps fund AliEdge. Ctrl + click opens the link as is.",
     "Réglage enregistré": "Setting saved",
     // ── Beebs
     "Publier sur Beebs": "Post on Beebs", "Choisir mes annonces Vinted": "Choose my Vinted listings", "Déjà sur Beebs": "Already on Beebs", "Préparation…": "Preparing…",

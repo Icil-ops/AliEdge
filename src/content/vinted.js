@@ -1,6 +1,16 @@
 // Page d'une annonce Vinted : « Trouver le fournisseur » + statut de l'annonce pour le catalogue.
 // Sur une annonce du membre lui-même : « Publier aussi sur Leboncoin » et « Publier sur Beebs / Opla » (texte, prix et
 // photos repris dans l'assistant de dépôt de chaque site ; le membre vérifie et publie lui-même).
+// Liens fournisseur (AliExpress, Temu, Shein) ouverts par AliEdge : lien partenaire si l'option est active (même prix).
+// Clic normal seulement ; Ctrl/Cmd/clic molette ouvrent le lien tel quel.
+globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = (e.composedPath?.() || []).find((n) => n?.tagName === "A") || e.target?.closest?.("a");
+  if (!a?.href || !/^https:\/\/([a-z0-9-]+\.)*(aliexpress\.(com|fr|us)|temu\.com|shein\.(com|fr))\//i.test(a.href)) return;
+  e.preventDefault();
+  const href = a.href;
+  chrome.runtime.sendMessage({ type: "aff:open", url: href }).then((r) => { if (!r?.ok) window.open(href, "_blank", "noopener"); }).catch(() => window.open(href, "_blank", "noopener"));
+}, true);
 (async () => {
   try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeVinted) return;
@@ -65,6 +75,7 @@
     host.id = "aliedge-source";
     host.style.cssText = "position:fixed;right:18px;bottom:18px;z-index:2147483646;";
     const root = host.attachShadow({ mode: "closed" });
+    globalThis.__aeAffClicks(root);
     const rows = sourcingLinks(item).map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${n}<span aria-hidden="true">↗</span></a>`).join("");
     root.innerHTML = `
       <style>

@@ -4,6 +4,16 @@
 // - Boutique : « + Concurrent » ; boutique d'un concurrent suivi relevée (annonces disparues = ventes probables).
 // - Vente : l'annonce préparée dans AliEdge (annonce Vinted du membre) est remplie automatiquement, photos
 //   comprises ; le membre vérifie et clique lui-même sur le bouton de mise en vente. En série, la suivante s'ouvre.
+// Liens fournisseur (AliExpress, Temu, Shein) ouverts par AliEdge : lien partenaire si l'option est active (même prix).
+// Clic normal seulement ; Ctrl/Cmd/clic molette ouvrent le lien tel quel.
+globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = (e.composedPath?.() || []).find((n) => n?.tagName === "A") || e.target?.closest?.("a");
+  if (!a?.href || !/^https:\/\/([a-z0-9-]+\.)*(aliexpress\.(com|fr|us)|temu\.com|shein\.(com|fr))\//i.test(a.href)) return;
+  e.preventDefault();
+  const href = a.href;
+  chrome.runtime.sendMessage({ type: "aff:open", url: href }).then((r) => { if (!r?.ok) window.open(href, "_blank", "noopener"); }).catch(() => window.open(href, "_blank", "noopener"));
+}, true);
 (async () => {
   try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeXpost) return;
@@ -70,6 +80,7 @@
     host.id = id;
     host.style.cssText = "position:fixed;right:18px;bottom:18px;z-index:2147483646;";
     const root = host.attachShadow({ mode: "closed" });
+    globalThis.__aeAffClicks(root);
     root.innerHTML = `<style>${CSS}</style><div class="panel" hidden></div>
       <button class="fab" type="button" aria-expanded="false"><span class="mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></span>${esc(label)}</button>`;
     const fab = root.querySelector(".fab"), panel = root.querySelector(".panel");
@@ -194,6 +205,7 @@
     host.className = "aliedge-beebs-competitor";
     host.style.cssText = "display:inline-flex;margin-left:8px;vertical-align:middle";
     const root = host.attachShadow({ mode: "closed" });
+    globalThis.__aeAffClicks(root);
     root.innerHTML = `<style>button{all:unset;cursor:pointer;padding:4px 10px;border-radius:999px;background:#6d3bff;color:#fff;font:600 12px/1.2 ui-sans-serif,system-ui,sans-serif}button.ok{background:#0fa968}</style><button type="button"></button>`;
     const btn = root.querySelector("button");
     const paint = () => { const on = tracked.has(uid); btn.className = on ? "ok" : ""; btn.textContent = on ? "✓ Concurrent suivi" : "+ Concurrent"; };

@@ -1925,6 +1925,7 @@ function viewCompte(params) {
       <p class="small muted" style="margin-top:10px">En utilisant AliEdge, tu alimentes le catalogue commun des ventes constatées sur Vinted. Rien de personnel n'est partagé. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></p>
       <label class="switch"><span><b>Partager mes favoris Vinted</b><br><span class="small muted">Les annonces que tu mets en favori rejoignent la base commune pour repérer leurs ventes. Ton compte n'est jamais associé.</span></span><input type="checkbox" data-set="shareLikes" ${s.shareLikes !== false ? "checked" : ""}></label>
       <label class="switch"><span><b>Ajouter les produits des recherches fournisseurs</b><br><span class="small muted">Les produits affichés par tes recherches AliExpress, Temu et Shein rejoignent le catalogue commun (aucune requête en plus vers ces sites).</span></span><input type="checkbox" data-set="autoSupplier" ${s.autoSupplier !== false ? "checked" : ""}></label>
+      <label class="switch"><span><b>Liens partenaires AliExpress, Temu et Shein</b><br><span class="small muted">Quand tu cliques sur un lien fournisseur dans AliEdge, il passe par notre lien partenaire : ton prix ne change pas et ça aide à financer AliEdge. Ctrl + clic ouvre le lien tel quel. <a href="${PRIVACY_URL}" target="_blank" rel="noopener">En savoir plus</a></span></span><input type="checkbox" data-set="affiliateLinks" ${s.affiliateLinks !== false ? "checked" : ""}></label>
       ${Object.entries(CHANNELS).map(([ch, C]) => `<label class="switch"><span><b>${C.label}</b><br><span class="small muted">${C.desc || `Publier tes annonces Vinted sur ${C.label} en un clic, suivre tes concurrents ${C.label}, trouver le fournisseur d'un article. Aucune requête en plus vers ${C.label}.`}</span></span><input type="checkbox" data-set="${ch}" ${s[ch] !== false && state.chPerm?.[ch] ? "checked" : ""}></label>`).join("")}
       ${["beebs", "opla"].map((ch) => `<label class="switch"><span><b>Publier automatiquement sur ${CHANNELS[ch].label}</b><br><span class="small muted">Quand titre, prix, photos, catégorie et état sont remplis, AliEdge clique sur « Publier » après 5 secondes (annulable). Vérifie tes premières annonces : une erreur partirait en ligne.</span></span><input type="checkbox" data-set="autoPublish_${ch}" ${s[`autoPublish_${ch}`] === true ? "checked" : ""}></label>`).join("")}
       <label class="switch"><span><b>Leboncoin</b><br><span class="small muted">Outils AliEdge sur Leboncoin (fournisseur, warehouse, aide au dépôt, concurrents) et ventes repérées sur les pages que tu ouvres. Aucune requête en plus vers Leboncoin.</span></span><input type="checkbox" data-set="lbc" ${s.lbc !== false && !state.lbcAsk && state.lbcPerm !== false ? "checked" : ""}></label>
@@ -2655,6 +2656,16 @@ async function takePending() {
     if (state.product?.supported && !state.product.error && !state.entry) startAnalysis();
   }
 }
+
+// Liens fournisseur : lien partenaire si l'option est active (Compte → Réglages). Ctrl/Cmd/clic molette : lien tel quel.
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest?.("a[href]");
+  if (!a || !/^https:\/\/([a-z0-9-]+\.)*(aliexpress\.(com|fr|us)|temu\.com|shein\.(com|fr))\//i.test(a.href)) return;
+  e.preventDefault();
+  const href = a.href;
+  api("aff:open", { url: href }).catch(() => window.open(href, "_blank", "noopener"));
+}, true);
 
 (async function init() {
   langPref = (await chrome.storage.local.get("ae_lang")).ae_lang || "auto";

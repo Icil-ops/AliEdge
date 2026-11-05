@@ -121,6 +121,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
 const radarUrls = [];
 const fbRequests = [];
 const imageProxyCalls = [];
+const affCalls = [];
 let oplaStock = [["art_a1b2c3d4e5f6a7b8c9d0", "Sweat Nike gris", 25], ["art_b1b2c3d4e5f6a7b8c9d0", "Jean Levi's 501", 30]];
 let beebsStock = [[34000001, "Robe crochet fille", 12], [34000002, "Gilet bébé laine", 9]];
 await ctx.route("**/*", async (route) => {
@@ -273,6 +274,7 @@ await ctx.route("**/*", async (route) => {
     if (body.action === "alerts:send") return route.fulfill({ headers: cors, json: { ok: true, discord: true, telegram: false, skool: false } });
     if (body.action === "listing") return route.fulfill({ headers: cors, json: { title: "Sac bandoulière cuir noir femme", description: "Joli sac neuf.", category: "Femmes > Sacs > Sacs à bandoulière", brand: "Sans marque", condition: "Neuf sans étiquette", size: "Taille unique", colors: ["Noir"], material: "Cuir synthétique", parcel: "Petit", price: 19, priceReason: "Prix médian des ventes constatées.", hashtags: ["sac", "cuir"], market: null, supplierPrice: 6.4, margin: 12.6 } });
     if (body.action === "diagnostic") return route.fulfill({ headers: cors, json: { summary: "Ton compte a une bonne base mais publie trop peu.", strengths: ["Bonne note"], fixes: [{ title: "Publie 1 annonce par jour", why: "0 annonce cette semaine", how: "Prépare 7 articles le dimanche." }, { title: "Ajoute la marque", why: "Peu d'annonces avec marque", how: "Renseigne le champ marque." }, { title: "Refais les vieilles annonces", why: "Âge médian élevé", how: "Supprime et republie avec de nouvelles photos." }] } });
+    if (body.action === "afflink") { affCalls.push(body.url); return route.fulfill({ headers: cors, json: { url: "https://s.click.aliexpress.com/e/_aetest", affiliate: true, platform: "aliexpress" } }); }
     if (body.action === "imageproxy") { imageProxyCalls.push(body.url); return route.fulfill({ headers: cors, json: { type: "image/png", b64: PNG.toString("base64") } }); }
     if (body.action === "imagesearch") return route.fulfill({ headers: cors, json: { name: "Sac bandoulière cuir noir", supplier: ["women leather crossbody bag black", "small shoulder bag pu leather"], vinted: ["sac bandoulière noir", "petit sac cuir"], brand: null, branded: false, category: "Sacs" } });
     if (body.action === "review") return route.fulfill({ headers: cors, json: { verdict: "go", summary: "Bon sac d'entrée de gamme, bien noté.", good: ["Note de 4,8"], watch: ["Les dimensions sont petites"], save: ["Prends la variante noire, moins chère"], resale: "Vends-le autour de 20 € avec des photos portées." } });
@@ -1115,6 +1117,29 @@ async function extTab(before, flowUrl, finalRe) {
   const hidden = (await p2.locator('[data-lbcask="on"]').count()) === 0;
   check("Leboncoin proposé d'office quand l'accès manque, « Plus tard » le masque", shown === 1 && hidden, JSON.stringify({ shown, hidden }));
   await p2.close();
+}
+
+// Liens partenaires : un clic sur un lien fournisseur dans AliEdge ouvre le lien partenaire ; option coupée = lien d'origine.
+{
+  const p3 = await ctx.newPage();
+  await p3.goto(app("/analyse"));
+  await p3.waitForTimeout(1200);
+  // Adresse demandée par l'extension pour le nouvel onglet, lue à sa création (en CI la page peut finir en erreur réseau).
+  await p3.evaluate(() => { window.__created = []; chrome.tabs.onCreated.addListener((t) => window.__created.push({ id: t.id, url: t.pendingUrl || t.url })); });
+  const opened = async () => {
+    const n = await p3.evaluate(() => window.__created.length);
+    await p3.click("a.chip.ali");
+    let tab = null;
+    for (let i = 0; i < 20 && !tab; i++) { await p3.waitForTimeout(250); tab = await p3.evaluate((k) => window.__created[k] || null, n); }
+    if (tab) await p3.evaluate((id) => chrome.tabs.remove(id), tab.id).catch(() => {});
+    return tab?.url || "";
+  };
+  const on = await opened();
+  await p3.evaluate(async () => { const r = await chrome.storage.local.get("ae_settings"); await chrome.storage.local.set({ ae_settings: { ...(r.ae_settings || {}), affiliateLinks: false } }); });
+  const off = await opened();
+  await p3.evaluate(async () => { const r = await chrome.storage.local.get("ae_settings"); await chrome.storage.local.set({ ae_settings: { ...(r.ae_settings || {}), affiliateLinks: true } }); });
+  check("Liens partenaires : lien fournisseur ouvert via le lien partenaire, lien d'origine si l'option est coupée", /s\.click\.aliexpress\.com\/e\/_aetest/.test(on) && /^https:\/\/fr\.aliexpress\.com\/?$/.test(off) && affCalls.length >= 1, JSON.stringify({ on, off, affCalls }));
+  await p3.close();
 }
 
 await ctx.close();

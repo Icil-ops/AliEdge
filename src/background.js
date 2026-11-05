@@ -1587,6 +1587,28 @@ async function barapics(body) {
 }
 
 
+// ───────────────────────── Liens partenaires (AliExpress, Temu, Shein)
+// Seulement quand le membre clique sur un lien fournisseur affiché par AliEdge, et si l'option est active (Compte → Réglages).
+// Le prix ne change pas. Sans réponse rapide du serveur, le lien d'origine s'ouvre.
+
+const AFF_HOST = /(^|\.)(aliexpress\.(com|fr|us)|temu\.com|shein\.(com|fr))$/i;
+function isSupplierUrl(u) { try { const x = new URL(u); return x.protocol === "https:" && AFF_HOST.test(x.hostname); } catch { return false; } }
+async function affiliateUrl(url) {
+  if (!isSupplierUrl(url) || (await getSettings()).affiliateLinks === false || !(await sb.getSession())) return url;
+  const { ae_aff: cache = {} } = await chrome.storage.local.get("ae_aff");
+  const hit = cache[url];
+  if (hit && Date.now() - hit.at < 7 * 86400_000) return hit.url || url;
+  const r = await Promise.race([barapics({ action: "afflink", url }).catch(() => null), new Promise((res) => setTimeout(() => res(null), 2500))]);
+  const out = r?.affiliate && /^https:\/\//.test(r.url || "") ? r.url : null;
+  if (r) {
+    cache[url] = { at: Date.now(), url: out };
+    const keys = Object.keys(cache);
+    if (keys.length > 500) for (const k of keys.sort((a, b) => cache[a].at - cache[b].at).slice(0, keys.length - 500)) delete cache[k];
+    await chrome.storage.local.set({ ae_aff: cache });
+  }
+  return out || url;
+}
+
 // ───────────────────────── Barapics : lecture d'une fiche produit dans le navigateur du membre
 // Quand le site du fournisseur bloque la lecture côté serveur (Shein, Temu…), Barapics demande à AliEdge
 // d'ouvrir la fiche en arrière-plan dans le navigateur du membre et d'en lire le titre, le prix et les photos.
@@ -1766,6 +1788,12 @@ const handlers = {
     return out;
   },
   // Fiche officielle AliExpress (prix France, stock) : lue par le serveur avec la clé de l'app Drop Shipping.
+  "aff:open": async ({ url }, sender) => {
+    if (!isSupplierUrl(url)) throw new sb.ApiError("Lien invalide.", 400, "invalid");
+    const target = await affiliateUrl(String(url));
+    await chrome.tabs.create({ url: target, ...(sender?.tab ? { index: sender.tab.index + 1, openerTabId: sender.tab.id } : {}) });
+    return {};
+  },
   "ali:official": async ({ url }) => {
     const id = String(url || "").match(/\/item\/(\d{6,20})\.html/)?.[1];
     if (!id) return null;
@@ -2043,7 +2071,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (aeDisabled && !["ae:state", "ae:setDisabled", "settings:get", "auth:state", "update:state"].includes(msg.type)) { sendResponse({ ok: false, error: "AliEdge est désactivé (Réglages).", code: "disabled" }); return false; }
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

@@ -5,6 +5,16 @@
 //   prête à copier, ou à remplir d'un clic, photos comprises. Le membre relit et publie lui-même.
 // - Messagerie : réponses toutes prêtes à insérer (jamais envoyées par AliEdge) et aide à la négociation.
 // - Résultats de recherche : badge sur les produits déjà repérés dans le catalogue AliEdge (fournisseur, prix Vinted).
+// Liens fournisseur (AliExpress, Temu, Shein) ouverts par AliEdge : lien partenaire si l'option est active (même prix).
+// Clic normal seulement ; Ctrl/Cmd/clic molette ouvrent le lien tel quel.
+globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = (e.composedPath?.() || []).find((n) => n?.tagName === "A") || e.target?.closest?.("a");
+  if (!a?.href || !/^https:\/\/([a-z0-9-]+\.)*(aliexpress\.(com|fr|us)|temu\.com|shein\.(com|fr))\//i.test(a.href)) return;
+  e.preventDefault();
+  const href = a.href;
+  chrome.runtime.sendMessage({ type: "aff:open", url: href }).then((r) => { if (!r?.ok) window.open(href, "_blank", "noopener"); }).catch(() => window.open(href, "_blank", "noopener"));
+}, true);
 (async () => {
   try { if ((await chrome.storage.local.get("ae_disabled")).ae_disabled) return; } catch { /* stockage indisponible */ }
   if (window.__aliedgeLbcTools) return;
@@ -47,6 +57,7 @@
     host.id = id;
     host.style.cssText = "position:fixed;right:18px;bottom:18px;z-index:2147483646;";
     const root = host.attachShadow({ mode: "closed" });
+    globalThis.__aeAffClicks(root);
     root.innerHTML = `<style>${CSS}</style><div class="panel" hidden></div>
       <button class="fab" type="button" aria-expanded="false"><span class="mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></span>${esc(label)}</button>`;
     const fab = root.querySelector(".fab"), panel = root.querySelector(".panel");
@@ -492,6 +503,7 @@
     host.id = "aliedge-lbc-replies";
     host.style.cssText = "display:block;width:100%;box-sizing:border-box;margin:6px 0;flex:0 0 100%;";
     const root = host.attachShadow({ mode: "closed" });
+    globalThis.__aeAffClicks(root);
     // Une seule ligne de réponses, défilable, au-dessus de la zone de saisie (sans la déformer).
     root.innerHTML = `<style>${CSS}
       .row{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:thin}
@@ -529,6 +541,7 @@
       host.className = "aliedge-lbc-badge";
       host.style.cssText = "position:absolute;top:8px;left:8px;z-index:3;";
       const root = host.attachShadow({ mode: "closed" });
+      globalThis.__aeAffClicks(root);
       const name = { aliexpress: "AliExpress", temu: "Temu", shein: "Shein" }[m.platform] || "Fournisseur";
       const eur = (n) => (n == null ? "?" : `${Number(n).toFixed(2).replace(".", ",")} €`);
       root.innerHTML = `<style>span{all:initial;display:inline-block;font:600 11.5px/1.25 ui-sans-serif,system-ui,sans-serif;background:#1b1530;color:#fff;padding:5px 8px;border-radius:8px;box-shadow:0 4px 14px -6px rgba(0,0,0,.5)} b{color:#c4b5fd}</style><span title="Produit repéré dans le catalogue AliEdge">${name} ${eur(m.price)} · Vinted <b>${eur(m.vinted)}</b></span>`;
