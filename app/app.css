@@ -238,6 +238,12 @@ label.field > span { display: block; font-size: 12px; font-weight: 600; color: v
 .pcard .img .chip { position: absolute; left: 8px; top: 8px; }
 .pcard .sold { position: absolute; right: 8px; bottom: 8px; background: rgba(15, 12, 26, .82); color: #fff; font-weight: 700; font-size: 12px; padding: 4px 8px; border-radius: 8px; }
 .pcard .body { padding: 10px; }
+.pcard .est-tag { position: absolute; right: 8px; top: 8px; background: rgba(255, 255, 255, .92); color: #6b5b00; border: 1px solid #e8d77a; font-size: 11px; font-weight: 700; padding: 3px 7px; border-radius: 999px; }
+.pcard.estimate .sold { background: rgba(70, 62, 30, .82); }
+.pcard.archived { opacity: .45; filter: grayscale(.6); }
+.pcard-wrap { position: relative; display: flex; flex-direction: column; }
+.pcard-wrap .pcard { flex: 1; }
+.archive-box { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--muted, #6b6880); cursor: pointer; }
 .pcard .title { font-size: 13px; font-weight: 600; line-height: 1.3; height: 34px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .pcard .nums { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .pcard .nums b { display: block; color: var(--ink); font-size: 14px; }

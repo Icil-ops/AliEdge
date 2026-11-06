@@ -1759,10 +1759,17 @@ const handlers = {
   "watch:list": async () => getList(WATCH_KEY),
   "watch:add": async ({ entry }) => addWatch(entry),
   "watch:remove": async ({ key }) => removeWatch(key),
-  "catalog": async ({ filters = {} }) => sb.rpc("aliedge_catalog", {
-    _search: filters.search || null, _platform: filters.platform || null, _category: filters.category || null,
-    _sort: filters.sort || "sold", _min_sold: filters.minSold || 0, _limit: filters.limit || 30, _offset: filters.offset || 0,
-  }),
+  "catalog": async ({ filters = {} }) => {
+    const args = {
+      _search: filters.search || null, _platform: filters.platform || null, _category: filters.category || null,
+      _sort: filters.sort || "sold", _min_sold: filters.minSold || 0, _limit: filters.limit || 30, _offset: filters.offset || 0,
+    };
+    // v2 : estimations (annonces similaires) sur demande, produits archivés visibles par l'admin seulement.
+    try { return await sb.rpc("aliedge_catalog_v2", { ...args, _estimates: !!filters.estimates }); }
+    catch { return sb.rpc("aliedge_catalog", args); }
+  },
+  // Admin : archiver un produit du catalogue (il n'est plus visible que par l'admin).
+  "catalog:archive": async ({ productId, archived }) => sb.rpc("aliedge_set_archived", { _product_id: productId, _archived: !!archived }),
   "catalog:items": async ({ productId }) => sb.rpc("aliedge_product_items", { _product_id: productId }),
   // Photos d'une annonce à déposer sur un autre site : lues directement si le site d'images le permet,
   // sinon par le serveur Barapics (CDN Vinted et fournisseurs seulement). Renvoyées en base64 (8 max).

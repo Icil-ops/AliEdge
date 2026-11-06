@@ -35,7 +35,7 @@ const state = {
   query: "",
   shipping: 0,
   priceOverride: null,
-  catalog: { filters: { sort: "sold", platform: "", search: "" }, rows: [], loading: false, error: null, total: 0 },
+  catalog: { filters: { sort: "sold", platform: "", search: "", estimates: (() => { try { return localStorage.getItem("ae_estimates") === "1"; } catch { return false; } })() }, rows: [], loading: false, error: null, total: 0 },
   // Achat malin (fiche fournisseur ouverte)
   smart: { key: null, history: null, historyErr: null, review: null, reviewBusy: false, reviewErr: null, coupons: null, pageCoupons: [], compareBusy: false, open: { review: false } },
   // Recherche par image
@@ -773,7 +773,7 @@ function viewCatalogue() {
   const head = `
     <div class="stack">
       ${productsNav("catalogue")}
-      <p class="small muted intro">Seulement des produits AliExpress, Temu et Shein dont la vente sur Vinted est prouvée : même photo, confirmation d'un membre ou vérification stricte. La liste grandit chaque jour.</p>
+      <p class="small muted intro">Par défaut, seulement des produits AliExpress, Temu et Shein dont la vente sur Vinted est prouvée (même photo ou confirmation d'un membre). La liste grandit chaque jour.</p>
       <div class="filters">
         <label class="sr-only" for="csearch">Rechercher</label>
         <input id="csearch" class="input" type="search" placeholder="Rechercher un produit…" value="${esc(f.search)}">
@@ -785,6 +785,7 @@ function viewCatalogue() {
         </select>
       </div>
       <div class="seg" role="group" aria-label="Trier">${sorts.map(([k, l]) => `<button type="button" data-sort="${k}" aria-pressed="${f.sort === k}">${l}</button>`).join("")}</div>
+      <label class="switch" style="padding:0;border:0" title="Ajoute les produits dont on n'a pas encore de preuve, avec les chiffres d'annonces Vinted qui se ressemblent (hors grandes marques)"><span><b>Afficher aussi les estimations</b><br><span class="small muted">Produits non prouvés : chiffres d'annonces similaires</span></span><input type="checkbox" id="cestimates" ${f.estimates ? "checked" : ""}></label>
       <section class="picks" id="picks" aria-label="Sélection VintedDrop"></section>
       <details class="card pad trends fold" id="trends">
         <summary><b>Tendances du marché Vinted</b><span class="small muted">30 derniers jours</span></summary>
@@ -810,23 +811,32 @@ function viewCatalogue() {
   } else if (!c.rows.length) {
     body = `<div class="card empty">${ICON.tag}<h2>Le catalogue se remplit</h2><p class="muted">Un produit n'apparaît ici que si sa vente est prouvée, pour ne jamais te montrer une fausse piste. Tu peux l'aider : sur une vente Vinted (liste « Ventes Vinted constatées » plus bas), clique « Trouver le fournisseur » puis relie le bon produit. Il sert ensuite à tous les membres.</p></div>`;
   } else {
-    body = `<div class="cat-grid">${c.rows.map((r, i) => `
-      <button type="button" class="pcard ${r.locked ? "locked" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms">
+    const admin = !!state.me?.admin;
+    body = `<div class="cat-grid">${c.rows.map((r, i) => {
+      const est = !!r.estimate;
+      const sold = r.sold_30d ? `${r.sold_30d} vendu${r.sold_30d > 1 ? "s" : ""} / 30 j` : r.sold_total ? `${r.sold_total} vendu${r.sold_total > 1 ? "s" : ""}` : `${r.active_count} en vente`;
+      const card = `
+      <button type="button" class="pcard ${r.locked ? "locked" : ""} ${est ? "estimate" : ""} ${r.archived ? "archived" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms"${est ? ` title="Estimation : chiffres d'annonces Vinted similaires, pas des ventes prouvées de ce produit"` : ""}>
         <div class="img">
           ${r.image_url ? `<img src="${safeUrl(r.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : (r.vinted_photos?.[0] ? `<img src="${safeUrl(r.vinted_photos[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : "")}
           ${chip(r.platform)}
-          <span class="sold num">${r.sold_30d ? `${r.sold_30d} vendu${r.sold_30d > 1 ? "s" : ""} / 30 j` : r.sold_total ? `${r.sold_total} vendu${r.sold_total > 1 ? "s" : ""}` : `${r.active_count} en vente`}</span>
+          ${est ? `<span class="est-tag">Estimation</span>` : ""}
+          <span class="sold num">${est ? `≈ ${sold} (similaires)` : sold}</span>
         </div>
         <div class="body">
           <div class="title">${esc(r.title)}</div>
           <div class="nums">
             <span>Achat<b class="num">${eur(r.price)}</b></span>
-            <span>Vinted<b class="num">${eur(r.median_sold_price ?? r.median_active_price)}</b></span>
-            <span>Marge<b class="num gain">${eur(r.est_margin, true)}</b></span>
+            <span>Vinted${est ? " ≈" : ""}<b class="num">${eur(r.median_sold_price ?? r.median_active_price)}</b></span>
+            <span>Marge${est ? " ≈" : ""}<b class="num gain">${eur(r.est_margin, true)}</b></span>
           </div>
         </div>
         ${r.locked ? `<div class="lock"><span>Pro</span></div>` : ""}
-      </button>`).join("")}</div>
+      </button>`;
+      return admin
+        ? `<div class="pcard-wrap">${card}<label class="archive-box" title="Archivé : visible par toi seul"><input type="checkbox" data-archive="${esc(r.product_id)}" ${r.archived ? "checked" : ""}> Archiver</label></div>`
+        : card;
+    }).join("")}</div>
       ${c.rows.length < c.total ? `<button id="more" class="btn block" type="button" ${c.loading ? "disabled" : ""}>Voir plus</button>` : ""}`;
   }
   return head + `<div style="margin-top:12px">${body}</div><section class="stack" id="salesfeed" style="margin-top:22px" aria-label="Ventes Vinted constatées"></section>`;
@@ -1058,6 +1068,26 @@ function bindCatalogue() {
   });
   document.getElementById("cplatform")?.addEventListener("change", (e) => { c.filters.platform = e.target.value; loadCatalog(); });
   document.querySelectorAll("[data-sort]").forEach((b) => b.addEventListener("click", () => { c.filters.sort = b.dataset.sort; loadCatalog(); }));
+  document.getElementById("cestimates")?.addEventListener("change", (e) => {
+    c.filters.estimates = e.currentTarget.checked;
+    try { localStorage.setItem("ae_estimates", c.filters.estimates ? "1" : "0"); } catch { /* ignoré */ }
+    loadCatalog();
+  });
+  // Admin : archiver / désarchiver un produit (les membres ne le voient plus).
+  document.querySelectorAll("[data-archive]").forEach((box) => box.addEventListener("change", async (e) => {
+    const el = e.currentTarget;
+    const id = el.dataset.archive;
+    const archived = el.checked;
+    el.disabled = true;
+    try {
+      await api("catalog:archive", { productId: id, archived });
+      const row = c.rows.find((x) => x.product_id === id);
+      if (row) row.archived = archived;
+      el.closest(".pcard-wrap")?.querySelector(".pcard")?.classList.toggle("archived", archived);
+      toast(archived ? "Produit archivé : les membres ne le voient plus" : "Produit visible à nouveau");
+    } catch (err) { el.checked = !archived; toast(err.message); }
+    el.disabled = false;
+  }));
   document.getElementById("more")?.addEventListener("click", () => loadCatalog(true));
   document.getElementById("vintedimport")?.addEventListener("submit", async (e) => {
     e.preventDefault();
