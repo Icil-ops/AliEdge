@@ -146,13 +146,39 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     return [...new Set(urls)].slice(0, 10);
   }
 
+  // Vendeur : lien de son profil dans l'encadré de l'annonce (jamais l'avatar de l'en-tête, qui est le membre connecté).
+  // Sur la page d'une annonce À SOI, Vinted n'affiche pas d'encadré vendeur : null.
+  const pageSeller = () => [...document.querySelectorAll('a[href*="/member/"]')]
+    .filter((x) => !x.closest('header, nav, [class*="header" i], a[href*="/items/"], [data-testid*="item-box"], [class*="feed" i]'))
+    .map((x) => Number((x.getAttribute("href") || "").match(/\/member\/(\d+)/)?.[1]))
+    .find(Boolean) || null;
+  // Membre connecté : lien de son profil dans l'en-tête (menu du compte).
+  const selfId = () => [...document.querySelectorAll('header a[href*="/member/"], nav a[href*="/member/"], [class*="header" i] a[href*="/member/"]')]
+    .map((x) => Number((x.getAttribute("href") || "").match(/\/member\/(\d+)/)?.[1]))
+    .find(Boolean) || null;
+
+  /**
+   * L'annonce est-elle au membre ? On regarde pendant ~8 s (boutons et statistiques du vendeur s'affichent tard).
+   * Jamais d'envoi vers la base commune tant que ce n'est pas tranché, et jamais sans vendeur identifié.
+   */
+  async function ownership() {
+    let sellerId = null;
+    for (let k = 0; k < 8; k++) {
+      if (ownerControls()) return { own: true, sellerId: pageSeller() };
+      sellerId = pageSeller() || sellerId;
+      const me = selfId();
+      if (sellerId && me && sellerId === me) return { own: true, sellerId };
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (sellerId) {
+      try { const r = await chrome.runtime.sendMessage({ type: "vinted:isOwn", sellerId }); if (r?.data?.own) return { own: true, sellerId }; } catch { return { own: true, sellerId }; }
+    }
+    return { own: false, sellerId };
+  }
+
   async function crossPost(item, raw, retry = 6) {
     if (!mountedMenu || mountedMenu.dataset.lbc) return;
-    // Vendeur : lien de son profil dans l'encadré de l'annonce (jamais l'avatar de l'en-tête, qui est le membre connecté).
-    const domSeller = [...document.querySelectorAll('a[href*="/member/"]')]
-      .filter((x) => !x.closest('header, nav, [class*="header" i], a[href*="/items/"], [data-testid*="item-box"], [class*="feed" i]'))
-      .map((x) => Number((x.getAttribute("href") || "").match(/\/member\/(\d+)/)?.[1]))
-      .find(Boolean) || null;
+    const domSeller = pageSeller();
     const sellerId = Number(raw?.user_id ?? raw?.user?.id) || domSeller;
     const byPage = ownerControls();
     let own = byPage;
@@ -218,14 +244,24 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
   }
 
   async function run() {
+    const path = location.pathname;
     const item = readItem();
     if (!item) return;
     mount(item);
     const raw = await details(item.vinted_id);
     crossPost(item, raw).catch(() => {});
+    // Annonce du membre (la sienne) : jamais dans la base commune, enregistrée comme « à lui » (effacée si elle y était).
+    // Annonce sans vendeur identifiable : jamais envoyée (c'est le cas de sa propre annonce, sans encadré vendeur).
+    const who = await ownership();
+    if (location.pathname !== path) return;
     try {
-      if (raw) chrome.runtime.sendMessage({ type: "vinted:item", item, raw });
-      else if (item.status || item.price != null) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, status: item.status || "active" } });
+      if (who.own) {
+        chrome.runtime.sendMessage({ type: "vinted:ownItems", items: [{ ...item, status: item.status === "sold" ? "sold" : "active" }], single: true, sellerId: who.sellerId, market: location.hostname.split(".").pop() });
+        return;
+      }
+      if (!who.sellerId) return;
+      if (raw) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, seller_id: who.sellerId }, raw });
+      else if (item.status || item.price != null) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, seller_id: who.sellerId, status: item.status || "active" } });
     } catch { /* extension rechargée */ }
   }
 

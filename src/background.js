@@ -1089,7 +1089,9 @@ async function reportVintedItem(item, raw = null) {
     if (!item.status) return;
     item = { ...item, visited: true, isbn: vinted.cleanIsbn(item.isbn) };
   }
-  if (item.seller_id && (await ownSellerIds()).has(Number(item.seller_id))) { registerOwnItems([item.vinted_id], item.seller_id, item.market).catch(() => {}); return; }
+  // Vendeur inconnu (sa propre annonce n'en affiche pas) : jamais envoyée dans la base commune.
+  if (!item.seller_id) return;
+  if ((await ownSellerIds()).has(Number(item.seller_id))) { registerOwnItems([item.vinted_id], item.seller_id, item.market).catch(() => {}); return; }
   if ((await ownItemIds()).has(Number(item.vinted_id))) return;
   const last = reported.get(item.vinted_id);
   if (last && Date.now() - last < 6 * 3600_000) return;
@@ -1887,10 +1889,11 @@ const handlers = {
   },
   // Annonces Vinted du membre déjà publiées ailleurs (repère sur Vinted).
   // Profil Vinted du membre ouvert : ses annonces en ligne (pour « Reposter sur un autre site »).
-  "vinted:ownItems": async ({ items = [], sellerId = null, market = "fr" }) => {
+  "vinted:ownItems": async ({ items = [], sellerId = null, market = "fr", single = false }) => {
     const list = (Array.isArray(items) ? items : []).slice(0, 300).map((i) => ({ vinted_id: Number(i.vinted_id), title: String(i.title || "").slice(0, 200), price: Number(i.price) || null, photo_url: /^https:\/\//.test(i.photo_url || "") ? i.photo_url : null, url: /^https:\/\//.test(i.url || "") ? i.url : null, status: i.status === "sold" ? "sold" : "active" })).filter((i) => i.vinted_id > 0);
     if (sellerId) await addOwnSeller(Number(sellerId), MARKETS[market] ? market : "fr");
-    if (list.length) await chrome.storage.local.set({ ae_own_items: { at: Date.now(), market: MARKETS[market] ? market : "fr", items: list } });
+    // Page d'une seule annonce : on ne remplace pas la liste du dressing.
+    if (list.length && !single) await chrome.storage.local.set({ ae_own_items: { at: Date.now(), market: MARKETS[market] ? market : "fr", items: list } });
     await registerOwnItems(list.map((i) => i.vinted_id), sellerId, market);
     return { saved: list.length };
   },
