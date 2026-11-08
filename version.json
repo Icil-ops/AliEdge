@@ -1,7 +1,7 @@
 {
-  "version": "3.7.0",
-  "notes": "Liens partenaires AliExpress, Temu et Shein (même prix, désactivables dans les réglages). Leboncoin et Facebook Marketplace actifs dès l'installation.",
+  "version": "3.8.0",
+  "notes": "Depop : reposter tes annonces Vinted sur Depop en 1 clic (une par une, en série ou avec « Reposter partout ») ; AliEdge remplit description, prix, photos, catégorie, marque, état, couleur et taille",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-05",
+  "releaseDate": "2026-11-08",
   "minVersion": "3.0.0"
 }
