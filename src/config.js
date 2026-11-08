@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS = {
   autoSupplier: true,
   sellAddress: "",
   affiliateLinks: true,      // liens partenaires AliExpress/Temu/Shein au clic sur un lien fournisseur dans AliEdge (même prix, désactivable)
+  depop: true,               // Depop activé (si l'accès à depop.com est accordé)
   facebook: true,            // effectif seulement après l'accès à facebook.com accordé (Compte)
   autoPublish_beebs: false,  // publication automatique quand tout est rempli (à cocher soi-même)
   autoPublish_opla: false,           // adresse demandée par certains sites de revente (Beebs…), jamais envoyée à AliEdge        // produits des recherches AliExpress/Temu/Shein ajoutés automatiquement au catalogue

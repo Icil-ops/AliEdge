@@ -41,6 +41,14 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     product: /(?!)/, shopPage: /(?!)/, sellerLink: "a[data-ae-never]", sellerId: /(?!)/, itemLink: "a[data-ae-never]", itemId: /(?!)/,
     total: () => null, sellPage: () => /^\/marketplace\/create/.test(location.pathname), sellUrl: "/marketplace/create/item?ae=sell",
   };
+  // Depop : outils fournisseur sur un article, et remplissage du formulaire de vente (pas de champ titre :
+  // le titre ouvre la description). Pas de suivi de boutique.
+  SITES.depop = {
+    host: /(^|\.)depop\.com$/, label: "Depop", shop: "boutique", home: "/",
+    product: /^\/(?:[a-z]{2}\/)?products\/(?!create)([a-z0-9][a-z0-9-]{2,200})\/?$/, shopPage: /(?!)/,
+    sellerLink: "a[data-ae-never]", sellerId: /(?!)/, itemLink: "a[data-ae-never]", itemId: /(?!)/,
+    total: () => null, sellPage: () => /^\/(?:[a-z]{2}\/)?products\/create/.test(location.pathname), sellUrl: "/products/create/?ae=sell",
+  };
   const CH = Object.keys(SITES).find((k) => SITES[k].host.test(location.hostname));
   if (!CH) return;
   const S = SITES[CH];
@@ -507,7 +515,8 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     if (!ui) return;
     const { panel } = ui;
     panel.hidden = false;
-    const vals = { title: l.title, body: l.description, price: l.price ? String(Math.round(l.price)) : "", brand: l.brand || "" };
+    const depopBody = CH === "depop" ? [l.title, l.description].filter(Boolean).join("\n\n").slice(0, 1000) : null;
+    const vals = { title: l.title, body: depopBody ?? l.description, price: l.price ? String(Math.round(l.price)) : "", brand: l.brand || "" };
     const f = (k, label, v) => v ? `<div class="f"><b>${esc(label)}</b><div>${esc(v)}</div><button class="b" type="button" data-copy="${k}">Copier</button></div>` : "";
     const q = l.queue;
     panel.innerHTML = `<h4>Annonce AliEdge pour ${S.label}${q ? ` · ${q.index + 1} / ${q.total}` : ""}</h4>

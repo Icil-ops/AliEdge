@@ -1963,6 +1963,7 @@ async function enableLbc() {
 const CHANNELS = {
   beebs: { label: "Beebs", host: "beebs.app", perm: { origins: ["https://www.beebs.app/*", "https://beebs.app/*"] }, shop: "boutique", shopUrl: (u) => `https://www.beebs.app/fr/dressing/${encodeURIComponent(u)}`, shopRe: /beebs\.app\/[a-z]{2}\/dressing\/([A-Za-z0-9_-]{10,64})/, placeholder: "https://www.beebs.app/fr/dressing/…" },
   facebook: { label: "Facebook", host: "facebook.com", perm: { origins: ["https://www.facebook.com/*"] }, fillOnly: true, desc: "Reposter une annonce Vinted sur Facebook Marketplace : AliEdge remplit le formulaire, tu publies. Meta exige une expédition sous 3 jours : seulement pour des articles déjà en stock à la warehouse. AliEdge ne lit aucune autre page Facebook." },
+  depop: { label: "Depop", host: "depop.com", perm: { origins: ["https://www.depop.com/*", "https://depop.com/*"] }, fillOnly: true, series: true, desc: "Reposter tes annonces Vinted sur Depop, une par une ou en série : AliEdge remplit le formulaire de vente (description, prix, photos, catégorie, état, taille), tu vérifies et tu publies." },
   opla: { label: "Opla", host: "opla.co", perm: { origins: ["https://www.opla.co/*", "https://opla.co/*"] }, shop: "boutique", shopUrl: (u) => `https://www.opla.co/seller/${encodeURIComponent(u)}`, shopRe: /opla\.co\/(?:[a-z]{2}\/)?seller\/([^/?#\s]{6,160})/, placeholder: "https://www.opla.co/seller/…" },
 };
 const BEEBS_PERM = CHANNELS.beebs.perm;
@@ -2279,7 +2280,7 @@ function bindSales() {
 // ───────────────────────── Beebs, canal de vente en plus : reposter ses annonces Vinted en série
 // Sites où reposter ses annonces Vinted en série : Beebs, Opla et Leboncoin.
 // Facebook : une annonce à la fois depuis Vinted, pas de série.
-const REPOST_CH = { ...Object.fromEntries(Object.entries(CHANNELS).filter(([, C]) => !C.fillOnly)), lbc: { label: "Leboncoin" } };
+const REPOST_CH = { ...Object.fromEntries(Object.entries(CHANNELS).filter(([, C]) => !C.fillOnly || C.series)), lbc: { label: "Leboncoin" } };
 const repost = { state: "idle", items: [], sel: new Set(), error: "", market: "fr", ch: "beebs" };
 function repostHtml() {
   let body;

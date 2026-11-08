@@ -1222,6 +1222,8 @@ const CHANNELS = {
   beebs: { label: "Beebs", origins: ["https://www.beebs.app/*", "https://beebs.app/*"], uid: /^[A-Za-z0-9_-]{10,64}$/, sell: "https://www.beebs.app/fr?ae=sell", shop: "boutique" },
   opla: { label: "Opla", origins: ["https://www.opla.co/*", "https://opla.co/*"], uid: /^[A-Za-z0-9|._%:-]{6,120}$/, sell: "https://www.opla.co/sell/create?ae=sell", shop: "boutique" },
   // Facebook Marketplace : remplissage du formulaire seulement (aucune lecture des autres pages Facebook, pas de concurrents).
+  // Depop : remplissage du formulaire de vente (une annonce ou en série), outils fournisseur sur les articles.
+  depop: { label: "Depop", origins: ["https://www.depop.com/*", "https://depop.com/*"], uid: /^[A-Za-z0-9._-]{2,40}$/, sell: "https://www.depop.com/products/create/?ae=sell", shop: "boutique", fillOnly: true },
   facebook: { label: "Facebook", origins: ["https://www.facebook.com/*"], matches: ["https://www.facebook.com/marketplace/*"], uid: /^\d{5,25}$/, sell: "https://www.facebook.com/marketplace/create/item?ae=sell", shop: "page", fillOnly: true },
 };
 const XPOST_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/xpost.js"];
@@ -1845,7 +1847,7 @@ const handlers = {
   "settings:autoPublish": async ({ ch }) => ["beebs", "opla"].includes(ch) && (await getSettings())[`autoPublish_${ch}`] === true,
   "xpost:all": async ({ listing }) => {
     const out = {};
-    for (const ch of ["beebs", "opla"]) out[ch] = (await channelHandlerMap[`${ch}:open`]({ listing })).enabled;
+    for (const ch of ["beebs", "opla", "depop"]) out[ch] = (await channelHandlerMap[`${ch}:open`]({ listing })).enabled;
     out.lbc = (await lbcOpen(listing)).enabled;
     return out;
   },
@@ -1886,8 +1888,8 @@ const handlers = {
     return { saved: list.length };
   },
   "vinted:postedIds": async () => {
-    const g = await chrome.storage.local.get(["ae_beebs_posted", "ae_opla_posted", "ae_lbc_posted", "ae_facebook_posted"]);
-    return { beebs: Object.keys(g.ae_beebs_posted || {}), opla: Object.keys(g.ae_opla_posted || {}), lbc: Object.keys(g.ae_lbc_posted || {}), facebook: Object.keys(g.ae_facebook_posted || {}) };
+    const g = await chrome.storage.local.get(["ae_beebs_posted", "ae_opla_posted", "ae_lbc_posted", "ae_facebook_posted", "ae_depop_posted"]);
+    return { beebs: Object.keys(g.ae_beebs_posted || {}), opla: Object.keys(g.ae_opla_posted || {}), lbc: Object.keys(g.ae_lbc_posted || {}), facebook: Object.keys(g.ae_facebook_posted || {}), depop: Object.keys(g.ae_depop_posted || {}) };
   },
   "lbc:saveListing": async ({ listing }) => { await saveLbcListing(listing); return {}; },
   // Produit fournisseur relié à une annonce (titre) : pour « Confier à la warehouse » depuis Leboncoin.
