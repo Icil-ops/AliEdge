@@ -191,6 +191,34 @@ await ctx.route("**/*", async (route) => {
       </script></body></html>`);
     return html(`<title>Opla</title></head><body>${head}<h1>Opla</h1></body></html>`);
   }
+  // Depop : formulaire de vente comme sur depop.com (anglais) — champs à saisie (combobox) dont les options sont
+  // groupées par section (« Women > Tops »), la taille n'apparaît qu'après la catégorie, 5 hashtags au maximum.
+  if (h === "www.depop.com") {
+    if (url.pathname.startsWith("/products/create")) return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Depop</title></head><body><main>
+      <h1>List an item</h1><label for="upload-input__input">Add a photo</label><input type="file" id="upload-input__input" accept="image/jpeg, image/png" multiple>
+      <label for="description">Description</label><textarea id="description" name="description"></textarea><p id="error-description"></p>
+      <div id="cats"><label for="group-input">Category</label><input id="group-input" role="combobox" aria-controls="group-menu"><ul id="group-menu" role="listbox"></ul></div>
+      <div><label for="brand-input">Brand</label><input id="brand-input" role="combobox"><ul id="brand-menu" role="listbox"></ul></div>
+      <div><label for="condition-input">Condition</label><input id="condition-input" role="combobox"><ul id="condition-menu" role="listbox"></ul></div>
+      <div><label for="colour-input">Color</label><input id="colour-input" role="combobox"><ul id="colour-menu" role="listbox"></ul></div>
+      <div id="sizebox" hidden><label for="variants-input">Size</label><input id="variants-input" role="combobox"><ul id="variants-menu" role="listbox"></ul></div>
+      <label for="priceAmount__input">Item price</label><input type="number" id="priceAmount__input" value="0.00">
+      <label for="nationalShippingCost__input">Shipping price</label><input type="number" id="nationalShippingCost__input" value="0.00">
+      <button type="button">Continue</button></main>
+      <script>
+        const L = { group: [["Men > Tops", ["Hoodies", "Sweatshirts", "Sweaters"]], ["Women > Tops", ["Hoodies", "Sweatshirts", "Sweaters"]], ["Kids > Tops", ["Hoodies", "Sweatshirts"]], ["Everything else > Home", ["Dinnerware", "Home accessories"]]],
+          brand: [["", ["Nike", "Nike ACG", "Anniken Ovrebo"]]], condition: [["", ["Brand new", "Like new", "Used - Excellent", "Used - Good", "Used - Fair"]]],
+          colour: [["", ["Black", "Grey", "Brown", "Tan"]]], variants: [["", ["One size", "XS", "S", "M", "L", "XL"]]] };
+        for (const k of Object.keys(L)) {
+          const el = document.getElementById(k + "-input"), menu = document.getElementById(k + "-menu");
+          const draw = () => { const q = el.value.toLowerCase(); menu.innerHTML = L[k].map(([h, opts]) => { const o = opts.filter((x) => !q || x.toLowerCase().includes(q)); return o.length ? "<div>" + (h ? "<div>" + h + "</div>" : "") + o.map((x) => '<li role="option">' + x + "</li>").join("") + "</div>" : ""; }).join("");
+            menu.querySelectorAll("[role=option]").forEach((li) => li.onclick = () => { const head = li.parentElement.firstElementChild.tagName === "DIV" ? li.parentElement.firstElementChild.textContent : ""; el.dataset.v = (head ? head + " :: " : "") + li.textContent; el.value = k === "colour" ? "" : li.textContent; menu.innerHTML = ""; if (k === "group") document.getElementById("sizebox").hidden = false; }); };
+          el.addEventListener("click", draw); el.addEventListener("input", draw);
+        }
+        document.getElementById("description").addEventListener("input", (e) => { document.getElementById("error-description").textContent = (e.target.value.match(/#\\w/g) || []).length > 5 ? "You cannot have more than 5 hashtags" : ""; });
+      </script></body></html>` });
+    return route.fulfill({ contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Depop</title><h1>Depop</h1>" });
+  }
   // Facebook Marketplace : formulaire « Créer une annonce » (champs dans des <label>, listes en combobox).
   if (h === "www.facebook.com") {
     // Pages ouvertes sur Facebook (Chrome fait aussi ses propres appels en CI : /ajax/qm, /data/manifest).
@@ -1015,15 +1043,28 @@ async function extTab(before, flowUrl, finalRe) {
   await fb?.close();
 }
 
+// Depop : formulaire de vente rempli (description avec le titre et 5 hashtags max, prix, catégorie dans la bonne section,
+// marque, état, couleur, taille, photos).
+{
+  const before = new Set(ctx.pages());
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "depop:open", listing: { title: "Sweat à capuche Nike gris", description: "Très bon état.\n\n#nike #sweat #hoodie #vintage #streetwear #gris #homme", price: 24, brand: "Nike", condition: "Très bon état", color: "Gris", size: "M", categoryPath: ["Hommes", "Vêtements", "Sweats et pulls", "Sweats à capuche"], photos: ["https://images1.vinted.net/t/0.jpeg", "https://images1.vinted.net/t/1.jpeg"] } }));
+  const dp = await extTab(before, "https://www.depop.com/products/create/?ae=sell", /depop\.com\/products\/create/);
+  await dp?.waitForFunction(() => document.getElementById("upload-input__input")?.files.length && document.getElementById("variants-input")?.dataset.v, null, { timeout: 25000 }).catch(() => {});
+  const f = dp ? await dp.evaluate(() => ({ d: document.getElementById("description").value, err: document.getElementById("error-description").textContent, p: document.getElementById("priceAmount__input").value, ship: document.getElementById("nationalShippingCost__input").value, cat: document.getElementById("group-input").dataset.v, b: document.getElementById("brand-input").dataset.v, c: document.getElementById("condition-input").dataset.v, col: document.getElementById("colour-input").dataset.v, sz: document.getElementById("variants-input").dataset.v, ph: document.getElementById("upload-input__input").files.length, type: document.getElementById("upload-input__input").files[0]?.type })) : {};
+  check("Depop : formulaire rempli (titre en tête de description, 5 hashtags max, prix, catégorie Men > Tops, marque, état, couleur, taille, photos)", /^Sweat à capuche Nike gris\n\nTrès bon état\./.test(f.d || "") && (f.d.match(/#/g) || []).length === 5 && !f.err && f.p === "24" && f.ship === "0.00" && f.cat === "Men > Tops :: Hoodies" && f.b === "Nike" && f.c === "Used - Excellent" && f.col === "Grey" && f.sz === "M" && f.ph === 2 && /^image\/(jpeg|png)$/.test(f.type || ""), JSON.stringify(f));
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: "depop:clearListing", posted: false }));
+  await dp?.close();
+}
+
 // « Reposter partout » : Beebs, Opla et Leboncoin s'ouvrent ensemble, chacun avec l'annonce.
 {
   const before = new Set(ctx.pages());
   const r = await page.evaluate(() => chrome.runtime.sendMessage({ type: "xpost:all", listing: { title: "Gilet laine bébé", description: "Tout doux.", price: 9, photos: [] } }));
   await page.waitForTimeout(3000);
   const opened = ctx.pages().filter((p) => !before.has(p)).map((p) => p.url());
-  check("« Reposter partout » ouvre Beebs, Opla et Leboncoin avec l'annonce", r?.data?.beebs && r?.data?.opla && r?.data?.lbc && opened.length >= 3, JSON.stringify({ r: r?.data, opened }));
+  check("« Reposter partout » ouvre Beebs, Opla, Depop et Leboncoin avec l'annonce", r?.data?.beebs && r?.data?.opla && r?.data?.depop && r?.data?.lbc && opened.length >= 4, JSON.stringify({ r: r?.data, opened }));
   for (const p of ctx.pages()) if (!before.has(p)) await p.close();
-  for (const ch of ["beebs", "opla", "lbc"]) await page.evaluate((c) => chrome.runtime.sendMessage({ type: `${c}:clearListing`, posted: false }), ch);
+  for (const ch of ["beebs", "opla", "depop", "lbc"]) await page.evaluate((c) => chrome.runtime.sendMessage({ type: `${c}:clearListing`, posted: false }), ch);
 }
 
 // Opla : mêmes outils que Beebs (article, boutique d'un concurrent, « Publier sur Opla » qui remplit /sell/create).

@@ -41,6 +41,14 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     product: /(?!)/, shopPage: /(?!)/, sellerLink: "a[data-ae-never]", sellerId: /(?!)/, itemLink: "a[data-ae-never]", itemId: /(?!)/,
     total: () => null, sellPage: () => /^\/marketplace\/create/.test(location.pathname), sellUrl: "/marketplace/create/item?ae=sell",
   };
+  // Depop : outils fournisseur sur un article, et remplissage du formulaire de vente (pas de champ titre :
+  // le titre ouvre la description). Pas de suivi de boutique.
+  SITES.depop = {
+    host: /(^|\.)depop\.com$/, label: "Depop", shop: "boutique", home: "/",
+    product: /^\/(?:[a-z]{2}\/)?products\/(?!create)([a-z0-9][a-z0-9-]{2,200})\/?$/, shopPage: /(?!)/,
+    sellerLink: "a[data-ae-never]", sellerId: /(?!)/, itemLink: "a[data-ae-never]", itemId: /(?!)/,
+    total: () => null, sellPage: () => /^\/(?:[a-z]{2}\/)?products\/create/.test(location.pathname), sellUrl: "/products/create/?ae=sell",
+  };
   const CH = Object.keys(SITES).find((k) => SITES[k].host.test(location.hostname));
   if (!CH) return;
   const S = SITES[CH];
@@ -499,6 +507,68 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     return [...document.querySelectorAll("label input[type=text], label textarea")].find((el) => visibleField(el) && re.test(pnorm(el.closest("label")?.textContent || "")));
   }
 
+  // ───────── Depop : listes à saisie (combobox) — on tape, puis on clique l'option (catégorie selon la section
+  // Men / Women / Kids / Everything else). Le site est en anglais : catégories, états et couleurs traduits.
+  const DEPOP_CAT = [
+    [/sweat.{0,12}capuche|hoodie/, "Hoodies"], [/sweat/, "Sweatshirts"], [/cardigan|gilet(?!.{0,4}sans)/, "Cardigans"], [/pull|tricot/, "Sweaters"],
+    [/t-?shirt|tee/, "T-shirts"], [/polo/, "Polo shirts"], [/chemis|blouse/, "Shirts"], [/debardeur|caraco|crop|top/, "Tank tops and camis"],
+    [/jean/, "Jeans"], [/jogging|survetement/, "Sweatpants"], [/legging/, "Leggings"], [/short/, "Shorts"], [/jupe/, "Skirts"], [/pantalon|chino|cargo/, "Pants"],
+    [/robe/, "Dresses"], [/sans manche/, "Vests"], [/manteau|trench|parka|caban/, "Coats"], [/doudoune|blouson|veste|bomber|coupe-vent/, "Jackets"], [/combinaison|salopette/, "Jumpsuits"],
+    [/basket|sneaker/, "Sneakers"], [/bottine|botte/, "Boots"], [/sandale/, "Sandals"], [/mocassin/, "Loafers"], [/escarpin/, "Pumps"], [/claquette/, "Slides"], [/chaussure/, "Other"],
+    [/sac/, "Bags"], [/ceinture/, "Belts"], [/casquette|chapeau|bonnet|bob/, "Hats and caps"], [/echarpe|foulard|etole/, "Scarves and wraps"], [/lunette/, "Sunglasses"],
+    [/portefeuille|porte-?carte/, "Wallets and cardholders"], [/bijou|collier|bracelet|bague|boucle/, "Jewelry"], [/montre/, "Watches"],
+    [/maillot de bain|bikini/, "Swimsuits"],
+    [/coussin|plaid|linge|rideau|tapis|couverture/, "Soft furnishings and textiles"], [/vaisselle|assiette|verre|tasse|mug/, "Dinnerware"], [/meuble|chaise|table basse/, "Furniture"],
+    [/rangement|boite|panier/, "Storage and organisation"], [/decoration|deco|noel|creche|bougie|vase|cadre|maison/, "Home accessories"],
+    [/livre|roman|bd\b|manga/, "Books"], [/magazine/, "Magazines"], [/vinyle|cd\b/, "CDs and vinyl"], [/parfum/, "Fragrance"], [/maquillage/, "Makeup"], [/coque/, "Phone cases"],
+  ];
+  const DEPOP_COND = [[/neuf avec/, "Brand new"], [/neuf sans|comme neuf/, "Like new"], [/tres bon/, "Used - Excellent"], [/bon etat/, "Used - Good"], [/satisfaisant|correct|use/, "Used - Fair"]];
+  const DEPOP_COLOR = [[/noir/, "Black"], [/gris/, "Grey"], [/blanc/, "White"], [/marron|chocolat/, "Brown"], [/beige|camel/, "Tan"], [/creme|ecru/, "Cream"], [/jaune|moutarde/, "Yellow"], [/bordeaux/, "Burgundy"], [/rouge/, "Red"], [/orange|corail/, "Orange"], [/rose/, "Pink"], [/violet|mauve|lila/, "Purple"], [/marine/, "Navy"], [/bleu|turquoise/, "Blue"], [/kaki/, "Khaki"], [/vert/, "Green"], [/multi/, "Multi"], [/argent/, "Silver"], [/dore|or\b/, "Gold"]];
+  function depopSection(text) {
+    if (/\b(enfant|bebe|fille|garcon|kids?)\b/.test(text)) return "Kids";
+    if (/\bhommes?\b/.test(text)) return "Men";
+    if (/\bfemmes?\b/.test(text)) return "Women";
+    return null;
+  }
+  const depopHead = (o) => { let h = o.previousElementSibling; while (h && h.tagName === "LI") h = h.previousElementSibling; return clean(h?.textContent); };
+  async function depopCombo(id, query, accept) {
+    const el = document.getElementById(id);
+    if (!el || !visibleField(el)) return null;
+    el.scrollIntoView({ block: "center" }); el.focus(); el.click();
+    setValue(el, query);
+    await psleep(1100);
+    const opts = [...document.querySelectorAll(`#${id.replace(/-input$/, "-menu")} [role=option]`)];
+    const o = opts.find((x) => accept(clean(x.textContent), depopHead(x)));
+    if (!o) { setValue(el, ""); el.blur(); return null; }
+    o.click();
+    await psleep(500);
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); el.blur(); // liste à choix multiples (couleur) : on la referme
+    await psleep(300);
+    return clean(o.textContent);
+  }
+  async function depopFill(l) {
+    const rows = [];
+    const text = pnorm([...(l.categoryPath || []), l.category || "", l.title || ""].join(" "));
+    const leaf = DEPOP_CAT.find(([re]) => re.test(text))?.[1];
+    if (leaf) {
+      const home = ["Soft furnishings and textiles", "Dinnerware", "Furniture", "Storage and organisation", "Home accessories", "Books", "Magazines", "CDs and vinyl", "Fragrance", "Makeup", "Phone cases"].includes(leaf);
+      const sec = home ? "Everything else" : depopSection(pnorm([...(l.categoryPath || []), l.title || "", l.description || ""].join(" "))) || "Women";
+      const ok = await depopCombo("group-input", leaf === "Dresses" ? "dress" : leaf, (t, h) => h.startsWith(sec) && t.toLowerCase() === leaf.toLowerCase())
+        || await depopCombo("group-input", leaf, (t, h) => h.startsWith(sec));
+      if (ok) { rows.push("catégorie"); await psleep(900); }
+    }
+    if (l.brand && await depopCombo("brand-input", String(l.brand).slice(0, 40), (t) => t.toLowerCase() === String(l.brand).trim().toLowerCase())) rows.push("marque");
+    const cond = DEPOP_COND.find(([re]) => re.test(pnorm(l.condition || "")))?.[1];
+    if (cond && await depopCombo("condition-input", "", (t) => t === cond)) rows.push("état");
+    const col = DEPOP_COLOR.find(([re]) => re.test(pnorm(l.color || "")))?.[1];
+    if (col && await depopCombo("colour-input", "", (t) => t === col)) rows.push("couleur");
+    if (l.size) {
+      const sizes = /unique/i.test(l.size) ? ["ONE SIZE"] : String(l.size).toUpperCase().split(/[\/,|]|\s+/).map((x) => x.trim()).filter(Boolean);
+      if (await depopCombo("variants-input", "", (t) => sizes.includes(t.toUpperCase()))) rows.push("taille");
+    }
+    return rows;
+  }
+
   const isSellForm = () => S.sellPage() || (!!document.querySelector('input[type="file"]') && !!field("body"));
   let submittedAt = 0;
   async function mountSell(l) {
@@ -507,7 +577,14 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     if (!ui) return;
     const { panel } = ui;
     panel.hidden = false;
-    const vals = { title: l.title, body: l.description, price: l.price ? String(Math.round(l.price)) : "", brand: l.brand || "" };
+    // Depop : pas de champ titre (il ouvre la description), 1000 caractères et 5 hashtags au maximum.
+    const depopText = () => {
+      let n = 0;
+      const t = [l.title, l.description].filter(Boolean).join("\n\n").replace(/(^|\s)#[\p{L}\p{N}_]+/gu, (m) => (++n <= 5 ? m : ""));
+      return t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 1000);
+    };
+    const depopBody = CH === "depop" ? depopText() : null;
+    const vals = { title: l.title, body: depopBody ?? l.description, price: l.price ? String(Math.round(l.price)) : "", brand: l.brand || "" };
     const f = (k, label, v) => v ? `<div class="f"><b>${esc(label)}</b><div>${esc(v)}</div><button class="b" type="button" data-copy="${k}">Copier</button></div>` : "";
     const q = l.queue;
     panel.innerHTML = `<h4>Annonce AliEdge pour ${S.label}${q ? ` · ${q.index + 1} / ${q.total}` : ""}</h4>
@@ -558,14 +635,15 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
         }
       }
       for (const k of ["title", "body", "price"]) { const el = vals[k] && (field(k) || fieldNear(k)); if (el && isEmpty(el)) { setValue(el, vals[k]); n++; } }
-      const brandInput = vals.brand && field("brand");
+      const brandInput = CH !== "depop" && vals.brand && field("brand");
       if (brandInput && isEmpty(brandInput)) { setValue(brandInput, vals.brand); n++; }
       // Listes du site : la catégorie d'abord (elle fait apparaître taille, marque, état), puis le reste.
       const rows = [...fbRows];
-      if (CH !== "facebook" && l.categoryPath?.length && await pickCategory(l.categoryPath)) { rows.push("catégorie"); await psleep(1200); }
-      if (l.size && (await pickValue(/^taille\b/, [l.size]) || choose("size", [norm(l.size)]))) rows.push("taille");
-      if (l.brand && !brandInput && await pickValue(/^marque\b/, [l.brand], { search: true })) rows.push("marque");
-      if (l.condition && (await pickValue(/^(etat|condition)\b/, condWords(l.condition), { loose: CH === "facebook" }) || choose("condition", condWords(l.condition)))) rows.push("état");
+      if (CH === "depop") rows.push(...await depopFill(l));
+      else if (CH !== "facebook" && l.categoryPath?.length && await pickCategory(l.categoryPath)) { rows.push("catégorie"); await psleep(1200); }
+      if (CH !== "depop" && l.size && (await pickValue(/^taille\b/, [l.size]) || choose("size", [norm(l.size)]))) rows.push("taille");
+      if (CH !== "depop" && l.brand && !brandInput && await pickValue(/^marque\b/, [l.brand], { search: true })) rows.push("marque");
+      if (CH !== "depop" && l.condition && (await pickValue(/^(etat|condition)\b/, condWords(l.condition), { loose: CH === "facebook" }) || choose("condition", condWords(l.condition)))) rows.push("état");
       const addr = (await send({ type: "settings:sellAddress" }))?.data;
       if (addr && await fillAddress(addr)) rows.push("adresse");
       n += rows.length;

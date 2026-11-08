@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "short_name": "AliEdge",
-  "version": "3.7.3",
+  "version": "3.8.0",
   "description": "__MSG_extDesc__",
   "minimum_chrome_version": "116",
   "icons": {
@@ -203,6 +203,8 @@
     "https://www.beebs.app/*",
     "https://beebs.app/*",
     "https://www.opla.co/*",
-    "https://opla.co/*"
+    "https://opla.co/*",
+    "https://www.depop.com/*",
+    "https://depop.com/*"
   ]
 }
