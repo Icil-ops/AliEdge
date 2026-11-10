@@ -1,6 +1,6 @@
 {
-  "version": "3.8.3",
-  "notes": "Connexion Google et mot de passe oublié : tu reviens directement dans AliEdge. Catalogue : plus de photos manquantes. Concurrents : le bon vendeur est ajouté depuis une carte d'annonce, et son dressing s'ouvre pour relever ses annonces.",
+  "version": "3.8.4",
+  "notes": "Fournisseur probable à confirmer en un clic sur l'annonce ; toutes les photos comparées pour retrouver le fournisseur",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-10",
   "minVersion": "3.0.0"
