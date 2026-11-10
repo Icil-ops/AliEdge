@@ -1,5 +1,5 @@
 // Client Supabase minimal (Auth + RPC) pour le service worker. Aucune dépendance.
-import { SUPABASE_URL, SUPABASE_KEY, RESET_URL } from "../config.js";
+import { SUPABASE_URL, SUPABASE_KEY, RESET_URL, SITE_URL } from "../config.js";
 
 const SESSION_KEY = "ae_session";
 let refreshing = null;
@@ -154,13 +154,16 @@ export async function recover(email) {
 /** Connexion Google : l'URL de retour chrome.identity doit être autorisée dans Supabase Auth. */
 export async function signInWithGoogle() {
   const redirect = chrome.identity.getRedirectURL("supabase");
-  const url = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirect)}`;
+  // Supabase ne renvoie que vers des adresses autorisées (barapics.com) : on passe par une page relais de barapics.com
+  // qui renvoie aussitôt la connexion vers l'extension. Sans elle, Google ramenait sur la page d'accueil de Barapics.
+  const relay = `${SITE_URL}/aliedge-auth.html?ret=${encodeURIComponent(redirect)}`;
+  const url = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(relay)}`;
   let result;
   try { result = await chrome.identity.launchWebAuthFlow({ url, interactive: true }); }
   catch (e) {
     // Fenêtre fermée : souvent parce que Google a renvoyé sur barapics.com au lieu de revenir dans AliEdge
     // (adresse de retour de ce navigateur pas encore autorisée). La connexion par email marche toujours.
-    throw new ApiError(/approve|closed|cancel/i.test(String(e?.message)) ? "Connexion Google interrompue. Si une page Barapics s'est ouverte, ton navigateur n'est pas encore pris en charge pour Google : connecte-toi avec ton email et un mot de passe (même compte que Barapics)." : "Connexion Google impossible pour le moment : utilise ton email et un mot de passe.");
+    throw new ApiError(/approve|closed|cancel/i.test(String(e?.message)) ? "Connexion Google interrompue. Réessaie, ou connecte-toi avec ton email et un mot de passe (même compte que Barapics)." : "Connexion Google impossible pour le moment : utilise ton email et un mot de passe.");
   }
   if (!result) throw new ApiError("Connexion Google annulée.");
   const hash = new URL(result).hash.slice(1);

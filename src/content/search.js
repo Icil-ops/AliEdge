@@ -16,7 +16,7 @@
   if (isCheckout()) return;
 
   const send = (msg) => { try { return chrome.runtime.sendMessage(msg); } catch { return Promise.resolve(null); } };
-  const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
+  const clean = (t) => String(t || "").replace(/\s+/g, " ").trim().replace(/^(photo|image) de l['’]article\s+/i, "");
   const num = (s) => Number(String(s).replace(/\s/g, "").replace(",", "."));
 
   /** Cartes produit visibles : lien, titre, photo, prix, ventes et note quand la carte les affiche. */
@@ -34,7 +34,8 @@
           if (card.querySelector("img") && /\d[.,]\d{2}\s?€|€\s?\d/.test(card.textContent || "")) break;
           card = card.parentElement;
         }
-        const img = card.querySelector("img");
+        // Première vraie photo de la carte (jamais un badge publicitaire, une icône ou un logo).
+        const img = [...card.querySelectorAll("img")].find((i) => !/ad_tag|temu_rec_leo|\/icons?\/|\/\d{2}x\d{2}\.(png|jpe?g)$/i.test(i.currentSrc || i.getAttribute("src") || "")) || null;
         let src = img ? (img.currentSrc || img.getAttribute("src") || img.dataset?.src || "") : "";
         if (src.startsWith("//")) src = `https:${src}`;
         const text = clean(card.textContent);

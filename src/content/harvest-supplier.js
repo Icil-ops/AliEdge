@@ -26,13 +26,13 @@
       if (!c) continue;
       c = String(c).trim();
       if (c.startsWith("//")) c = `https:${c}`;
-      if (!/^https:\/\//.test(c) || /^data:|placeholder|blank|loading|lazy|\.gif(\?|$)|1x1|transparent|bg-grey|default_img/i.test(c)) continue;
+      if (!/^https:\/\//.test(c) || /^data:|placeholder|blank|loading|lazy|\.gif(\?|$)|1x1|transparent|bg-grey|default_img|ad_tag|temu_rec_leo|\/icons?\/|\/\d{2}x\d{2}\.(png|jpe?g)$/i.test(c)) continue; // badges, icônes, logos
       return c;
     }
     return null;
   }
   let timer = null;
-  const clean = (t) => String(t || "").replace(/\s+/g, " ").trim();
+  const clean = (t) => String(t || "").replace(/\s+/g, " ").trim().replace(/^(photo|image) de l['’]article\s+/i, "");
   const JUNK_TITLE = /^(report fraud item|report item|signaler (un |l.)?(article|produit|fraude)|add to cart|ajouter au panier|choice|sponsored|sponsoris)/i;
 
   // Prix de la carte : jamais un prix barré, une économie (« -0,87 € »), un paiement en plusieurs fois ou un prix

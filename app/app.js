@@ -7,9 +7,27 @@ import { titleKey } from "../src/lib/match.js";
 const $view = document.getElementById("view");
 // Photo cassée ou absente (lien Vinted expiré) : vignette neutre au lieu de l'icône cassée.
 const IMG_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg>';
+/** Variantes d'une photo fournisseur : la même image sans redimensionnement ni conversion (souvent la seule qui charge). */
+function imgVariants(u) {
+  if (!/^https:\/\//.test(u || "")) return [];
+  const out = [u];
+  if (/kwcdn\.com/.test(u) && u.includes("?")) out.push(u.split("?")[0]);
+  const ali = u.match(/^(https:\/\/[^?]+?\.(?:jpe?g|png|webp))_[^/]*$/i);
+  if (ali) out.push(ali[1]);
+  if (/ltwebstatic\.com/.test(u) && /_thumbnail_\d+x\d*/.test(u)) out.push(u.replace(/_thumbnail_\d+x\d*/, ""));
+  return out;
+}
+/** Photo avec repli : variantes de l'image, puis les photos Vinted, puis la vignette neutre. */
+function imgTag(urls, extra = "") {
+  const list = [...new Set(urls.flatMap(imgVariants))];
+  if (!list.length) return "";
+  return `<img src="${esc(list[0])}" data-alt="${esc(list.slice(1).join(" "))}" alt="" loading="lazy" referrerpolicy="no-referrer"${extra}>`;
+}
 document.addEventListener("error", (e) => {
   const img = e.target;
   if (!(img instanceof HTMLImageElement) || img.dataset.off) return;
+  const alts = (img.dataset.alt || "").split(" ").filter(Boolean);
+  if (alts.length) { img.dataset.alt = alts.slice(1).join(" "); img.src = alts[0]; return; }
   img.dataset.off = "1";
   const d = document.createElement("div");
   d.className = `img-off ${img.className || ""}`;
@@ -818,7 +836,7 @@ function viewCatalogue() {
       const card = `
       <button type="button" class="pcard ${r.locked ? "locked" : ""} ${est ? "estimate" : ""} ${r.archived ? "archived" : ""}" data-pid="${esc(r.product_id)}" style="animation-delay:${Math.min(i, 12) * 35}ms"${est ? ` title="Estimation : chiffres d'annonces Vinted similaires, pas des ventes prouvées de ce produit"` : ""}>
         <div class="img">
-          ${r.image_url ? `<img src="${safeUrl(r.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : (r.vinted_photos?.[0] ? `<img src="${safeUrl(r.vinted_photos[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : "")}
+          ${imgTag([r.image_url, ...(r.vinted_photos || [])])}
           ${chip(r.platform)}
           ${est ? `<span class="est-tag">Estimation</span>` : ""}
           <span class="sold num">${est ? `≈ ${sold} (similaires)` : sold}</span>
@@ -1007,7 +1025,7 @@ async function loadPicks() {
         <span class="small">🔒 Réservé aux membres du Skool VintedDrop</span>
       </a>` : `
       <a class="pick" href="${safeUrl(p.url)}" target="_blank" rel="noopener" style="animation-delay:${i * 40}ms">
-        ${p.image_url ? `<img src="${safeUrl(p.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}
+        ${imgTag([p.image_url])}
         <span class="kind">${p.kind === "video" ? "🎬 Vidéo d'analyse" : "🛍️ Produit gagnant"}</span>
         <b>${esc(p.title)}</b>
         ${p.note ? `<span class="small muted">${esc(p.note)}</span>` : ""}
