@@ -922,6 +922,7 @@ async function addTracker({ sellerId, market = "fr", label = null }) {
     trackerId = await sb.rpc("aliedge_tracker_add", { _seller_id: id, _market: MARKETS[market] ? market : "fr", _label: label ? String(label).slice(0, 80) : null });
   } catch (e) {
     if (/too many/.test(e.message)) throw new sb.ApiError("Tu suis déjà 30 concurrents : retires-en un avant d'en ajouter.", 400, "limit");
+    if (/member seller/.test(e.message)) throw new sb.ApiError("Ce vendeur utilise AliEdge : son compte n'est jamais suivi.", 400, "invalid");
     throw e;
   }
   competitorIds = null;
@@ -1925,6 +1926,13 @@ const handlers = {
   "tracker:items": async ({ id }) => sb.rpc("aliedge_tracker_items", { _id: id }),
   "tracker:recap": async ({ id }) => sb.rpc("aliedge_competitor_recap", { _id: id }),
   "competitor:ids": async () => getCompetitorIds(),
+  // Vendeur d'une annonce déjà connue (bouton « + Concurrent » des cartes), lu dans la base commune.
+  "competitor:sellerOf": async ({ itemId }) => {
+    const id = Number(itemId);
+    if (!Number.isSafeInteger(id) || id <= 0 || !(await sb.getSession())) return null;
+    const rows = await sb.rpc("aliedge_item_seller", { _vinted_id: id }).catch(() => null);
+    return Array.isArray(rows) ? rows[0] || null : rows;
+  },
   "competitor:sales": async () => { const st = await salesState(); return { feed: st.feed, notify: st.notify !== false }; },
   "competitor:salesNotify": async ({ on }) => { const st = await salesState(); st.notify = !!on; await chrome.storage.local.set({ [SALES_KEY]: st }); return { notify: st.notify }; },
   "competitor:checkSales": async () => { await checkCompetitorSales(); const st = await salesState(); return { feed: st.feed }; },
@@ -2085,7 +2093,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (aeDisabled && !["ae:state", "ae:setDisabled", "settings:get", "auth:state", "update:state"].includes(msg.type)) { sendResponse({ ok: false, error: "AliEdge est désactivé (Réglages).", code: "disabled" }); return false; }
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:sellerOf", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

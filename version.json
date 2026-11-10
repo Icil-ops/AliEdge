@@ -1,6 +1,6 @@
 {
-  "version": "3.8.1",
-  "notes": "Connexion Google et mot de passe oublié : tu reviens directement dans AliEdge (plus de détour par Barapics). Catalogue : plus de photos manquantes (badges et icônes écartés, photo de repli).",
+  "version": "3.8.2",
+  "notes": "Connexion Google et mot de passe oublié : tu reviens directement dans AliEdge. Catalogue : plus de photos manquantes. Concurrents : le bon vendeur est ajouté depuis une carte d'annonce, et son dressing s'ouvre pour relever ses annonces.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-10",
   "minVersion": "3.0.0"

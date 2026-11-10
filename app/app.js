@@ -1440,10 +1440,18 @@ function sparkline(points) {
 
 // ───────────────────────── Concurrents (suivis 14 jours, puis retirés)
 
+/** Après un ajout : son dressing s'ouvre dans un onglet. AliEdge relève les annonces affichées (aucune requête en arrière-plan). */
+function openDressing(sellerId, market = "fr") {
+  const host = MARKETS[market]?.host || MARKETS.fr.host;
+  const id = Number(sellerId);
+  if (Number.isSafeInteger(id) && id > 0) chrome.tabs.create({ url: `https://${host}/member/${id}`, active: true }).catch(() => {});
+  toast("Concurrent ajouté : son dressing s'ouvre, AliEdge relève ses annonces. Fais défiler pour tout relever.");
+}
+
 function viewTrackers(trackers) {
   const rows = (trackers || []).filter((t) => new Date(t.expires_at).getTime() > Date.now()).map((t) => `
       <div class="tracker">
-        <button class="tracker-head" type="button" data-tracker="${esc(t.id)}" aria-expanded="false">
+        <button class="tracker-head" type="button" data-tracker="${esc(t.id)}" data-seller="${esc(t.seller_id)}" data-market="${esc(t.market || "fr")}" aria-expanded="false">
           <span class="tracker-dot" aria-hidden="true"></span>
           <span class="tracker-name"><b>${esc(t.label || `Vendeur ${t.seller_id}`)}</b><span class="small muted">${esc((t.market || "fr").toUpperCase())} · suivi depuis ${esc(ago(new Date(t.created_at).getTime()))} · ${(() => { const d = Math.max(0, Math.ceil((new Date(t.expires_at).getTime() - Date.now()) / 86400_000)); return d <= 1 ? "dernier jour" : `encore ${d} j`; })()}${t.last_checked_at ? ` · vérifié ${esc(ago(new Date(t.last_checked_at).getTime()))}` : " · premier relevé en cours"}</span></span>
           <span class="tracker-kpi num"><b>${t.sold_7d ?? 0}</b><span class="small muted">ventes 7 j</span></span>
@@ -1624,7 +1632,7 @@ function recapHtml(r, items) {
       ${r.price_bands.length ? `<div><h3 class="small">Prix : vendus / en ligne</h3><div class="bands">${r.price_bands.map((b) => `<div><span>${esc(b.band)}</span><b class="num">${b.sold}</b><span class="muted num">${b.active}</span></div>`).join("")}</div></div>` : ""}
       ${r.fastest.length ? `<div><h3 class="small">Partis le plus vite</h3><div class="items">${r.fastest.map((i) => line({ ...i, status: "sold", days_to_sell: i.days, sold_at: Date.now() })).join("")}</div></div>` : ""}
       <h3 class="small">Ventes constatées (${seen.length})</h3>
-      ${seen.length ? `<div class="items">${seen.map(soldLine).join("")}</div>` : `<p class="small muted">Les ventes apparaissent au fil des relevés (plusieurs fois par jour).</p>`}
+      ${seen.length ? `<div class="items">${seen.map(soldLine).join("")}</div>` : `<p class="small muted">Les ventes apparaissent quand toi ou un autre membre ouvrez son dressing sur Vinted.</p>`}
       <h3 class="small">En ligne (${active.length})</h3>
       ${active.length ? `<div class="items">${active.slice(0, 120).map(line).join("")}</div>${active.length > 120 ? `<p class="small muted">Et ${active.length - 120} autres.</p>` : ""}` : ""}
       ${before.length ? `<details><summary class="small">Déjà vendus avant le suivi (${before.length})</summary><div class="items" style="margin-top:6px">${before.slice(0, 120).map(line).join("")}</div></details>` : ""}
@@ -1801,7 +1809,7 @@ function bindNicheResults(root) {
     try {
       await api("tracker:add", { sellerId: b.dataset.follow, market: state.niche?.market || "fr", label: b.dataset.login || null });
       b.replaceWith(Object.assign(document.createElement("span"), { className: "small muted", textContent: "Suivi" }));
-      toast("Concurrent ajouté : relevé de son dressing en cours");
+      openDressing(b.dataset.follow, state.niche?.market || "fr");
     } catch (x) { b.disabled = false; toast(x.message); }
   }));
 }
@@ -1861,7 +1869,7 @@ function bindTrackers() {
     const market = tld === "co.uk" ? "uk" : tld;
     const label = m[3] ? decodeURIComponent(m[3]).replace(/[-_]+/g, " ") : null;
     err.innerHTML = "";
-    try { await api("tracker:add", { sellerId, market, label }); toast("Concurrent ajouté : relevé de son dressing en cours"); render(); }
+    try { await api("tracker:add", { sellerId, market, label }); openDressing(sellerId, market); render(); }
     catch (x) { err.innerHTML = `<div class="notice err">${esc(x.message)}</div>`; }
   });
   document.querySelectorAll("[data-tracker]").forEach((b) => b.addEventListener("click", async () => {
@@ -1875,6 +1883,9 @@ function bindTrackers() {
     try {
       const [recap, items] = await Promise.all([api("tracker:recap", { id }), api("tracker:items", { id })]);
       body.innerHTML = recapHtml(recap || { per_week: [], brands: [], price_bands: [], fastest: [], sold_seen: 0, revenue_seen: 0, active: 0, active_value: 0, new_listings_7d: 0 }, items || []).replace("__ID__", esc(id));
+      // Relevé à jour : ouvrir son dressing (lecture de la page affichée, comme une visite normale).
+      const host = MARKETS[b.dataset.market]?.host || MARKETS.fr.host;
+      body.insertAdjacentHTML("afterbegin", `<p class="small" style="margin:8px 0"><a class="btn" href="https://${esc(host)}/member/${esc(b.dataset.seller)}" target="_blank" rel="noopener">Ouvrir son dressing pour mettre à jour</a> <span class="muted">AliEdge relève ce que la page affiche : fais défiler pour tout relever.</span></p>`);
       body.dataset.loaded = "1";
       bindSupplierForms(body);
       body.querySelector("[data-untrack]")?.addEventListener("click", async (ev) => { await api("tracker:remove", { id: ev.currentTarget.dataset.untrack }); toast("Concurrent retiré"); render(); });

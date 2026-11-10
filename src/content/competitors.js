@@ -102,12 +102,17 @@
       btn.dataset.busy = "1"; btn.textContent = "Ajout…";
       try {
         if (!sellerId) {
-          // Vendeur lu sur la page affichée (lien vers son profil), sans requête à Vinted.
-          const a = [...document.querySelectorAll('a[href*="/member/"]')].find((x) => /\/member\/\d+/.test(x.getAttribute("href") || "") && !x.closest("header, nav"));
+          // Vendeur de CETTE carte uniquement (avant : le premier profil de la page, souvent un autre vendeur).
+          const a = [...card.querySelectorAll('a[href*="/member/"]')].find((x) => /\/member\/\d+/.test(x.getAttribute("href") || ""));
           sellerId = Number((a?.getAttribute("href") || "").match(/\/member\/(\d+)/)?.[1]) || 0;
           sellerName = String((a?.textContent || "").trim()).slice(0, 80);
         }
-        if (!sellerId) throw new Error("Vendeur introuvable sur cette annonce");
+        if (!sellerId) {
+          // Pas de vendeur sur la carte : celui déjà connu de la base commune pour cette annonce (aucune requête à Vinted).
+          const r = await send({ type: "competitor:sellerOf", itemId });
+          sellerId = Number(r?.data?.seller_id) || 0;
+        }
+        if (!sellerId) throw new Error("Ouvre l'annonce, puis + Concurrent");
         const r = await send({ type: "tracker:add", sellerId, market, label: sellerName || null });
         if (!r?.ok) throw new Error(r?.error || "Ouvre AliEdge et connecte-toi");
         tracked.add(`${market}:${sellerId}`);
