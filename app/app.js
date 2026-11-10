@@ -658,6 +658,10 @@ function viewResult(entry) {
       <div class="histo-axis num"><span>${eur(hist[0].from)}</span><span>${eur(hist[hist.length - 1].to)}</span></div>
     </div>` : ""}
     <div id="lbcbox"></div>
+    ${!loss && r.margin != null ? `<div class="card pad stack" style="border-color:var(--gain)">
+      <div><b>Produit rentable : il ne manque que l'annonce</b><p class="small muted" style="margin:4px 0 0">Barapics crée 4 photos réalistes de cet article et l'annonce Vinted, à partir de cette fiche. Les 4 premières photos sont offertes, sans carte.</p></div>
+      <button class="btn primary block" type="button" data-act="photos2">${ICON.camera}Créer les photos Vinted de ce produit</button>
+    </div>` : ""}
     <div class="grid3">
       <button class="btn" type="button" data-act="watch" data-key="${esc(watchKey)}">${ICON.eye}Suivre</button>
       <button class="btn" type="button" data-act="copy" title="Titre, description, catégorie et prix conseillé, prêts à copier">${ICON.copy}Annonce</button>
@@ -732,7 +736,7 @@ function bindAnalyse() {
     catch (e) { toast(e.message); }
   });
   document.querySelector('[data-act="copy"]')?.addEventListener("click", () => openListing(state.entry));
-  document.querySelector('[data-act="photos"]')?.addEventListener("click", () => openPhotos(state.entry?.product));
+  document.querySelectorAll('[data-act="photos"], [data-act="photos2"]').forEach((b) => b.addEventListener("click", () => openPhotos(state.entry?.product)));
   document.querySelectorAll(".ring circle.meter").forEach((c) => requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.target; }));
   bindSmart();
 }
@@ -1266,7 +1270,7 @@ async function openPhotos(product) {
       <div class="row between"><h3>${ICON.camera} Photos Barapics</h3><button class="btn ghost" type="button" data-close aria-label="Fermer">✕</button></div>
       ${!images.length ? `<div class="notice warn">Aucune photo du produit trouvée sur cette page. Ouvre la fiche produit puis relance l'analyse.</div>` : `
       <div class="product">${images.map((u) => `<img src="${safeUrl(u)}" alt="" referrerpolicy="no-referrer">`).join("")}<div><h3>${esc(product.title || "Article")}</h3><p class="small muted" id="pcredits">Vérification du solde…</p></div></div>
-      <p class="small muted">Choisis les photos à créer. Chacune est contrôlée (fidélité, réalisme, texture) et refaite si besoin. 1 crédit par photo livrée.</p>
+      <p class="small muted" id="pintro">Choisis les photos à créer. 1 crédit par photo livrée ; une photo ratée n'est jamais débitée.</p>
       <div class="scene-grid" role="group" aria-label="Photos à créer">${PHOTO_SCENES.map(([id, label]) => `<button type="button" class="scene" data-scene="${id}" aria-pressed="${picked.has(id)}">${esc(label)}</button>`).join("")}</div>
       <button id="pgo" class="btn primary block" type="button" disabled>Créer 4 photos</button>
       <div id="presults" class="photo-grid"></div>
@@ -1292,12 +1296,20 @@ async function openPhotos(product) {
     b.setAttribute("aria-pressed", String(picked.has(id)));
     refreshGo();
   }));
-  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Démarrer l'essai gratuit (3 jours, 4 photos)</a></div>`;
+  const noAccess = (msg) => `<div class="notice info stack"><span>${esc(msg)}</span><a class="btn primary" href="https://barapics.com/tarifs" target="_blank" rel="noopener">Voir les offres Barapics (dès 10,49 € par semaine)</a></div>`;
+  // Fiche offerte pas encore utilisée : elle se crée dans le studio Barapics, qui reçoit ce produit déjà rempli.
+  const freeOffer = () => {
+    d.querySelector("#pintro").textContent = "Tes 4 premières photos sont offertes, sans carte bancaire. Barapics reçoit ce produit déjà rempli et crée aussi l'annonce.";
+    d.querySelector(".scene-grid").style.display = "none";
+    go.style.display = "none";
+    d.querySelector("#presults").innerHTML = `<a class="btn primary block" href="${esc(barapicsLink(product))}" target="_blank" rel="noopener">${ICON.camera}Créer mes 4 photos offertes</a>`;
+  };
   try {
     const c = await api("barapics", { body: { action: "credits" } });
     remaining = c.unlimited ? null : c.remaining;
     credits.textContent = c.unlimited ? "Crédits illimités" : `${c.remaining} photo${c.remaining > 1 ? "s" : ""} disponible${c.remaining > 1 ? "s" : ""} · ${c.planLabel}`;
-    if (!c.unlimited && c.remaining < 1) d.querySelector("#presults").innerHTML = noAccess("Plus de photos disponibles sur ton compte Barapics.");
+    if (c.freeAvailable) freeOffer();
+    else if (!c.unlimited && c.remaining < 1) d.querySelector("#presults").innerHTML = noAccess("Plus de photos disponibles sur ton compte Barapics.");
   } catch (e) {
     credits.textContent = "";
     d.querySelector("#presults").innerHTML = e.code === "no_access" || e.code === "quota" ? noAccess(e.message) : `<p class="notice err">${esc(e.message)}</p>`;
@@ -1328,7 +1340,7 @@ async function openPhotos(product) {
     const figOf = (id) => grid.querySelector(`[data-shot="${id}"]`);
     const showDone = (id, r) => {
       const fig = figOf(id);
-      fig.innerHTML = `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener"><img src="${safeUrl(r.url)}" alt="Photo ${esc(labelOf(id))}"></a><figcaption>${esc(labelOf(id))} · contrôlée${r.attempts > 1 ? `, corrigée ${r.attempts - 1}×` : ""}</figcaption>`;
+      fig.innerHTML = `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener"><img src="${safeUrl(r.url)}" alt="Photo ${esc(labelOf(id))}"></a><figcaption>${esc(labelOf(id))}</figcaption>`;
       fig.classList.add("done");
     };
     const showError = (id, message) => { figOf(id).innerHTML = `<div class="ph"></div><figcaption class="neg">${esc(labelOf(id))} · ${esc(message)}</figcaption>`; };

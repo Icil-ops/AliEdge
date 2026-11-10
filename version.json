@@ -1,6 +1,6 @@
 {
-  "version": "3.8.4",
-  "notes": "Fournisseur probable à confirmer en un clic sur l'annonce ; toutes les photos comparées pour retrouver le fournisseur",
+  "version": "3.8.5",
+  "notes": "Après une analyse rentable : crée les 4 photos Vinted du produit avec Barapics (4 photos offertes, sans carte). Concurrents plus fiables, connexion Google et mot de passe oublié réparés, photos du catalogue réparées.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-10",
   "minVersion": "3.0.0"

@@ -402,6 +402,13 @@
     "Vérifie l'annonce, choisis la catégorie, l'état et la taille si Beebs les demande, puis publie-la.": "Check the listing, choose the category, condition and size if Beebs asks, then post it.",
     "Opla": "Opla", "Accès à opla.co refusé : rien n'a changé.": "Access to opla.co refused: nothing changed.",
     "Envoi possible avec la livraison Leboncoin.": "Envoi possible avec la livraison Leboncoin.",
+    "Produit rentable : il ne manque que l'annonce": "Profitable product: all that's missing is the listing",
+    "Barapics crée 4 photos réalistes de cet article et l'annonce Vinted, à partir de cette fiche. Les 4 premières photos sont offertes, sans carte.": "Barapics creates 4 realistic photos of this item and the Vinted listing from this product page. The first 4 photos are free, no card.",
+    "Créer les photos Vinted de ce produit": "Create this product's Vinted photos",
+    "Choisis les photos à créer. 1 crédit par photo livrée ; une photo ratée n'est jamais débitée.": "Choose the photos to create. 1 credit per delivered photo; a failed photo is never charged.",
+    "Voir les offres Barapics (dès 10,49 € par semaine)": "See Barapics plans (from €10.49 a week)",
+    "Tes 4 premières photos sont offertes, sans carte bancaire. Barapics reçoit ce produit déjà rempli et crée aussi l'annonce.": "Your first 4 photos are free, no credit card. Barapics receives this product already filled in and writes the listing too.",
+    "Créer mes 4 photos offertes": "Create my 4 free photos",
   };
 
   // Textes avec des nombres ou des noms : remplacés par motif.
