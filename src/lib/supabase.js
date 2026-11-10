@@ -208,6 +208,9 @@ export function publicRpc(name, args = {}) {
 }
 
 export function rpc(name, args = {}) {
+  // Annonces envoyées à la base commune : cette version a déjà écarté celles du membre (dressing, page d'annonce,
+  // numéros connus). Le marqueur chk le dit au serveur, qui refuse sinon toute vente sans vendeur connu.
+  if (Array.isArray(args?._items)) args = { ...args, _items: args._items.map((i) => (i && typeof i === "object" ? { ...i, chk: 1 } : i)) };
   return authed((token) => call(`/rest/v1/rpc/${name}`, { method: "POST", body: args, token }));
 }
 
