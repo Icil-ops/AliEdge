@@ -988,9 +988,11 @@ async function syncOwnSellers() {
   const list = r[OWN_KEY] || [];
   let changed = false;
   for (const x of list) {
-    if (Date.now() - (x.registered_at || 0) < 24 * 3600_000) continue;
+    if (Date.now() - (x.registered_at || 0) < 12 * 3600_000) continue;
     try {
-      await sb.rpc("aliedge_register_own_seller", { _seller_id: Number(x.id), _market: MARKETS[x.market] ? x.market : "fr" });
+      // Pseudo et date de dernière détection (visibles par l'administrateur seulement), et protection de ses annonces.
+      await sb.rpc("aliedge_seen_own_seller", { _seller_id: Number(x.id), _market: MARKETS[x.market] ? x.market : "fr", _login: x.login || null })
+        .catch(() => sb.rpc("aliedge_register_own_seller", { _seller_id: Number(x.id), _market: MARKETS[x.market] ? x.market : "fr" }));
       x.registered_at = Date.now();
       changed = true;
     } catch (e) { noteError("own:register", e); }
