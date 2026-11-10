@@ -527,6 +527,9 @@ async function runAnalysis({ product, query, market, condition, shipping = 0, ex
           },
           _items: linked.map(toRow),
         });
+        // Galerie de la fiche (déjà lue sur la page) : le script de liaison compare toutes les photos.
+        const images = (Array.isArray(product.images) ? product.images : []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 8);
+        if (images.length > 1) sb.rpc("aliedge_add_photos", { _product: { platform: product.platform, source_id: product.source_id, images } }).catch(() => {});
         const m = await me();
         if (m?.pro && productId) {
           const rows = await sb.rpc("aliedge_product_items", { _product_id: productId });
@@ -1084,6 +1087,7 @@ const reported = new Map();
 async function reportVintedItem(item, raw = null) {
   const settings = await getSettings();
   if (!settings.shareAnalyses || !item?.vinted_id) return;
+  const photos = (Array.isArray(item.photos) ? item.photos : []).filter((u) => /^https:\/\/[^/]*vinted\.net\//.test(String(u))).slice(0, 8);
   if (raw && Number(raw.id) === Number(item.vinted_id)) {
     // Détails complets lus sur la page : vendeur, marque, taille, favoris, date de mise en ligne.
     const n = vinted.normaliseItem(raw, item.market);
@@ -1092,6 +1096,7 @@ async function reportVintedItem(item, raw = null) {
     if (!item.status) return;
     item = { ...item, visited: true, isbn: vinted.cleanIsbn(item.isbn) };
   }
+  delete item.photos;
   // Vendeur inconnu (sa propre annonce n'en affiche pas) : jamais envoyée dans la base commune.
   if (!item.seller_id) return;
   if ((await ownSellerIds()).has(Number(item.seller_id))) { registerOwnItems([item.vinted_id], item.seller_id, item.market).catch(() => {}); return; }
@@ -1102,6 +1107,8 @@ async function reportVintedItem(item, raw = null) {
   reported.set(item.vinted_id, Date.now());
   if (reported.size > 500) reported.delete(reported.keys().next().value);
   await sb.rpc("aliedge_report_items", { _items: [item] }).catch(() => {});
+  // Toutes les photos de la galerie (lues sur la page ouverte, aucune requête Vinted) : le script de liaison les compare.
+  if (photos.length > 1) sb.rpc("aliedge_add_photos", { _items: [{ vinted_id: item.vinted_id, photos }] }).catch(() => {});
   saveSoldPhotos([item]);
 }
 
@@ -1778,6 +1785,17 @@ const handlers = {
   // Admin : archiver un produit du catalogue (il n'est plus visible que par l'admin).
   "catalog:archive": async ({ productId, archived }) => sb.rpc("aliedge_set_archived", { _product_id: productId, _archived: !!archived }),
   "catalog:items": async ({ productId }) => sb.rpc("aliedge_product_items", { _product_id: productId }),
+  // Fournisseur probable d'une annonce (proposé par le script de liaison) et vote du membre.
+  "suggest:get": async ({ vintedId }) => {
+    if (!Number.isSafeInteger(Number(vintedId)) || !(await sb.getSession())) return null;
+    if ((await ownItemIds()).has(Number(vintedId))) return null;
+    const rows = await sb.rpc("aliedge_suggestion_for", { _vinted_id: Number(vintedId) }).catch(() => null);
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  },
+  "suggest:vote": async ({ productId, vintedId, same }) => {
+    if (!/^[0-9a-f-]{36}$/.test(String(productId)) || !Number.isSafeInteger(Number(vintedId))) return null;
+    return sb.rpc("aliedge_suggestion_vote", { _product_id: productId, _vinted_id: Number(vintedId), _same: !!same }).catch(() => null);
+  },
   // Photos d'une annonce à déposer sur un autre site : lues directement si le site d'images le permet,
   // sinon par le serveur Barapics (CDN Vinted et fournisseurs seulement). Renvoyées en base64 (8 max).
   "photos:get": async ({ urls = [] }) => {
@@ -2095,7 +2113,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (aeDisabled && !["ae:state", "ae:setDisabled", "settings:get", "auth:state", "update:state"].includes(msg.type)) { sendResponse({ ok: false, error: "AliEdge est désactivé (Réglages).", code: "disabled" }); return false; }
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "settings:pill", "tracker:add", "competitor:ids", "competitor:sellerOf", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "suggest:get", "suggest:vote", "settings:pill", "tracker:add", "competitor:ids", "competitor:sellerOf", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {

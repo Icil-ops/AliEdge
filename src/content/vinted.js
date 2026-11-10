@@ -93,6 +93,16 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
         p{margin:6px 8px 8px;color:#6b6585;font-size:12px}
         a{display:flex;justify-content:space-between;padding:10px;border-radius:9px;color:inherit;text-decoration:none}
         a:hover{background:#f3f0fb}
+        .sug{width:280px;margin-bottom:10px;background:#fff;color:#1b1530;border-radius:14px;padding:10px;box-shadow:0 18px 50px -12px rgba(27,21,48,.45);border:1px solid #e6e1f2;display:flex;gap:10px}
+        .sug img{width:64px;height:64px;object-fit:cover;border-radius:9px;flex-shrink:0;background:#f3f0fb}
+        .sug b{display:block;font-size:13px}
+        .sug .t{display:block;font-size:12px;color:#6b6585;margin:2px 0 6px;max-height:2.6em;overflow:hidden}
+        .sug .q{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+        .sug .row{display:flex;gap:6px;align-items:center}
+        .sug button{all:unset;cursor:pointer;padding:5px 12px;border-radius:999px;background:#6d3bff;color:#fff;font-size:12.5px;font-weight:600}
+        .sug button.no{background:#efeaf9;color:#1b1530}
+        .sug .row a{display:inline;padding:0 0 0 4px;font-size:12px;color:#6d3bff}
+        .sug .ok{font-size:12.5px;color:#16a34a;font-weight:600}
       </style>
       <div class="menu" hidden role="menu">
         <p>Chercher ce produit chez les fournisseurs</p>
@@ -114,6 +124,32 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     mountedLabel = root.querySelector(".lbl");
     mountedRoot = root;
   }
+  // Fournisseur probable (même photo pas encore prouvée) : le membre confirme ou non. Deux « oui » de deux membres
+  // différents et aucun « non » relient l'annonce au produit pour tout le monde. Aucune requête Vinted.
+  async function suggestion(id, path) {
+    let r;
+    try { r = await chrome.runtime.sendMessage({ type: "suggest:get", vintedId: id }); } catch { return; }
+    const sg = r?.data;
+    if (!sg?.product_id || !mountedRoot || location.pathname !== path || mountedRoot.querySelector(".sug")) return;
+    const box = document.createElement("div");
+    box.className = "sug";
+    box.innerHTML = `<img alt="" referrerpolicy="no-referrer"><div><b>Fournisseur probable</b><span class="t"></span>
+      <span class="q">C'est exactement le même produit ?</span>
+      <div class="row"><button type="button" data-v="1">Oui</button><button type="button" class="no" data-v="0">Non</button><a target="_blank" rel="noopener noreferrer">Voir</a></div></div>`;
+    if (/^https:\/\//.test(sg.image_url || "")) box.querySelector("img").src = sg.image_url; else box.querySelector("img").remove();
+    box.querySelector(".t").textContent = String(sg.title || "").slice(0, 120);
+    const link = box.querySelector("a");
+    if (/^https:\/\//.test(sg.url || "")) link.href = sg.url; else link.remove();
+    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", async () => {
+      const same = b.dataset.v === "1";
+      box.querySelector(".row").innerHTML = '<span class="ok"></span>';
+      box.querySelector(".ok").textContent = same ? "Merci ! Le lien sera ajouté s'il est confirmé." : "Merci, c'est noté.";
+      try { await chrome.runtime.sendMessage({ type: "suggest:vote", productId: sg.product_id, vintedId: id, same }); } catch { /* rien */ }
+      setTimeout(() => box.remove(), 2500);
+    }));
+    mountedRoot.querySelector(".btn")?.before(box);
+  }
+
   let mountedLabel = null, mountedRoot = null;
   let mountedMenu = null;
 
@@ -260,8 +296,12 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
         return;
       }
       if (!who.sellerId) return;
-      if (raw) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, seller_id: who.sellerId }, raw });
-      else if (item.status || item.price != null) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, seller_id: who.sellerId, status: item.status || "active" } });
+      // Toutes les photos affichées par la galerie (aucune requête en plus) : le fournisseur est retrouvé même si
+      // le vendeur a mis en couverture la 2e ou la 3e photo de la fiche.
+      const photos = domPhotos().slice(0, 8);
+      if (raw) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, photos, seller_id: who.sellerId }, raw });
+      else if (item.status || item.price != null) chrome.runtime.sendMessage({ type: "vinted:item", item: { ...item, photos, seller_id: who.sellerId, status: item.status || "active" } });
+      suggestion(item.vinted_id, path).catch(() => {});
     } catch { /* extension rechargée */ }
   }
 
