@@ -1229,11 +1229,13 @@ async function openProduct(row) {
   }).catch(() => {});
   try {
     const items = await api("catalog:items", { productId: row.product_id });
+    // Annonce pas revue depuis 3 jours : on ne dit plus « En vente » (elle a pu partir, le lien Vinted peut être mort).
+    const stale = (i) => i.last_seen_at && Date.now() - new Date(i.last_seen_at).getTime() > 3 * 864e5;
     const card = (i) => `
       <div class="item">
         ${i.photo_url ? `<img src="${safeUrl(i.photo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
         <div><a class="t" href="${safeUrl(i.url)}" target="_blank" rel="noopener">${esc(i.title || "Annonce Vinted")}</a>
-        <div class="m">${i.status === "sold" ? `<span class="badge-sold">Vendu</span> ${esc(ago(i.sold_at))}` : i.status === "active" ? "En vente" : "Retirée"}</div></div>
+        <div class="m">${i.status === "sold" ? `<span class="badge-sold">Vendu</span> ${esc(ago(i.sold_at))}` : i.status === "active" ? (stale(i) ? `<span title="Personne n'a revu cette annonce depuis : elle a pu être vendue ou retirée, son lien Vinted peut ne plus marcher.">Vue ${esc(ago(new Date(i.last_seen_at).getTime()))}</span>` : "En vente") : "Retirée"}</div></div>
         <div class="p num">${eur(i.price)}</div>
       </div>`;
     // Deux listes distinctes : le même produit (lien prouvé) et les annonces qui se ressemblent (estimation de prix).

@@ -110,7 +110,7 @@
     "Ventes Vinted par semaine (12 semaines)": "Vinted sales per week (12 weeks)", "Ventes par semaine": "Sales per week",
     "Vendus 7 j / 30 j": "Sold 7 d / 30 d", "Prix vendu médian": "Median sold price", "Prix : vendus / en ligne": "Price: sold / listed",
     "Voir le produit": "See the product", "Voir plus": "See more", "Voir": "View", "Voir chez": "See on", "Fermer": "Close",
-    "Annonces Vinted": "Vinted listings", "Annonce Vinted": "Vinted listing", "En vente": "For sale", "Vendu": "Sold", "Analysé": "Analyzed",
+    "Annonces Vinted": "Vinted listings", "Annonce Vinted": "Vinted listing", "En vente": "For sale", "Vue": "Seen", "Personne n'a revu cette annonce depuis : elle a pu être vendue ou retirée, son lien Vinted peut ne plus marcher.": "Nobody has seen this listing since then: it may have been sold or removed, and its Vinted link may no longer work.", "Vendu": "Sold", "Analysé": "Analyzed",
     "Les ventes viennent de la base commune AliEdge : ce sont celles constatées par la communauté, pas toutes les ventes de Vinted.": "Sales come from the shared AliEdge database: they are the ones recorded by the community, not every sale on Vinted.",
     "Les ventes réellement constatées sur Vinted sont incluses avec AliEdge Pro.": "Sales actually recorded on Vinted are included with AliEdge Pro.",
     "Aucun produit lisible sur cette page. Fais défiler la liste pour charger les produits, puis réessaie.": "No readable product on this page. Scroll the list to load the products, then try again.",
