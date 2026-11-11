@@ -1161,12 +1161,12 @@ async function reportCards({ items }) {
   const settings = await getSettings();
   if (!settings.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
   const now = Date.now();
-  const fresh = (await dropOwn(items)).filter((i) => Number(i?.vinted_id) > 0 && (i.liked || now - (cardsSeen.get(Number(i.vinted_id)) || 0) > 24 * 3600_000)).slice(0, 96);
+  const fresh = (await dropOwn(items)).filter((i) => Number(i?.vinted_id) > 0 && (i.liked || i.photoLate || now - (cardsSeen.get(Number(i.vinted_id)) || 0) > 24 * 3600_000)).slice(0, 96);
   if (!fresh.length) return { added: 0 };
   for (const i of fresh) cardsSeen.set(Number(i.vinted_id), now);
   while (cardsSeen.size > 5000) cardsSeen.delete(cardsSeen.keys().next().value);
   // Favoris (« liked ») : marqués comme consultés pour que leurs ventes soient revérifiées chaque jour.
-  const payload = fresh.map(({ liked, ...i }) => ({ ...i, ...(liked && settings.shareLikes !== false ? { visited: true } : {}) }));
+  const payload = fresh.map(({ liked, photoLate, ...i }) => ({ ...i, ...(liked && settings.shareLikes !== false ? { visited: true } : {}) }));
   const n = await sb.rpc("aliedge_report_items", { _items: payload }).catch(() => 0);
   saveSoldPhotos(payload);
   return { added: n };

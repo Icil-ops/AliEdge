@@ -13,11 +13,29 @@
   const field = (parts, re) => (parts.find((x) => re.test(x)) || "").replace(re, "").trim() || null;
   const isFavourites = () => /\/member\/items\/favou?rite/i.test(location.pathname) || /favou?rite/i.test(location.search);
 
+  // Photo de l'annonce sur sa carte : la plus grande image servie par les serveurs d'images de Vinted, une fois
+  // chargée. Vinted charge les photos au défilement : avant, la première image (souvent vide, ou l'avatar du vendeur)
+  // était prise telle quelle, et depuis le 4 novembre presque aucune annonce n'arrivait avec sa photo.
+  const VINTED_IMG = /^https:\/\/[a-z0-9.-]*vinted\.net\//i;
+  function cardPhoto(card) {
+    let best = null, area = 0;
+    for (const im of card?.querySelectorAll("img") || []) {
+      const u = [im.currentSrc, im.getAttribute("src"), im.getAttribute("data-src")].find((x) => VINTED_IMG.test(x || ""));
+      if (!u) continue;
+      const w = im.clientWidth || im.naturalWidth || 0, h = im.clientHeight || im.naturalHeight || 0;
+      if (w && w < 80) continue;   // avatar du vendeur, pictogramme
+      if (w * h >= area) { area = w * h; best = u; }
+    }
+    return best;
+  }
+  // Annonces envoyées sans photo (pas encore chargée) : renvoyées une seule fois quand la photo apparaît.
+  const noPhoto = new Set();
+
   function readCards() {
     const out = [];
     for (const a of document.querySelectorAll('a[href*="/items/"]')) {
       const id = Number((a.getAttribute("href") || "").match(/\/items\/(\d{5,15})/)?.[1]);
-      if (!id || seen.has(id)) continue;
+      if (!id || (seen.has(id) && !noPhoto.has(id))) continue;
       // Carte d'annonce : l'attribut title porte « Titre, marque: X, état: Y, taille: Z, 15,00 € ».
       // Accueil et carrousels : même texte dans le texte alternatif de la photo ou l'aria-label du lien ;
       // sinon le prix affiché sur la carte.
@@ -38,12 +56,19 @@
       const sellerId = Number(sellerHref.match(/\/member\/(\d{3,15})(?:-|\/|$)/)?.[1] || (ownPage && !isFavourites() ? ownPage : 0)) || null;
       // « Vendu » : seulement un badge dont le texte entier est le mot (jamais un mot du titre).
       const sold = !!card && [...card.querySelectorAll("span, div, p")].some((el) => el.children.length === 0 && /^(vendu|sold|verkauft|vendido|venduto|verkocht|sprzedane)$/i.test((el.textContent || "").trim()));
+      const photo = cardPhoto(card);
+      if (seen.has(id)) {
+        // Déjà envoyée sans photo : on attend que sa photo soit chargée pour la compléter.
+        if (!photo) continue;
+        noPhoto.delete(id);
+      } else if (!photo && noPhoto.size < 2000) noPhoto.add(id);
+      const late = seen.has(id);
       seen.add(id);
       out.push({
         vinted_id: id, market, title: parts[0]?.slice(0, 300) || null,
         brand: field(parts, /^(marque|brand|marke|marca|merk)\s*:\s*/i), size: field(parts, /^(taille|size|größe|talla|taglia|maat)\s*:\s*/i),
         condition: field(parts, /^(état|condition|zustand|estado|stato|staat)\s*:\s*/i), price: num(t), currency: "EUR",
-        photo_url: img?.getAttribute("src") || img?.getAttribute("data-src") || null,
+        photo_url: photo, ...(late ? { photoLate: true } : {}),
         url: new URL(a.getAttribute("href"), location.href).href.split("?")[0],
         status: sold ? "sold" : "active", liked: isFavourites(), ...(sellerId ? { seller_id: sellerId } : {}),
       });
