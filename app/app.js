@@ -861,7 +861,47 @@ function viewCatalogue() {
     }).join("")}</div>
       ${c.rows.length < c.total ? `<button id="more" class="btn block" type="button" ${c.loading ? "disabled" : ""}>Voir plus</button>` : ""}`;
   }
-  return head + `<div style="margin-top:12px">${body}</div><section class="stack" id="salesfeed" style="margin-top:22px" aria-label="Ventes Vinted constatées"></section>`;
+  return head + `<div style="margin-top:12px">${body}</div><section id="confirmbox" style="margin-top:18px" aria-live="polite"></section><section class="stack" id="salesfeed" style="margin-top:22px" aria-label="Ventes Vinted constatées"></section>`;
+}
+
+/**
+ * « Est-ce le même produit ? » : les ressemblances fortes (annonce Vinted / produit fournisseur) sont montrées une à une.
+ * 2 « oui » de deux membres relient l'annonce au produit pour tout le monde ; 1 « non » retire la proposition.
+ */
+async function loadConfirm() {
+  const box = document.getElementById("confirmbox");
+  if (!box || !state.me) return;
+  const q = state.confirmQ || (state.confirmQ = { rows: [], total: 0, done: 0, busy: false });
+  if (!q.rows.length) {
+    const rows = await api("suggest:queue").catch(() => []);
+    q.rows = Array.isArray(rows) ? rows : [];
+    q.total = q.rows[0] ? Number(q.rows[0].total_count) : 0;
+    q.done = 0;
+  }
+  const r = q.rows[0];
+  if (!document.getElementById("confirmbox")) return;
+  if (!r) { box.innerHTML = ""; return; }
+  const pic = (u) => (/^https:\/\//.test(u || "") ? `<img src="${safeUrl(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : "");
+  const left = Math.max(0, q.total - q.done);
+  box.innerHTML = `<div class="card confirm">
+    <h3>Est-ce le même produit ?</h3>
+    <p class="small muted">Tes réponses ajoutent des produits au catalogue pour tout le monde.${left ? ` <b class="num">${left}</b> à vérifier.` : ""}</p>
+    <div class="cpair">
+      <figure><div class="ph">${pic(r.item_photo)}</div><figcaption><b>Annonce Vinted</b> · <a href="${safeUrl(r.item_url)}" target="_blank" rel="noopener">${esc(r.item_title || "Annonce")}</a> <span class="num">${eur(Number(r.item_price))}</span></figcaption></figure>
+      <figure><div class="ph">${pic(r.product_image)}</div><figcaption><b>${esc({ aliexpress: "AliExpress", temu: "Temu", shein: "Shein" }[r.platform] || "Fournisseur")}</b> · <a href="${safeUrl(r.product_url)}" target="_blank" rel="noopener">${esc(r.product_title || "Produit")}</a> ${r.product_price != null ? `<span class="num">${eur(Number(r.product_price))}</span>` : ""}</figcaption></figure>
+    </div>
+    <div class="cbtns"><button class="btn primary small" type="button" data-same="1">Oui, même produit</button><button class="btn small" type="button" data-same="0">Non, différent</button><button class="btn small ghost" type="button" data-same="skip">Je ne sais pas</button></div>
+  </div>`;
+  box.querySelectorAll("[data-same]").forEach((b) => b.addEventListener("click", async () => {
+    if (q.busy) return;
+    q.busy = true;
+    const cur = q.rows.shift();
+    q.done++;
+    if (b.dataset.same !== "skip") await api("suggest:vote", { productId: cur.product_id, vintedId: cur.vinted_id, same: b.dataset.same === "1" }).catch(() => {});
+    q.busy = false;
+    if (!q.rows.length && q.done >= 12) q.total = 0; // lot terminé : le suivant est demandé au serveur
+    loadConfirm();
+  }));
 }
 
 /** Toutes les ventes Vinted constatées, même quand le fournisseur n'est pas encore identifié. */
@@ -1082,6 +1122,7 @@ let searchTimer = null;
 function bindCatalogue() {
   loadPicks();
   loadSalesFeed();
+  loadConfirm();
   document.getElementById("trends")?.addEventListener("toggle", (e) => { if (e.target.open) loadTrends(); }, { once: true });
   const c = state.catalog;
   document.getElementById("csearch")?.addEventListener("input", (e) => {

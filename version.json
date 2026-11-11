@@ -1,7 +1,7 @@
 {
-  "version": "3.8.11",
-  "notes": "Nouveau : partage tes ventes sans ton nom (à activer toi-même) pour célébrer les ventes de la communauté. Ventes constatées de nouveau enregistrées, photos Vinted du produit en un clic avec Barapics.",
+  "version": "3.8.12",
+  "notes": "Nouveau dans le catalogue : « Est-ce le même produit ? » — confirme en un clic le fournisseur d'une annonce Vinted, chaque réponse ajoute des produits pour toute la communauté. Annonces pas revues depuis 3 jours signalées, ventes mieux repérées.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-10",
+  "releaseDate": "2026-11-11",
   "minVersion": "3.0.0"
 }

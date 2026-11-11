@@ -55,7 +55,9 @@
       const ownPage = location.pathname.match(/^\/member\/(\d{3,15})(?:-|\/|$)/)?.[1];
       const sellerId = Number(sellerHref.match(/\/member\/(\d{3,15})(?:-|\/|$)/)?.[1] || (ownPage && !isFavourites() ? ownPage : 0)) || null;
       // « Vendu » : seulement un badge dont le texte entier est le mot (jamais un mot du titre).
-      const sold = !!card && [...card.querySelectorAll("span, div, p")].some((el) => el.children.length === 0 && /^(vendu|sold|verkauft|vendido|venduto|verkocht|sprzedane)$/i.test((el.textContent || "").trim()));
+      const SOLD = /^(vendu|vendue|sold|verkauft|vendido|venduto|verkocht|sprzedane|prodáno|predané|eladva|vândut|parduota|myyty|såld|solgt)$/i;
+      const sold = (!!card && [...card.querySelectorAll("span, div, p, b, strong, li")].some((el) => el.children.length === 0 && SOLD.test((el.textContent || "").trim())))
+        || parts.some((x) => SOLD.test(x.trim()));
       const photo = cardPhoto(card);
       if (seen.has(id)) {
         // Déjà envoyée sans photo : on attend que sa photo soit chargée pour la compléter.

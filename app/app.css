@@ -578,3 +578,14 @@ dialog.salesheet::backdrop{background:rgba(18,16,25,.55)}
 .subnav { margin-bottom: 2px; }
 .subnav button { font-size: 13px; }
 .intro { margin: 0 0 4px; }
+
+/* « Est-ce le même produit ? » (catalogue) */
+.confirm { padding: 14px; }
+.confirm h3 { margin: 0 0 2px; }
+.confirm .cpair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.confirm figure { margin: 0; min-width: 0; }
+.confirm .ph { height: 170px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line); overflow: hidden; }
+.confirm .ph img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.confirm figcaption { margin-top: 6px; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.confirm figcaption a { color: inherit; }
+.confirm .cbtns { display: flex; gap: 8px; flex-wrap: wrap; }

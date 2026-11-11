@@ -1029,6 +1029,11 @@ async function registerOwnItems(ids, sellerId = null, market = "fr") {
     await chrome.storage.local.set({ [OWN_ITEMS_KEY]: [...set].slice(-5000) });
   }
   if (!(await sb.getSession().catch(() => null))) return;
+  // Rien de nouveau : la liste n'est renvoyée au serveur qu'une fois toutes les 12 h (chaque page de son propre
+  // dressing relançait l'envoi, jusqu'à dépasser la limite du serveur : « Trop de requêtes »).
+  const { ae_own_sent_at: sentAt = 0 } = await chrome.storage.local.get("ae_own_sent_at");
+  if (!fresh.length && Date.now() - sentAt < 12 * 3600_000) return;
+  await chrome.storage.local.set({ ae_own_sent_at: Date.now() });
   for (let i = 0; i < clean.length; i += 2000) {
     await sb.rpc("aliedge_register_own_items", { _ids: clean.slice(i, i + 2000), _seller_id: sellerId ? Number(sellerId) : null, _market: MARKETS[market] ? market : "fr" }).catch((e) => noteError("own:items", e));
   }
@@ -1157,7 +1162,24 @@ async function reportVintedItem(item, raw = null) {
 
 // ───────────────────────── Annonces affichées par Vinted (aucune requête en plus) et favoris du membre
 const cardsSeen = new Map();
+// Diagnostic anonyme, une fois par jour : combien de cartes Vinted lues et combien portaient le badge « Vendu »
+// (aucun identifiant, aucun titre). Sert à vérifier que les ventes sont bien repérées sur les pages.
+async function harvestDiag(items) {
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    const { ae_harvest_diag: d = { day, cards: 0, sold: 0 } } = await chrome.storage.local.get("ae_harvest_diag");
+    if (d.day !== day) {
+      if (d.cards > 0) noteError("diag:harvest", `cartes=${d.cards} vendues=${d.sold}`);
+      d.day = day; d.cards = 0; d.sold = 0;
+    }
+    d.cards += items.length;
+    d.sold += items.filter((i) => i?.status === "sold").length;
+    await chrome.storage.local.set({ ae_harvest_diag: d });
+  } catch { /* jamais bloquant */ }
+}
+
 async function reportCards({ items }) {
+  if (Array.isArray(items) && items.length) await harvestDiag(items);
   const settings = await getSettings();
   if (!settings.shareAnalyses || !Array.isArray(items) || !items.length || !(await sb.getSession())) return { added: 0 };
   const now = Date.now();
@@ -1834,6 +1856,8 @@ const handlers = {
     const rows = await sb.rpc("aliedge_suggestion_for", { _vinted_id: Number(vintedId) }).catch(() => null);
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
   },
+  // File « Est-ce le même produit ? » du catalogue (ressemblances fortes à confirmer par les membres).
+  "suggest:queue": async () => ((await sb.getSession()) ? sb.rpc("aliedge_suggestion_queue", { _limit: 12 }).catch(() => []) : []),
   "suggest:vote": async ({ productId, vintedId, same }) => {
     if (!/^[0-9a-f-]{36}$/.test(String(productId)) || !Number.isSafeInteger(Number(vintedId))) return null;
     return sb.rpc("aliedge_suggestion_vote", { _product_id: productId, _vinted_id: Number(vintedId), _same: !!same }).catch(() => null);
