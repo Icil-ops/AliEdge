@@ -390,7 +390,8 @@ await page.evaluate(() => chrome.storage.local.set({ ae_update_ready: null, ae_w
 await page.reload();
 await page.waitForFunction(() => /Radar/.test(document.querySelector(".update-banner")?.textContent || ""), null, { timeout: 6000 }).catch(() => {});
 await page.waitForSelector(".update-banner", { timeout: 6000 }).catch(() => {});
-const wn = await page.locator(".update-banner").innerText().catch(() => "");
+// Plusieurs bandeaux peuvent être affichés (partage des ventes, Leboncoin) : on lit celui des nouveautés.
+const wn = await page.locator(".update-banner:has(.notes)").first().innerText().catch(() => "");
 await page.click('[data-update="seen"]').catch(() => {});
 await page.waitForTimeout(300);
 check("mise à jour : nouveautés affichées une fois", /Radar/.test(wn) && !(await page.evaluate(async () => (await chrome.storage.local.get("ae_whatsnew")).ae_whatsnew)), wn.slice(0, 60));
@@ -752,7 +753,8 @@ rpc.aliedge_me.admin = false;
   await page.reload();
   await page.waitForSelector("#salesfeed [data-plat='lbc']", { timeout: 8000 }).catch(() => {});
   await page.click("#salesfeed [data-plat='lbc']").catch(() => {});
-  await page.waitForSelector("#salesfeed .sale-row", { timeout: 6000 }).catch(() => {});
+  // L'onglet Vinted peut déjà montrer une vente : on attend que la liste Leboncoin soit bien affichée.
+  await page.waitForFunction(() => /Ventes Leboncoin/.test(document.querySelector("#salesfeed")?.textContent || "") && document.querySelector("#salesfeed form[data-lbclink]"), null, { timeout: 8000 }).catch(() => {});
   const t = await page.locator("#salesfeed").innerText().catch(() => "");
   check("catalogue : ventes Leboncoin (estimation) avec recherche du fournisseur", /Ventes Leboncoin/.test(t) && /estimation/.test(t) && (await page.locator("#salesfeed form[data-lbclink]").count()) === 1, t.slice(0, 120));
   await page.click("#salesfeed [data-plat='vinted']").catch(() => {});
