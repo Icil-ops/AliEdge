@@ -1070,10 +1070,48 @@ async function reportWardrobe(sellerId, market, items) {
 
 // Profil Vinted ouvert par le membre : son dressing met à jour les annonces suivies.
 const wardrobeSeen = new Map();
+// ───────────────────────── Ventes partagées (réglage « Partager mes ventes », désactivé par défaut)
+// Le membre qui l'accepte partage, sans son nom, le prix de ses ventes Vinted : elles sont annoncées dans la
+// communauté. Les ventes sont lues sur son propre dressing quand il l'ouvre (aucune requête en plus vers Vinted).
+// Au premier passage après l'activation, les ventes déjà faites servent seulement de point de départ.
+const OWN_SOLD_KEY = "ae_own_sold";
+async function noteOwnSales(sellerId, market, items, fullWardrobe) {
+  const settings = await getSettings();
+  if (settings.shareSales !== true || !sellerId) return;
+  const sold = (items || []).filter((i) => i && i.status === "sold" && Number(i.vinted_id) > 0 && Number(i.price) > 0);
+  const r = await chrome.storage.local.get(OWN_SOLD_KEY);
+  const st = r[OWN_SOLD_KEY] || { sellers: {}, ids: [] };
+  const seen = new Set(st.ids || []);
+  const key = String(sellerId);
+  let fresh = [];
+  if (!st.sellers[key]) {
+    // Point de départ : seulement en lisant le dressing entier (une page d'annonce seule ne suffit pas).
+    if (!fullWardrobe) return;
+    st.sellers[key] = Date.now();
+    sold.forEach((i) => seen.add(Number(i.vinted_id)));
+  } else {
+    fresh = sold.filter((i) => !seen.has(Number(i.vinted_id))).slice(0, 20);
+    fresh.forEach((i) => seen.add(Number(i.vinted_id)));
+  }
+  st.ids = [...seen].slice(-3000);
+  await chrome.storage.local.set({ [OWN_SOLD_KEY]: st });
+  if (!fresh.length) return;
+  const session = await sb.getSession().catch(() => null);
+  if (!session) return;
+  await fetch(`${SITE_URL}/api/public/aliedge-photos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ action: "vouch", sales: fresh.map((i) => ({ id: Number(i.vinted_id), price: Math.round(Number(i.price) * 100) / 100, currency: /^[A-Z]{3}$/.test(i.currency || "") ? i.currency : "EUR", market: MARKETS[market] ? market.slice(0, 2) : "fr" })) }),
+  }).catch(() => {});
+}
+
 async function reportMember({ sellerId, market, items }) {
   const settings = await getSettings();
   if (!settings.shareAnalyses || !sellerId || !Array.isArray(items) || !(await sb.getSession())) return {};
-  if ((await ownSellerIds()).has(Number(sellerId))) return {};
+  if ((await ownSellerIds()).has(Number(sellerId))) {
+    noteOwnSales(sellerId, market, items.map((it) => ({ ...vinted.normaliseItem(it, market), status: vinted.statusFromJson(it) })), true).catch(() => {});
+    return {};
+  }
   const last = wardrobeSeen.get(sellerId);
   if (last && Date.now() - last < 3 * 3600_000) return {};
   wardrobeSeen.set(sellerId, Date.now());
@@ -1099,7 +1137,11 @@ async function reportVintedItem(item, raw = null) {
   delete item.photos;
   // Vendeur inconnu (sa propre annonce n'en affiche pas) : jamais envoyée dans la base commune.
   if (!item.seller_id) return;
-  if ((await ownSellerIds()).has(Number(item.seller_id))) { registerOwnItems([item.vinted_id], item.seller_id, item.market).catch(() => {}); return; }
+  if ((await ownSellerIds()).has(Number(item.seller_id))) {
+    registerOwnItems([item.vinted_id], item.seller_id, item.market).catch(() => {});
+    noteOwnSales(item.seller_id, item.market, [item], false).catch(() => {});
+    return;
+  }
   if ((await ownItemIds()).has(Number(item.vinted_id))) return;
   const last = reported.get(item.vinted_id);
   if (last && Date.now() - last < 6 * 3600_000) return;

@@ -409,6 +409,12 @@
     "Voir les offres Barapics (dès 10,49 € par semaine)": "See Barapics plans (from €10.49 a week)",
     "Tes 4 premières photos sont offertes, sans carte bancaire. Barapics reçoit ce produit déjà rempli et crée aussi l'annonce.": "Your first 4 photos are free, no credit card. Barapics receives this product already filled in and writes the listing too.",
     "Créer mes 4 photos offertes": "Create my 4 free photos",
+    "Partager mes ventes, sans mon nom": "Share my sales, without my name",
+    "Partager tes ventes, sans ton nom ?": "Share your sales, without your name?",
+    "Oui, partager": "Yes, share",
+    "Non merci": "No thanks",
+    "Merci ! Tes prochaines ventes seront partagées sans ton nom.": "Thanks! Your next sales will be shared without your name.",
+    "D'accord, rien n'est partagé.": "OK, nothing is shared.",
   };
 
   // Textes avec des nombres ou des noms : remplacés par motif.

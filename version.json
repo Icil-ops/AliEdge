@@ -1,6 +1,6 @@
 {
-  "version": "3.8.6",
-  "notes": "Après une analyse rentable : crée les 4 photos Vinted du produit avec Barapics (4 photos offertes, sans carte). Concurrents plus fiables, connexion Google et mot de passe oublié réparés, photos du catalogue réparées.",
+  "version": "3.8.7",
+  "notes": "Nouveau : partage tes ventes sans ton nom (à activer toi-même) pour célébrer les ventes de la communauté. Ventes constatées de nouveau enregistrées, photos Vinted du produit en un clic avec Barapics.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-10",
   "minVersion": "3.0.0"
