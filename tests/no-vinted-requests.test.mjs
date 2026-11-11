@@ -12,7 +12,8 @@ test("l'interrupteur des requêtes Vinted reste coupé", () => {
 
 test("les lectures avec la session du membre restent désactivées", () => {
   assert.match(read("src/content/vinted.js"), /async function details\(id\) \{\s*return null;/);
-  assert.match(read("src/content/whoami.js"), /return; \/\/ plus aucune requête à Vinted/);
+  // whoami.js lit seulement la page affichée (menu du compte, cookie) : aucun appel réseau n'y est permis.
+  assert.doesNotMatch(read("src/content/whoami.js"), /\bfetch\(|XMLHttpRequest|sendBeacon|\/api\/v2/);
   assert.match(read("src/content/member.js"), /return; \/\/ plus aucune requête à Vinted/);
   const lib = read("src/lib/vinted.js");
   for (const fn of ["directFetch", "vFetch", "searchFromPage"]) {
