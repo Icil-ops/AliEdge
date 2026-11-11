@@ -975,7 +975,7 @@ async function addOwnSeller(id, market = "fr", login = null) {
   const r = await chrome.storage.local.get(OWN_KEY);
   const list = (r[OWN_KEY] || []).filter((x) => Number(x.id) !== id);
   const prev = (r[OWN_KEY] || []).find((x) => Number(x.id) === id);
-  list.unshift({ id, market, login: login ? String(login).slice(0, 60) : null, at: Date.now(), registered_at: prev?.registered_at || 0 });
+  list.unshift({ id, market, login: login ? String(login).slice(0, 60) : prev?.login || null, at: Date.now(), registered_at: login && !prev?.login ? 0 : prev?.registered_at || 0 });
   await chrome.storage.local.set({ [OWN_KEY]: list.slice(0, 5) });
   ownCache = null;
   await syncOwnSellers();
@@ -2055,6 +2055,8 @@ const handlers = {
   "open:tab": async ({ hash = "" }) => { await chrome.tabs.create({ url: chrome.runtime.getURL(`app/app.html?mode=tab#${hash}`) }); return {}; },
   "settings:pill": async () => ({ showPill: (await getSettings()).showPill }),
   "vinted:self": async ({ id, market, login }) => { await addOwnSeller(id, MARKETS[market] ? market : "fr", login); return {}; },
+  // Diagnostic anonyme de la reconnaissance du compte Vinted (aucun identifiant) : visible dans les erreurs de l'admin.
+  "vinted:selfDiag": async ({ info }) => { if (/^[a-zA-Z=\- ]{5,120}$/.test(String(info || ""))) noteError("diag:whoami", String(info)); return {}; },
   "own:list": async () => (await chrome.storage.local.get(OWN_KEY))[OWN_KEY] || [],
   // Achat malin
   "prices:history": async (msg) => priceHistory(msg),
@@ -2155,7 +2157,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (aeDisabled && !["ae:state", "ae:setDisabled", "settings:get", "auth:state", "update:state"].includes(msg.type)) { sendResponse({ ok: false, error: "AliEdge est désactivé (Réglages).", code: "disabled" }); return false; }
   // Les pages web ne peuvent appeler que les messages prévus pour les scripts de contenu.
   const fromContent = sender.tab && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-  if (fromContent && !["vinted:self", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "suggest:get", "suggest:vote", "settings:pill", "tracker:add", "competitor:ids", "competitor:sellerOf", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
+  if (fromContent && !["vinted:self", "vinted:selfDiag", "compare:session", "compare:cards", "compare:end", "capture:done", "coupons:list", "coupons:add", "coupons:vote", "open:panel", "vinted:item", "vinted:member", "vinted:cards", "lbc:cards", "lbc:profile", "lbc:trackedIds", "lbc:track", "lbc:untrack", "catalog:autoSeen", "lbc:link", "lbc:listing", "lbc:itemInfo", "lbc:badges", "lbc:bestTimes", "lbc:replies", "lbc:offer", "lbc:saveListing", "lbc:open", "lbc:next", "lbc:stopQueue", "lbc:clearListing", "vinted:postedIds", "vinted:ownItems", "photos:get", "xpost:all", "settings:sellAddress", "settings:autoPublish", "vinted:isOwn", "suggest:get", "suggest:vote", "settings:pill", "tracker:add", "competitor:ids", "competitor:sellerOf", "competitor:remove", "open:barapics", "product:changed", "aff:open", ...TOUR_CONTENT_TYPES, ...CHANNEL_CONTENT_TYPES].includes(msg.type)) return false;
   Promise.resolve(h(msg, sender))
     .then((data) => sendResponse({ ok: true, data }))
     .catch((e) => {
