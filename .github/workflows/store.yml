@@ -28,14 +28,9 @@ jobs:
       - name: Test de bout en bout (rien n'est envoyé au store s'il échoue)
         run: |
           npm install --no-save playwright@1.63.0
-          # Les serveurs de paquets d'Ubuntu tombent parfois en panne : 3 essais, puis Chromium seul
-          # (les bibliothèques nécessaires sont déjà sur la machine GitHub).
-          ok=0
-          for i in 1 2 3; do
-            if npx playwright install --with-deps chromium; then ok=1; break; fi
-            sleep 30
-          done
-          if [ "$ok" = 0 ]; then npx playwright install chromium; fi
+          # Les serveurs de paquets d'Ubuntu sont parfois injoignables (l'installation reste alors bloquée 10 minutes) :
+          # 4 minutes au plus, puis Chromium seul (les bibliothèques nécessaires sont déjà sur la machine GitHub).
+          timeout 240 npx playwright install --with-deps chromium || npx playwright install chromium
           timeout 720 node tests/e2e.mjs shots
       - name: Paquet
         run: ./tools/pack.sh
