@@ -35,7 +35,13 @@
           card = card.parentElement;
         }
         // Première vraie photo de la carte (jamais un badge publicitaire, une icône ou un logo).
-        const img = [...card.querySelectorAll("img")].find((i) => !/ad_tag|temu_rec_leo|\/icons?\/|\/\d{2}x\d{2}\.(png|jpe?g)$/i.test(i.currentSrc || i.getAttribute("src") || "")) || null;
+        const img = [...card.querySelectorAll("img")].find((i) => {
+          const u = i.currentSrc || i.getAttribute("src") || "";
+          if (/ad_tag|temu_rec_leo|\/icons?\/|\/\d{2,3}x\d{2,3}\.(png|jpe?g)(_|$|\?)|(aliexpress-media|alicdn)\.com\/kf\/[^?#]*\.png(_\.avif|_\.webp)?(\?|$)|cert-energy-label|\/avatar\//i.test(u)) return false;
+          // Badge « Choice », logo, étiquette : petit ou très allongé.
+          const w = i.naturalWidth || 0, h = i.naturalHeight || 0;
+          return !(i.complete && Math.min(w, h) >= 8 && (w / h > 1.8 || h / w > 2.2 || Math.min(w, h) < 60));
+        }) || null;
         let src = img ? (img.currentSrc || img.getAttribute("src") || img.dataset?.src || "") : "";
         if (src.startsWith("//")) src = `https:${src}`;
         const text = clean(card.textContent);

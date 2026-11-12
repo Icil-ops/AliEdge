@@ -14,9 +14,20 @@
   const sent = new Set();
   const noImage = new Map(); // produits envoyés sans photo (image pas encore chargée) : renvoyés quand elle apparaît
   // Photo réelle de la carte : les sites chargent les images au défilement (data-src, srcset, fond CSS).
+  // Badge, logo ou étiquette (« Choice », « Bienvenue », points…) : petit, très allongé, ou d'une taille fixe de badge
+  // dans l'adresse (…/110x42.png). Jamais pris comme photo du produit.
+  const BADGE_URL = /\/\d{2,3}x\d{2,3}\.(png|jpe?g)(_|$|\?)|(aliexpress-media|alicdn)\.com\/kf\/[^?#]*\.png(_\.avif|_\.webp)?(\?|$)|cert-energy-label|\/avatar\//i;
+  // Jugé seulement sur une image chargée (une image pas encore chargée ou cassée n'a pas encore sa vraie taille).
+  const isBadge = (img) => {
+    const w = img.naturalWidth || 0, h = img.naturalHeight || 0;
+    // Pixel de chargement (1×1…) : pas un badge, la vraie photo arrive ensuite.
+    if (!img.complete || Math.min(w, h) < 8) return false;
+    return w / h > 1.8 || h / w > 2.2 || Math.min(w, h) < 60;
+  };
   function bestSrc(card) {
     const cands = [];
     for (const img of card.querySelectorAll("img")) {
+      if (isBadge(img)) continue;
       cands.push(img.currentSrc, img.getAttribute("data-src"), img.getAttribute("data-original"), img.getAttribute("data-lazy"), img.getAttribute("data-design-src"), img.getAttribute("src"));
       const ss = img.getAttribute("srcset") || img.getAttribute("data-srcset");
       if (ss) cands.push(ss.split(",").map((x) => x.trim().split(/\s+/)[0]).pop());
@@ -26,6 +37,7 @@
       if (!c) continue;
       c = String(c).trim();
       if (c.startsWith("//")) c = `https:${c}`;
+      if (BADGE_URL.test(c)) continue;
       if (!/^https:\/\//.test(c) || /^data:|placeholder|blank|loading|lazy|\.gif(\?|$)|1x1|transparent|bg-grey|default_img|ad_tag|temu_rec_leo|\/icons?\/|\/\d{2}x\d{2}\.(png|jpe?g)$/i.test(c)) continue; // badges, icônes, logos
       return c;
     }

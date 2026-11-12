@@ -1,7 +1,7 @@
 {
-  "version": "3.8.12",
-  "notes": "Nouveau dans le catalogue : « Est-ce le même produit ? » — confirme en un clic le fournisseur d'une annonce Vinted, chaque réponse ajoute des produits pour toute la communauté. Annonces pas revues depuis 3 jours signalées, ventes mieux repérées.",
+  "version": "3.8.13",
+  "notes": "Nouveau sur Facebook : un bouton « Relancer » en bas à droite de tes messages liste les acheteurs Marketplace qui ne t'ont pas répondu depuis 24 h et écrit la relance dans chaque conversation — tu l'envoies avec Entrée. Les badges « Choice » ne sont plus pris pour la photo d'un produit.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-11",
+  "releaseDate": "2026-11-12",
   "minVersion": "3.0.0"
 }

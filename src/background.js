@@ -31,6 +31,7 @@ async function setSettings(patch) {
   await syncAlarms(next);
   if ("lbc" in patch) await syncLbcScript().catch(() => {});
   for (const ch of Object.keys(CHANNELS)) if (ch in patch) await syncChannelScript(ch).catch(() => {});
+  if ("fbRelance" in patch || "facebook" in patch) await syncFbRelance().catch(() => {});
   return next;
 }
 
@@ -1321,7 +1322,23 @@ async function syncChannelScript(ch) {
   else if (!on && existing.length) await chrome.scripting.unregisterContentScripts({ ids: [id] });
   return on;
 }
-async function syncChannels() { for (const ch of Object.keys(CHANNELS)) await syncChannelScript(ch).catch(() => {}); }
+async function syncChannels() {
+  for (const ch of Object.keys(CHANNELS)) await syncChannelScript(ch).catch(() => {});
+  await syncFbRelance().catch(() => {});
+}
+
+// Relances Facebook (Marketplace / Messenger) : bouton sur les pages de messages, le membre envoie chaque relance
+// lui-même. Activé par défaut, désactivable dans les réglages ; seulement si l'accès à facebook.com est accordé.
+const FB_RELANCE_JS = ["src/i18n/en.js", "src/content/i18n-start.js", "src/content/fb-relance.js"];
+async function syncFbRelance() {
+  let on = false;
+  try { on = (await chrome.permissions.contains({ origins: ["https://www.facebook.com/*"] })) && (await getSettings()).fbRelance !== false; } catch { on = false; }
+  const id = "ae-fbrelance";
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [id] }).catch(() => []);
+  if (on && existing.length && (existing[0].js || []).join() !== FB_RELANCE_JS.join()) { await chrome.scripting.unregisterContentScripts({ ids: [id] }); existing.length = 0; }
+  if (on && !existing.length) await chrome.scripting.registerContentScripts([{ id, matches: ["https://www.facebook.com/*"], js: FB_RELANCE_JS, runAt: "document_idle", persistAcrossSessions: true }]);
+  else if (!on && existing.length) await chrome.scripting.unregisterContentScripts({ ids: [id] });
+}
 
 /**
  * Annonces en ligne du compte Vinted du membre : lues sur Vinted, sinon celles relevées la dernière fois qu'il a
