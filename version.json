@@ -1,6 +1,6 @@
 {
-  "version": "3.8.14",
-  "notes": "Leboncoin : l'état, la couleur et la matière sont maintenant choisis automatiquement pendant le dépôt (l'état est lu dans ta description si besoin), et le remplissage automatique marche aussi pour une annonce faite depuis un produit fournisseur.",
+  "version": "3.8.15",
+  "notes": "Nouveau look : AliEdge passe au thème sombre « studio orbital », le même que Barapics (aurore violet et cyan, panneaux en verre, nouvelles polices).",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-24",
   "minVersion": "3.0.0"
