@@ -1,7 +1,7 @@
 {
-  "version": "3.8.13",
-  "notes": "Nouveau sur Facebook : un bouton « Relancer » en bas à droite de tes messages liste les acheteurs Marketplace qui ne t'ont pas répondu depuis 24 h et écrit la relance dans chaque conversation — tu l'envoies avec Entrée. Les badges « Choice » ne sont plus pris pour la photo d'un produit.",
+  "version": "3.8.14",
+  "notes": "Leboncoin : l'état, la couleur et la matière sont maintenant choisis automatiquement pendant le dépôt (l'état est lu dans ta description si besoin), et le remplissage automatique marche aussi pour une annonce faite depuis un produit fournisseur.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-12",
+  "releaseDate": "2026-11-24",
   "minVersion": "3.0.0"
 }

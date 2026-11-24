@@ -315,6 +315,24 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     [/satisfaisant|satisfactory/, ["satisfaisant", "etat satisfaisant", "correct", "etat correct", "etat moyen"]],
   ];
   const condWords = (v) => COND_WORDS.find(([re]) => re.test(pnorm(v)))?.[1] || [pnorm(v)];
+  /** État de l'annonce : celui de Vinted, sinon celui écrit dans le titre ou la description (« Très bon état »),
+   *  sinon « neuf » pour une annonce faite depuis un produit fournisseur. */
+  function conditionOf(l) {
+    if (l.condition) return l.condition;
+    const txt = pnorm(`${l.title || ""} ${l.description || ""}`);
+    const hit = [["neuf avec etiquette", /neuf avec etiquettes?|jamais porte avec etiquette/], ["neuf sans etiquette", /neuf sans etiquettes?/],
+      ["tres bon etat", /tres bon etat|excellent etat|comme neuf/], ["bon etat", /\bbon etat\b/], ["satisfaisant", /etat (satisfaisant|correct|moyen)/],
+      ["neuf avec etiquette", /\bneuf\b/]].find(([, re]) => re.test(txt));
+    if (hit) return hit[0];
+    return l.from === "vinted" ? null : "neuf avec etiquette";
+  }
+  /** Couleurs Vinted (« Rouge, Blanc ») → liste de Leboncoin (la première ; « Multicolore » s'il y en a plusieurs). */
+  function colorWords(v) {
+    const list = String(v || "").split(/[,/&]| et /).map((x) => pnorm(x)).filter(Boolean);
+    if (!list.length) return [];
+    const alias = { "bordeaux": ["bordeaux", "rouge"], "kaki": ["kaki", "vert"], "creme": ["creme", "beige", "blanc"], "camel": ["camel", "marron"], "corail": ["corail", "orange"], "turquoise": ["turquoise", "bleu"], "marine": ["bleu marine", "bleu"], "bleu marine": ["bleu marine", "bleu"], "argente": ["argente", "argent", "gris"], "dore": ["dore", "or", "jaune"], "lila": ["lila", "violet"], "menthe": ["menthe", "vert"], "moutarde": ["moutarde", "jaune"], "abricot": ["abricot", "orange"], "kaki fonce": ["kaki", "vert"] };
+    return [...(list.length > 1 ? ["multicolore"] : []), ...(alias[list[0]] || [list[0]])];
+  }
   /** Adresse (Beebs…) : celle enregistrée dans AliEdge (Compte), puis la première suggestion du site. */
   async function fillAddress(addr) {
     if (!addr) return false;
@@ -418,14 +436,33 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
     });
     // Publication rapide (annonce reprise de Vinted) : le dépôt Leboncoin se fait en plusieurs étapes, chaque champ
     // est rempli dès qu'il apparaît (seulement s'il est vide), les photos dès que le champ photos est là.
-    if (l.from === "vinted") {
+    // Remplissage automatique (annonce reprise de Vinted ou faite depuis un produit fournisseur).
+    if (l.from === "vinted" || l.title) {
       const filled = new Set();
       // Une seule fois par annonce, même si Leboncoin recharge ses étapes (sinon les photos repartiraient à chaque étape).
       const key = `ae_lbc_done_${l.vintedId || l.at || ""}`;
       const doneSet = new Set((() => { try { return JSON.parse(sessionStorage.getItem(key) || "[]"); } catch { return []; } })());
       const mark = (k) => { doneSet.add(k); try { sessionStorage.setItem(key, JSON.stringify([...doneSet])); } catch { /* rien */ } };
-      let photosDone = doneSet.has("photos"), photosBusy = false, catDone = doneSet.has("cat"), condDone = false, brandDone = false;
-      const note = (what) => { const m = panel.querySelector("[data-fillmsg]"); if (m) m.textContent = `${what === "état" ? "État" : "Marque"} choisi${what === "état" ? "" : "e"}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; };
+      let photosDone = doneSet.has("photos"), photosBusy = false, catDone = doneSet.has("cat");
+      // Listes de choix (état, couleur, matière, marque) : jusqu'à 3 essais chacune, Leboncoin met parfois du temps
+      // à ouvrir sa liste. Une valeur déjà choisie par le membre n'est jamais remplacée.
+      const tries = { etat: 0, couleur: 0, matiere: 0, marque: 0 }, done = new Set();
+      const picked = [];
+      const note = (what) => { picked.push(what); const m = panel.querySelector("[data-fillmsg]"); if (m) m.textContent = `Choisi automatiquement : ${picked.join(", ")}. Relis tout avant de publier : c'est toi qui publies l'annonce.`; };
+      const emptyChoice = (re) => {
+        const trig = rowTrigger(re);
+        if (!trig) return null;
+        const v = pnorm(trig.tagName === "SELECT" ? trig.selectedOptions?.[0]?.textContent : trig.tagName === "INPUT" ? trig.value : trig.textContent);
+        return !v || /^(choisi(r|ssez)|selectionner|s.lectionnez)/.test(v) ? trig : null;
+      };
+      const choose = async (k, re, words, opts, label) => {
+        if (done.has(k) || tries[k] >= 3 || !words?.length) return;
+        if (!rowTrigger(re)) return;
+        if (!emptyChoice(re)) { done.add(k); return; }
+        tries[k]++;
+        if (await pickValue(re, words, opts)) { done.add(k); note(label); }
+      };
+      const cond = conditionOf(l);
       let ticking = false;
       const tick = async () => {
         if (!document.getElementById("aliedge-lbc-deposit")) return clearInterval(auto);
@@ -441,8 +478,10 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
         }
         if (!catDone && pickSuggestedCategory(l)) { catDone = true; mark("cat"); }
         // Étape « Dites-nous en plus » : état (obligatoire) puis marque (ignorée si Leboncoin ne la connaît pas).
-        if (!condDone && l.condition && rowTrigger(/^etat\b/)) { condDone = true; if (await pickValue(/^etat\b/, condWords(l.condition))) note("état"); }
-        if (!brandDone && l.brand && rowTrigger(/^marque\b/)) { brandDone = true; if (await pickValue(/^marque\b/, [l.brand], { search: true })) note("marque"); }
+        if (cond) await choose("etat", /^etat\b/, condWords(cond), {}, "état");
+        if (l.color) await choose("couleur", /^couleurs?\b/, colorWords(l.color), { loose: true }, "couleur");
+        if (l.material) await choose("matiere", /^matieres?\b/, [pnorm(l.material).split(/[,/]/)[0].trim()], { loose: true }, "matière");
+        if (l.brand) await choose("marque", /^marque\b/, [l.brand], { search: true }, "marque");
         // Photos : une seule fois par annonce, même si l'aide est relancée par une nouvelle étape (verrou posé AVANT
         // le téléchargement, qui prend quelques secondes) ; jamais si des photos sont déjà dans l'annonce ou une fois publiée.
         if (!photosDone && !photosBusy && !published && (l.photos || []).length && (document.querySelector('input[type="file"]') || /d[ée]posez jusqu|importer|ajouter des photos/i.test(document.body.innerText || ""))) {

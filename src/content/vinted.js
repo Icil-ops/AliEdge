@@ -239,6 +239,7 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
       size: raw?.size_title || raw?.size || domDetail(/^(taille|size)$/i),
       condition: raw?.status || raw?.condition || domDetail(/^(état|etat|condition)$/i),
       color: domDetail(/^(couleur|couleurs|color|colour)$/i),
+      material: domDetail(/^(matière|matiere|matières|material)$/i),
     };
     let posted = {};
     try { const r = await chrome.runtime.sendMessage({ type: "vinted:postedIds" }); posted = r?.data || {}; } catch { /* rien */ }
