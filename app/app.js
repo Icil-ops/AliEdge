@@ -785,6 +785,18 @@ function productsNav(cur) {
 }
 document.addEventListener("click", (e) => { const b = e.target.closest?.("[data-goto]"); if (b) location.hash = b.dataset.goto; });
 
+/** Catalogue en maintenance (réglage à distance « catalog_maintenance », sans nouvelle version). */
+function viewCatalogueMaintenance() {
+  return `<div class="stack">
+    ${productsNav("catalogue")}
+    <section class="card empty">${ICON.chart}<h2>Le catalogue est en maintenance</h2>
+      <p class="muted">On corrige plusieurs problèmes pour que les produits, les ventes et les fournisseurs affichés soient fiables. Il revient très vite, sans rien à faire de ton côté.</p>
+      <p class="muted small">En attendant, l'analyse d'un produit et « Mes produits » fonctionnent normalement.</p>
+      <div class="row wrap" style="gap:8px;justify-content:center;margin-top:12px"><a class="btn primary" href="#/analyse">Analyser un produit</a><a class="btn ghost" href="#/suivis">Mes produits</a></div>
+    </section>
+  </div>`;
+}
+
 function viewCatalogue() {
   if (!state.me) {
     return `<div class="card empty">${ICON.chart}<h2>Les produits qui se vendent déjà</h2><p class="muted">Connecte-toi pour voir les produits AliExpress, Temu et Shein déjà vendus sur Vinted, avec leur marge.</p><a class="btn primary" style="margin-top:12px" href="#/compte">Se connecter</a></div>`;
@@ -2686,7 +2698,7 @@ async function render() {
   document.getElementById("account")?.classList.toggle("on", name === "compte" || name === "bienvenue");
   let html;
   if (name === "analyse") html = viewAnalyse();
-  else if (name === "catalogue") html = viewCatalogue();
+  else if (name === "catalogue") { state.catalogOff = await api("remote:catalogMaintenance").catch(() => false); if (seq !== renderSeq) return; html = state.catalogOff ? viewCatalogueMaintenance() : viewCatalogue(); }
   else if (name === "suivis") html = await viewSuivis();
   else if (name === "concurrents") html = await viewConcurrents();
   else if (name === "bienvenue") html = viewBienvenue(params);
@@ -2718,7 +2730,7 @@ async function render() {
     if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length); }
   }
   if (name === "analyse") { bindAnalyse(); renderSteps(); fillTourCard(); fillLbcBox(); }
-  else if (name === "catalogue") bindCatalogue();
+  else if (name === "catalogue" && !state.catalogOff) bindCatalogue();
   else if (name === "suivis") bindSuivis();
   else if (name === "concurrents") bindTrackers();
   else if (name === "bienvenue") bindBienvenue(params);
@@ -2743,7 +2755,7 @@ let lastRoute = null;
 window.addEventListener("hashchange", () => {
   const { name } = route();
   closeDrawer();
-  if (name === "catalogue" && lastRoute !== "catalogue" && !state.catalog.rows.length) loadCatalog();
+  if (name === "catalogue" && !state.catalogOff && lastRoute !== "catalogue" && !state.catalog.rows.length) loadCatalog();
   else render();
   lastRoute = name;
   $view.focus({ preventScroll: true });

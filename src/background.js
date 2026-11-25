@@ -50,8 +50,10 @@ async function syncAlarms(settings) {
 // L'admin Barapics peut ralentir ou couper une fonction chez tous les membres sans nouvelle version.
 let remote = {};
 chrome.storage.local.get("ae_remote").then((r) => { remote = r.ae_remote || {}; vinted.applyRemoteBudget(remote); }).catch(() => {});
+let remoteAt = 0;
 async function refreshRemote() {
   if (!(await sb.getSession())) return;
+  remoteAt = Date.now();
   const cfg = await sb.rpc("aliedge_remote_config").catch(() => null);
   if (!cfg || typeof cfg !== "object") return;
   remote = cfg;
@@ -2061,6 +2063,8 @@ const handlers = {
     await chrome.tabs.create({ url: target, ...(sender.tab ? { index: sender.tab.index + 1, openerTabId: sender.tab.id } : {}) });
     return {};
   },
+  // Relu au plus toutes les 2 min à l'ouverture du catalogue : la maintenance s'applique (et se lève) presque tout de suite.
+  "remote:catalogMaintenance": async () => { if (Date.now() - remoteAt > 120_000) await refreshRemote().catch(() => {}); return remote.catalog_maintenance === "on"; },
   "remote:message": async () => (remote.message ? String(remote.message).slice(0, 300) : null),
   "tracker:remove": async ({ id }) => { competitorIds = null; return sb.rpc("aliedge_tracker_remove", { _id: id }); },
   "community:stats": async () => sb.publicRpc("aliedge_public_stats"),

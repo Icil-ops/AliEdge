@@ -1,7 +1,7 @@
 {
-  "version": "3.8.15",
-  "notes": "Nouveau look : AliEdge passe au thème sombre « studio orbital », le même que Barapics (aurore violet et cyan, panneaux en verre, nouvelles polices).",
+  "version": "3.8.16",
+  "notes": "Le catalogue peut passer en maintenance pendant qu'on corrige des problèmes : l'analyse d'un produit et « Mes produits » restent disponibles.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-24",
+  "releaseDate": "2026-11-25",
   "minVersion": "3.0.0"
 }
