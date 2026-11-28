@@ -218,6 +218,16 @@ export function select(table, query) {
   return authed((token) => call(`/rest/v1/${table}?${query}`, { token }));
 }
 
+/** Adresses temporaires (lecture seule) de fichiers privés du membre : ses photos Barapics (bucket « photos »). */
+export function signUrls(bucket, paths, expiresIn = 86_400) {
+  return authed(async (token) => {
+    const rows = await call(`/storage/v1/object/sign/${bucket}`, { method: "POST", body: { expiresIn, paths }, token });
+    const out = {};
+    for (const r of Array.isArray(rows) ? rows : []) if (r?.signedURL && r.path) out[r.path] = `${SUPABASE_URL}/storage/v1${r.signedURL}`;
+    return out;
+  });
+}
+
 export function insert(table, row, upsert = false) {
   return authed((token) => call(`/rest/v1/${table}`, {
     method: "POST", body: row, token,

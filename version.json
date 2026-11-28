@@ -1,7 +1,7 @@
 {
-  "version": "3.8.16",
-  "notes": "Le catalogue peut passer en maintenance pendant qu'on corrige des problèmes : l'analyse d'un produit et « Mes produits » restent disponibles.",
+  "version": "3.8.17",
+  "notes": "Nouveau : « Publier sur Leboncoin » (onglet Produits). Coche tes articles faits sur Barapics, indique le prix : AliEdge rédige l'annonce et remplit Leboncoin, photos comprises. Tu n'as plus qu'à publier.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
-  "releaseDate": "2026-11-25",
+  "releaseDate": "2026-11-28",
   "minVersion": "3.0.0"
 }

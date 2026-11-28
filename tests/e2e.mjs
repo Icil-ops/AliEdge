@@ -121,6 +121,7 @@ const ctx = await chromium.launchPersistentContext(path.join(os.tmpdir(), `alied
 const radarUrls = [];
 const fbRequests = [];
 const imageProxyCalls = [];
+let vinpicAdmin = false;
 const affCalls = [];
 let oplaStock = [["art_a1b2c3d4e5f6a7b8c9d0", "Sweat Nike gris", 25], ["art_b1b2c3d4e5f6a7b8c9d0", "Jean Levi's 501", 30]];
 let beebsStock = [[34000001, "Robe crochet fille", 12], [34000002, "Gilet bébé laine", 9]];
@@ -129,6 +130,7 @@ await ctx.route("**/*", async (route) => {
   const url = new URL(req.url());
   const h = url.hostname;
   if (url.protocol === "chrome-extension:") return route.continue();
+  if (h === "scalelab-backend-production.up.railway.app") return route.fulfill({ contentType: "image/jpeg", body: readFileSync(path.join(root, "tests/fixtures/capture.jpg")) });
   if (h.endsWith("supabase.co")) {
     calls.push(url.pathname);
     if (url.pathname.endsWith("aliedge_report_items")) reportBodies.push(req.postData() || "");
@@ -142,6 +144,17 @@ await ctx.route("**/*", async (route) => {
       return route.fulfill({ json: { total: 214, items: catalogItems.map((it, i) => ({ vinted_id: it.id, market: "fr", title: it.title, brand: it.brand_title, size: it.size_title, condition: it.status, price: Number(it.price.amount), currency: "EUR", photo_url: it.photo.url, url: it.url, favourites: it.favourite_count, status: i % 4 === 0 ? "sold" : "active", sold_at: i % 4 === 0 ? new Date(Date.now() - 864e5).toISOString() : null, listed_at: null, seller_id: it.user.id })) } });
     }
     if (name && name in rpc) return route.fulfill({ json: rpc[name] });
+    // Photos Barapics du membre (même compte) : 2 articles, photos privées lues par adresse signée.
+    if (url.pathname === "/rest/v1/generations") return route.fulfill({ json: [
+      { id: "g1", product_url: "https://www.temu.com/fr/lampe-g-601.html", product_title: "1 pcs Lampe de chevet LED tactile", product_price: "7,90 €", image_path: "u1/a1.jpg", favorite: false, created_at: new Date().toISOString() },
+      { id: "g2", product_url: "https://www.temu.com/fr/lampe-g-601.html", product_title: "1 pcs Lampe de chevet LED tactile", product_price: "7,90 €", image_path: "u1/a2.jpg", favorite: true, created_at: new Date().toISOString() },
+      { id: "g3", product_url: "https://www.shein.com/sac-p-9.html", product_title: "Sac bandoulière matelassé", product_price: "9,50 €", image_path: "u1/b1.jpg", favorite: false, created_at: new Date().toISOString() },
+    ] });
+    if (url.pathname === "/storage/v1/object/sign/photos" && req.method() === "POST") {
+      const paths = JSON.parse(req.postData() || "{}").paths || [];
+      return route.fulfill({ json: paths.map((p) => ({ path: p, signedURL: `/object/sign/photos/${p}?token=t`, error: null })) });
+    }
+    if (url.pathname.startsWith("/storage/v1/object/sign/photos/")) return route.fulfill({ contentType: "image/jpeg", body: readFileSync(path.join(root, "tests/fixtures/capture.jpg")) });
     if (url.pathname.includes("/rest/v1/aliedge_saved")) return route.fulfill({ json: [] });
     if (url.pathname.includes("/rest/v1/app_settings")) return route.fulfill({ json: [] });
     return route.fulfill({ status: 404, json: { message: "not mocked" } });
@@ -297,6 +310,13 @@ await ctx.route("**/*", async (route) => {
     const body = JSON.parse(req.postData() || "{}");
     barapicsCalls.push(body.action);
     if (body.action === "credits") return route.fulfill({ headers: cors, json: { remaining: 12, unlimited: false, plan: "pro", planLabel: "Pro" } });
+    if (body.action === "vinpic:fiches" || body.action === "vinpic:fiche") {
+      if (!vinpicAdmin) return route.fulfill({ status: 403, headers: cors, json: { error: "Réservé à l'administrateur.", code: "not_admin" } });
+      const fiche = (id) => ({ id, title: id === 31410 ? "Couronne de Noël artificielle multicolore" : "Guirlande lumineuse 10 m", brand: "Fyrta", description: "🎄 Jolie couronne de Noël pour la porte.\n\n✅ Parfait état, aucun défaut.\n\n📐 Dimensions : à compléter\n\n#couronnemurale #noel #decointerieur", price: 32.43, cost: 12.97, url: "https://www.temu.com/g-603513685917703.html", photos: [0, 1, 2].map((n) => `https://scalelab-backend-production.up.railway.app/fiches/${id}/photo/${n}?k=x`), createdAt: 1795766978, postedOn: [] });
+      if (body.action === "vinpic:fiche") return route.fulfill({ headers: cors, json: fiche(body.id) });
+      return route.fulfill({ headers: cors, json: body.cursor ? { fiches: [fiche(31408)], next: null, total: 3 } : { fiches: [fiche(31410), fiche(31409)], next: 2, total: 3 } });
+    }
+    if (body.action === "listing") return route.fulfill({ headers: cors, json: { title: "Lampe de chevet LED tactile", description: "Lampe neuve, 3 intensités.", price: 19, condition: "Neuf sans étiquette", brand: "Sans marque", size: "Taille unique", colors: ["Blanc"], material: "" } });
     if (body.action === "alerts:get") return route.fulfill({ headers: cors, json: { discord: true, telegram: false, telegramAvailable: true, shareSkool: false, skoolAvailable: true } });
     if (body.action === "alerts:set") return route.fulfill({ headers: cors, json: { ok: true } });
     if (body.action === "alerts:send") return route.fulfill({ headers: cors, json: { ok: true, discord: true, telegram: false, skool: false } });
@@ -1102,6 +1122,62 @@ async function extTab(before, flowUrl, finalRe) {
   await page.evaluate(() => chrome.runtime.sendMessage({ type: "opla:clearListing", posted: false }));
   await sellTab?.close();
   await op.close();
+}
+
+// Photos Barapics → Leboncoin : on coche l'article, on tape le prix, Leboncoin s'ouvre rempli (titre, description, prix).
+{
+  const bp = await ctx.newPage();
+  await bp.goto(app("/leboncoin"));
+  await bp.waitForSelector("[data-bp]", { timeout: 8000 }).catch(() => {});
+  const rows = await bp.locator("[data-bp]").count();
+  const disabledBefore = await bp.locator("#bpgo").isDisabled().catch(() => null);
+  await bp.fill('[data-bpprice="0"]', "22");
+  const checked = await bp.locator('[data-bp="0"]').isChecked().catch(() => false);
+  await bp.waitForTimeout(900);
+  await bp.screenshot({ path: path.join(shots || os.tmpdir(), "barapics-leboncoin.png") }).catch(() => {});
+  const beforeBp = new Set(ctx.pages());
+  await bp.click("#bpgo");
+  const dep = await extTab(beforeBp, "https://www.leboncoin.fr/deposer-une-annonce", /leboncoin\.fr\/deposer-une-annonce/);
+  await dep?.waitForFunction(() => document.querySelector('input[name="price"]')?.value, null, { timeout: 9000 }).catch(() => {});
+  const filled = dep ? await dep.evaluate(() => ({ t: document.querySelector("[name=subject]")?.value, d: document.querySelector("[name=body]")?.value, p: document.querySelector("[name=price]")?.value })) : {};
+  const lres = await bp.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:listing" }));
+  const listing = lres?.data || {};
+  check("Barapics → Leboncoin : articles listés, prix seul à indiquer, annonce rédigée et dépôt rempli", rows === 2 && disabledBefore === true && checked && barapicsCalls.includes("listing") && filled.t === "Lampe de chevet LED tactile" && /3 intensités/.test(filled.d || "") && filled.p === "22" && (listing.photos || []).length === 2 && listing.queue?.total === 1, JSON.stringify({ rows, disabledBefore, checked, filled, photos: (listing.photos || []).length, q: listing.queue, dep: dep?.url() || null, lres, bp: barapicsCalls.includes("listing") }).slice(0, 600));
+  await bp.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:stopQueue" }));
+  await dep?.close();
+  await bp.close();
+}
+
+// Compte administrateur : les fiches Vinpic d'Ivan à la place des photos Barapics, texte adapté à Leboncoin.
+{
+  vinpicAdmin = true;
+  const bp = await ctx.newPage();
+  await bp.evaluate(() => 1).catch(() => {});
+  await bp.goto(app("/leboncoin"));
+  await bp.evaluate(() => chrome.storage.local.remove("ae_bp_articles"));
+  await bp.reload();
+  await bp.waitForSelector("[data-bp]", { timeout: 8000 }).catch(() => {});
+  const title = await bp.locator("#view h2").first().innerText().catch(() => "");
+  const rows1 = await bp.locator("[data-bp]").count();
+  await bp.click("#bpmore").catch(() => {});
+  await bp.waitForFunction(() => document.querySelectorAll("[data-bp]").length === 3, null, { timeout: 6000 }).catch(() => {});
+  const rows2 = await bp.locator("[data-bp]").count();
+  await bp.check('[data-bp="0"]');
+  const suggested = await bp.inputValue('[data-bpprice="0"]').catch(() => "");
+  await bp.fill('[data-bpprice="0"]', "29");
+  await bp.waitForTimeout(900);
+  await bp.screenshot({ path: path.join(shots || os.tmpdir(), "vinpic-leboncoin.png") }).catch(() => {});
+  const beforeBp = new Set(ctx.pages());
+  await bp.click("#bpgo");
+  const dep = await extTab(beforeBp, "https://www.leboncoin.fr/deposer-une-annonce", /leboncoin\.fr\/deposer-une-annonce/);
+  await dep?.waitForFunction(() => document.querySelector('input[name="price"]')?.value, null, { timeout: 9000 }).catch(() => {});
+  const filled = dep ? await dep.evaluate(() => ({ t: document.querySelector("[name=subject]")?.value, d: document.querySelector("[name=body]")?.value, p: document.querySelector("[name=price]")?.value })) : {};
+  const l = (await bp.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:listing" })))?.data || {};
+  check("admin : fiches Vinpic listées (avec « voir plus »), prix conseillé repris, texte sans hashtags ni « à compléter », dépôt rempli", /Vinpic/.test(title) && rows1 === 2 && rows2 === 3 && suggested === "32" && filled.t === "Couronne de Noël artificielle multicolore" && filled.p === "29" && /Parfait état/.test(filled.d || "") && !/#|compléter/.test(filled.d || "") && (l.photos || []).length === 3, JSON.stringify({ title, rows1, rows2, suggested, filled, photos: (l.photos || []).length }).slice(0, 600));
+  await bp.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:stopQueue" }));
+  await dep?.close();
+  await bp.close();
+  vinpicAdmin = false;
 }
 
 // Version anglaise : panneau traduit, éléments ajoutés sur les sites traduits, texte des sites jamais touché.

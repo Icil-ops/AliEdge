@@ -1211,6 +1211,74 @@ async function markLbcPosted(vintedId) {
   p[vintedId] = Date.now();
   await chrome.storage.local.set({ ae_lbc_posted: p });
 }
+// ───────── Photos Barapics → Leboncoin : le membre choisit ses articles générés sur Barapics, indique seulement le prix ;
+// AliEdge rédige l'annonce (rédaction Barapics) et ouvre le dépôt Leboncoin déjà rempli, photos comprises. Le membre publie.
+// Compte administrateur : ses fiches Vinpic à la place des photos Barapics (le serveur vérifie le rôle, sinon 403).
+async function vinpicPage(cursor = 0) {
+  // Membre (403) ou serveur indisponible : ses photos Barapics, comme d'habitude.
+  try { return await barapics({ action: "vinpic:fiches", cursor }); } catch (e) { if (e?.code === "not_admin") return "no"; noteError("bp:vinpic", e); return null; }
+}
+async function bpArticles({ cursor = 0 } = {}) {
+  const posted = (await chrome.storage.local.get("ae_lbc_posted")).ae_lbc_posted || {};
+  const cache = (await chrome.storage.local.get("ae_bp_articles")).ae_bp_articles;
+  const vp = cache?.admin === false && Date.now() - (cache.at || 0) < 864e5 ? null : await vinpicPage(cursor);
+  if (vp && vp !== "no") {
+    const list = (vp.fiches || []).map((f) => ({ key: `vp:${f.id}`, vinpicId: f.id, title: String(f.title || "").slice(0, 200), url: f.url, supplierPrice: f.cost ? `${String(f.cost).replace(".", ",")} €` : null, suggested: f.price ? Math.round(f.price) : null, at: f.createdAt ? new Date(f.createdAt * 1000).toISOString() : null, photos: f.photos || [], postedOn: f.postedOn || [] }));
+    const prev = cursor > 0 && cache?.admin ? cache.list || [] : [];
+    await chrome.storage.local.set({ ae_bp_articles: { at: Date.now(), admin: true, list: [...prev, ...list] } });
+    return { source: "vinpic", next: vp.next ?? null, total: vp.total || list.length, items: list.map((a) => ({ key: a.key, title: a.title || "Fiche sans titre", supplierPrice: a.supplierPrice, suggested: a.suggested, at: a.at, count: a.photos.length, thumbs: a.photos.slice(0, 3), posted: !!posted[`bp:${a.key}`], postedOn: a.postedOn })) };
+  }
+  const rows = await sb.select("generations", "select=id,product_url,product_title,product_price,image_path,favorite,created_at&order=created_at.desc&limit=600");
+  const map = new Map();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r.image_path) continue;
+    const key = String(r.product_url || r.product_title || r.id).slice(0, 600);
+    let a = map.get(key);
+    if (!a) { a = { key, title: String(r.product_title || "").trim().slice(0, 200), url: /^https:\/\//.test(r.product_url || "") ? r.product_url : null, supplierPrice: r.product_price || null, at: r.created_at, paths: [] }; map.set(key, a); }
+    if (r.favorite) a.paths.unshift(r.image_path); else a.paths.push(r.image_path);
+  }
+  const list = [...map.values()].slice(0, 60).map((a) => ({ ...a, paths: a.paths.slice(0, 10) }));
+  const signed = list.length ? await sb.signUrls("photos", list.flatMap((a) => a.paths.slice(0, 3)), 6 * 3600).catch(() => ({})) : {};
+  await chrome.storage.local.set({ ae_bp_articles: { at: Date.now(), admin: vp === "no" || cache?.admin === false ? false : null, list } });
+  return { source: "barapics", next: null, total: list.length, items: list.map((a) => ({ key: a.key, title: a.title || "Article sans titre", supplierPrice: a.supplierPrice, suggested: null, at: a.at, count: a.paths.length, thumbs: a.paths.slice(0, 3).map((p) => signed[p]).filter(Boolean), posted: !!posted[`bp:${a.key}`] })) };
+}
+/** Texte Vinpic (écrit pour Vinted) adapté à Leboncoin : sans hashtags ni lignes « à compléter ». */
+function lbcText(desc) {
+  return String(desc || "").split(/\r?\n/)
+    .filter((l) => !/^\s*(#[\p{L}\p{N}_]+\s*)+$/u.test(l) && !/[àa] compl[ée]ter/i.test(l))
+    .map((l) => l.replace(/(^|\s)#[\p{L}\p{N}_]+/gu, "").trimEnd())
+    .join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4000);
+}
+const cleanTitle = (t) => String(t || "").replace(/\s+/g, " ").replace(/^\d+\s*(pcs?|pi[eè]ces?)\s*/i, "").trim().slice(0, 70);
+async function listingFromBarapics({ key, price }) {
+  if (/^vp:\d+$/.test(key)) {
+    const f = await barapics({ action: "vinpic:fiche", id: Number(key.slice(3)) });
+    if (!(f?.photos || []).length) throw err("Photos Vinpic indisponibles pour cette fiche.");
+    const title = cleanTitle(f.title) || "Article neuf";
+    return {
+      bpKey: key, title, description: lbcText(f.description) || `${title}\nArticle neuf.`, price: Number(price) > 0 ? Math.round(Number(price)) : (f.price ? Math.round(f.price) : null),
+      brand: f.brand && !/^sans marque|no brand/i.test(f.brand) ? f.brand : null, condition: null, photos: f.photos.slice(0, 10), from: "barapics",
+    };
+  }
+  const a = ((await chrome.storage.local.get("ae_bp_articles")).ae_bp_articles?.list || []).find((x) => x.key === key);
+  if (!a) throw err("Article Barapics introuvable : rouvre la liste dans AliEdge.");
+  const signed = await sb.signUrls("photos", a.paths, 24 * 3600);
+  const photos = a.paths.map((p) => signed[p]).filter(Boolean);
+  if (!photos.length) throw err("Photos Barapics indisponibles pour cet article.");
+  let w = null;
+  try { w = await barapics({ action: "listing", title: (a.title || "Article").slice(0, 500), description: "", images: photos.slice(0, 6), ...(a.supplierPrice ? { supplierPrice: String(a.supplierPrice).slice(0, 50) } : {}) }); } catch { /* rédaction indisponible : annonce simple */ }
+  const title = cleanTitle(w?.title || a.title) || "Article neuf";
+  const description = String(w?.description || `${title}\nArticle neuf, jamais utilisé.\nEnvoi rapide et soigné. N'hésite pas si tu as une question.`).trim();
+  return {
+    bpKey: key, title, description, price: Number(price) > 0 ? Math.round(Number(price)) : (w?.price || null),
+    brand: w?.brand && !/^sans marque|no brand/i.test(w.brand) ? w.brand : null, size: w?.size || null,
+    condition: w?.condition || "Neuf sans étiquette", colors: w?.colors || [], material: w?.material || null, photos, from: "barapics",
+  };
+}
+const queueListing = (q, i) => (q.items ? listingFromBarapics(q.items[i]) : listingFromVinted(q.ids[i], q.market));
+const queueLen = (q) => (q.items || q.ids || []).length;
+const postedKey = (l) => (l?.bpKey ? `bp:${l.bpKey}` : l?.vintedId || null);
+
 async function lbcOpen(listing) {
   await saveLbcListing(listing);
   const on = await lbcEnabled();
@@ -1440,7 +1508,7 @@ function channelHandlers(ch) {
     // Annonce préparée (une seule, ou la courante d'une série) : reprise sur le formulaire de vente du site.
     [`${ch}:listing`]: async () => {
       const [l, q] = [await get(K.listing), await get(K.queue)];
-      return l && q ? { ...l, queue: { index: q.index, total: q.ids.length } } : l || null;
+      return l && q ? { ...l, queue: { index: q.index, total: queueLen(q) } } : l || null;
     },
     [`${ch}:saveListing`]: async ({ listing }) => { await saveListing(listing); return {}; },
     // « Annonce publiée » (annonce seule) : elle est marquée comme déjà publiée sur ce site.
@@ -1889,7 +1957,7 @@ const handlers = {
       let item = null;
       // Sites d'images sans autorisation pour l'extension (CDN Vinted…) : directement par le serveur, sans essai qui
       // finirait en erreur CORS dans la console de l'extension.
-      const direct = /(^|\.)(alicdn\.com|aliexpress-media\.com|kwcdn\.com|ltwebstatic\.com|sheincdn\.com)$/.test(new URL(u).hostname);
+      const direct = /(^|\.)(alicdn\.com|aliexpress-media\.com|kwcdn\.com|ltwebstatic\.com|sheincdn\.com|qwjsryjrkwbfibavqici\.supabase\.co)$/.test(new URL(u).hostname);
       if (direct) try {
         const res = await fetch(u, { credentials: "omit" });
         if (res.ok) {
@@ -1953,7 +2021,7 @@ const handlers = {
   // Dernière annonce rédigée (texte Leboncoin) : reprise par l'assistant de dépôt sur leboncoin.fr.
   "lbc:listing": async () => {
     const { ae_lbc_listing: l, ae_lbc_queue: q } = await chrome.storage.local.get(["ae_lbc_listing", "ae_lbc_queue"]);
-    return l && q ? { ...l, queue: { index: q.index, total: q.ids.length } } : l || null;
+    return l && q ? { ...l, queue: { index: q.index, total: queueLen(q) } } : l || null;
   },
   // Publier rapidement sur Leboncoin (une annonce Vinted, ou plusieurs l'une après l'autre), comme Beebs et Opla.
   "lbc:open": async ({ listing }) => lbcOpen(listing),
@@ -1982,17 +2050,27 @@ const handlers = {
   },
   "lbc:next": async ({ posted = true } = {}) => {
     const { ae_lbc_queue: q, ae_lbc_listing: cur } = await chrome.storage.local.get(["ae_lbc_queue", "ae_lbc_listing"]);
-    if (posted && cur?.vintedId) await markLbcPosted(cur.vintedId);
-    if (!q || q.index + 1 >= q.ids.length) { await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return { done: true }; }
+    if (posted && postedKey(cur)) await markLbcPosted(postedKey(cur));
+    if (!q || q.index + 1 >= queueLen(q)) { await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return { done: true }; }
     q.index += 1;
     await chrome.storage.local.set({ ae_lbc_queue: q });
-    await saveLbcListing(await listingFromVinted(q.ids[q.index], q.market));
-    return { done: false, index: q.index, total: q.ids.length, sell: LBC_DEPOSIT };
+    await saveLbcListing(await queueListing(q, q.index));
+    return { done: false, index: q.index, total: queueLen(q), sell: LBC_DEPOSIT };
+  },
+  // Articles générés sur Barapics (même compte), regroupés par produit, prêts à publier sur Leboncoin.
+  "bp:articles": async ({ cursor = 0 } = {}) => bpArticles({ cursor: Math.max(0, Number(cursor) || 0) }),
+  "lbc:queueBarapics": async ({ items = [] }) => {
+    const list = (Array.isArray(items) ? items : []).map((i) => ({ key: String(i?.key || "").slice(0, 600), price: Math.max(0, Math.min(99999, Math.round(Number(i?.price) || 0))) })).filter((i) => i.key).slice(0, 40);
+    if (!list.length) throw err("Choisis au moins un article.");
+    if (list.some((i) => !i.price)) throw err("Indique le prix de chaque article choisi.");
+    const first = await listingFromBarapics(list[0]);
+    await chrome.storage.local.set({ ae_lbc_queue: { items: list, index: 0 } });
+    return lbcOpen(first);
   },
   "lbc:stopQueue": async () => { await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return {}; },
   "lbc:clearListing": async ({ posted = true } = {}) => {
     const cur = (await chrome.storage.local.get("ae_lbc_listing")).ae_lbc_listing;
-    if (posted && cur?.vintedId) await markLbcPosted(cur.vintedId);
+    if (posted && postedKey(cur)) await markLbcPosted(postedKey(cur));
     await chrome.storage.local.remove("ae_lbc_listing"); return {};
   },
   // Annonces Vinted du membre déjà publiées ailleurs (repère sur Vinted).

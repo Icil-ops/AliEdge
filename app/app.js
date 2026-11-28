@@ -111,7 +111,7 @@ function route() {
   const h = location.hash.replace(/^#\/?/, "");
   let [name, qs] = h.split("?");
   if (name === "radar") name = "catalogue"; // le Radar a été supprimé
-  return { name: ["analyse", "catalogue", "concurrents", "suivis", "compte", "bienvenue", "image", "balade"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
+  return { name: ["analyse", "catalogue", "concurrents", "suivis", "compte", "bienvenue", "image", "balade", "leboncoin"].includes(name) ? name : "analyse", params: new URLSearchParams(qs || "") };
 }
 
 const ICON = {
@@ -781,9 +781,103 @@ function productsNav(cur) {
   return `<div class="seg subnav" role="tablist" aria-label="Produits">
     <button type="button" role="tab" data-goto="#/catalogue" aria-selected="${cur === "catalogue"}">Trouver des produits</button>
     <button type="button" role="tab" data-goto="#/suivis" aria-selected="${cur === "suivis"}">Mes produits</button>
+    <button type="button" role="tab" data-goto="#/leboncoin" aria-selected="${cur === "leboncoin"}">Leboncoin</button>
   </div>`;
 }
 document.addEventListener("click", (e) => { const b = e.target.closest?.("[data-goto]"); if (b) location.hash = b.dataset.goto; });
+
+// ───────── Photos Barapics → Leboncoin : on choisit ses articles, on tape le prix, AliEdge fait le reste.
+const BP_PRICES_KEY = "ae_bp_prices";
+const bpPrices = () => { try { return JSON.parse(localStorage.getItem(BP_PRICES_KEY) || "{}"); } catch { return {}; } };
+const saveBpPrice = (key, v) => { try { const p = bpPrices(); if (v) p[key] = v; else delete p[key]; localStorage.setItem(BP_PRICES_KEY, JSON.stringify(p)); } catch { /* ignoré */ } };
+async function viewLeboncoin() {
+  const [res, lbcOn] = await Promise.all([api("bp:articles").catch((e) => ({ error: e?.message || "Indisponible pour le moment." })), api("lbc:status").then((r) => r.enabled).catch(() => false)]);
+  const ok = !!res && Array.isArray(res.items);
+  state.bp = ok ? { source: res.source, next: res.next, total: res.total, list: res.items } : { list: [] };
+  const vinpic = state.bp.source === "vinpic";
+  const head = `${productsNav("leboncoin")}
+    <section class="card pad stack">
+      <h2 style="margin:0">${vinpic ? "Tes fiches Vinpic, en ligne sur Leboncoin" : "Tes photos Barapics, en ligne sur Leboncoin"}</h2>
+      <p class="small muted" style="margin:0">Coche tes articles et indique ton prix. AliEdge ${vinpic ? "reprend le texte de la fiche" : "rédige l'annonce"}, ouvre Leboncoin et remplit tout, photos comprises. Tu relis, puis tu cliques sur « Publier ».</p>
+      ${lbcOn ? "" : `<div class="notice info row between wrap"><span><b>Active Leboncoin d'abord.</b> AliEdge a besoin d'accéder à leboncoin.fr pour remplir l'annonce.</span><button class="btn primary small" type="button" id="bplbcon">Activer Leboncoin</button></div>`}
+    </section>`;
+  if (!ok) return `<div class="stack">${head}<div class="notice">${esc(res?.error || "Indisponible pour le moment.")}</div></div>`;
+  if (!state.bp.list.length) return `<div class="stack">${head}<div class="card empty">${ICON.tag}<h2>${vinpic ? "Aucune fiche Vinpic" : "Aucune photo Barapics pour l'instant"}</h2><p class="muted">Génère les photos d'un article sur Barapics (même compte qu'AliEdge) : il apparaîtra ici, prêt à publier.</p><a class="btn primary" style="margin-top:12px" href="https://barapics.com/app?utm_source=aliedge&utm_medium=extension&utm_campaign=lbc_import" target="_blank" rel="noopener">Ouvrir Barapics</a></div></div>`;
+  return `<div class="stack">${head}
+    <div class="stack" style="gap:8px" id="bprows">${bpRows(state.bp.list, 0)}</div>
+    ${state.bp.next != null ? `<button class="btn ghost block" type="button" id="bpmore">Voir plus de fiches (${state.bp.list.length} / ${state.bp.total})</button>` : ""}
+    <div class="card pad row between wrap" style="position:sticky;bottom:8px;gap:10px;z-index:2">
+      <span class="small muted" id="bpcount">Aucun article choisi</span>
+      <button class="btn primary" type="button" id="bpgo" disabled>Publier sur Leboncoin</button>
+    </div>
+  </div>`;
+}
+function bpRows(list, from) {
+  const prices = bpPrices();
+  return list.map((a, k) => { const i = from + k; return `
+    <label class="card bp-row${a.posted ? " posted" : ""}">
+      <input type="checkbox" data-bp="${i}" ${!a.posted && prices[a.key] ? "checked" : ""} aria-label="Choisir ${esc(a.title)}">
+      <span class="bp-thumb">${a.thumbs[0] ? `<img src="${esc(a.thumbs[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}${a.count > 1 ? `<i>${a.count}</i>` : ""}</span>
+      <span class="bp-info"><b>${esc(a.title)}</b><span class="small muted">${a.supplierPrice ? `Acheté ${esc(a.supplierPrice)}` : `${a.count} photo${a.count > 1 ? "s" : ""}`}${a.posted ? " · déjà publié" : ""}</span></span>
+      <span class="bp-price"><input class="input num" type="number" inputmode="decimal" min="1" max="99999" step="1" placeholder="${a.suggested ? esc(a.suggested) : "Prix"}" data-bpprice="${i}" value="${esc(prices[a.key] || "")}" aria-label="Prix en euros"><span class="muted">€</span></span>
+    </label>`; }).join("");
+}
+function bindLeboncoin() {
+  const list = state.bp?.list || [];
+  const picked = () => [...document.querySelectorAll("[data-bp]")].filter((c) => c.checked).map((c) => ({ a: list[Number(c.dataset.bp)], price: Number(document.querySelector(`[data-bpprice="${c.dataset.bp}"]`)?.value) || 0 }));
+  const update = () => {
+    const p = picked(), missing = p.filter((x) => !x.price).length;
+    const go = document.getElementById("bpgo"), count = document.getElementById("bpcount");
+    if (!go) return;
+    go.disabled = !p.length || missing > 0;
+    go.textContent = p.length > 1 ? `Publier les ${p.length} sur Leboncoin` : "Publier sur Leboncoin";
+    count.textContent = !p.length ? "Aucun article choisi" : missing ? `Indique le prix de ${missing > 1 ? `${missing} articles` : "l'article choisi"}` : `${p.length} article${p.length > 1 ? "s" : ""} prêt${p.length > 1 ? "s" : ""} : ils s'ouvrent l'un après l'autre`;
+  };
+  const rowsEl = document.getElementById("bprows");
+  rowsEl?.addEventListener("input", (e) => {
+    const inp = e.target.closest?.("[data-bpprice]");
+    if (!inp) return;
+    const i = Number(inp.dataset.bpprice), cb = document.querySelector(`[data-bp="${i}"]`);
+    if (inp.value && cb && !cb.checked) cb.checked = true;
+    saveBpPrice(list[i]?.key, inp.value ? String(Math.round(Number(inp.value))) : "");
+    update();
+  });
+  rowsEl?.addEventListener("change", (e) => {
+    const cb = e.target.closest?.("[data-bp]");
+    if (!cb) return;
+    const inp = document.querySelector(`[data-bpprice="${cb.dataset.bp}"]`);
+    // Coché sans prix : le prix conseillé de la fiche est proposé, modifiable.
+    if (cb.checked && inp && !inp.value && inp.placeholder && /^\d+$/.test(inp.placeholder)) { inp.value = inp.placeholder; saveBpPrice(list[Number(cb.dataset.bp)]?.key, inp.value); }
+    if (cb.checked) inp?.focus();
+    update();
+  });
+  document.getElementById("bpmore")?.addEventListener("click", async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = "Chargement…";
+    try {
+      const r = await api("bp:articles", { cursor: state.bp.next });
+      const from = list.length;
+      list.push(...(r.items || []));
+      rowsEl.insertAdjacentHTML("beforeend", bpRows(r.items || [], from));
+      state.bp.next = r.next;
+      if (r.next == null) b.remove(); else { b.disabled = false; b.textContent = `Voir plus de fiches (${list.length} / ${state.bp.total})`; }
+    } catch (err) { toast(err?.message || "Chargement impossible."); b.disabled = false; b.textContent = "Voir plus de fiches"; }
+  });
+  document.getElementById("bplbcon")?.addEventListener("click", async () => {
+    const ok = await enableLbc();
+    if (ok) { await api("lbc:status").catch(() => {}); toast("Leboncoin activé"); render(); } else toast("Accès à leboncoin.fr refusé : rien n'a changé.");
+  });
+  document.getElementById("bpgo")?.addEventListener("click", async (e) => {
+    const b = e.currentTarget, items = picked().map((x) => ({ key: x.a.key, price: x.price }));
+    b.disabled = true; b.textContent = "Rédaction de l'annonce…";
+    try {
+      const r = await api("lbc:queueBarapics", { items });
+      if (r && r.enabled === false) toast("Active Leboncoin pour publier.");
+      items.forEach((x) => saveBpPrice(x.key, ""));
+    } catch (err) { toast(err?.message || "Impossible d'ouvrir Leboncoin."); }
+    b.textContent = "Publier sur Leboncoin"; update();
+  });
+  update();
+}
 
 /** Catalogue en maintenance (réglage à distance « catalog_maintenance », sans nouvelle version). */
 function viewCatalogueMaintenance() {
@@ -2693,13 +2787,14 @@ async function render() {
   if (!state.me && name !== "compte") { location.hash = "#/compte?mode=signup&gate=1"; return; }
   // Premier lancement, compte connecté : prise en main avant tout le reste.
   if (state.me && !onboarded && name !== "bienvenue" && name !== "compte") { location.hash = "#/bienvenue"; return; }
-  document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" || name === "image" ? "analyse" : name === "suivis" ? "catalogue" : name}`));
+  document.querySelectorAll(".tabs a").forEach((a) => a.toggleAttribute("aria-current", a.getAttribute("href") === `#/${name === "balade" || name === "image" ? "analyse" : name === "suivis" || name === "leboncoin" ? "catalogue" : name}`));
   document.querySelectorAll(".tabs a[aria-current]").forEach((a) => a.setAttribute("aria-current", "page"));
   document.getElementById("account")?.classList.toggle("on", name === "compte" || name === "bienvenue");
   let html;
   if (name === "analyse") html = viewAnalyse();
   else if (name === "catalogue") { state.catalogOff = await api("remote:catalogMaintenance").catch(() => false); if (seq !== renderSeq) return; html = state.catalogOff ? viewCatalogueMaintenance() : viewCatalogue(); }
   else if (name === "suivis") html = await viewSuivis();
+  else if (name === "leboncoin") html = await viewLeboncoin();
   else if (name === "concurrents") html = await viewConcurrents();
   else if (name === "bienvenue") html = viewBienvenue(params);
   else if (name === "image") html = viewImage();
@@ -2731,6 +2826,7 @@ async function render() {
   }
   if (name === "analyse") { bindAnalyse(); renderSteps(); fillTourCard(); fillLbcBox(); }
   else if (name === "catalogue" && !state.catalogOff) bindCatalogue();
+  else if (name === "leboncoin") bindLeboncoin();
   else if (name === "suivis") bindSuivis();
   else if (name === "concurrents") bindTrackers();
   else if (name === "bienvenue") bindBienvenue(params);
