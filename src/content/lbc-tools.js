@@ -500,7 +500,11 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
       let published = false;
       document.addEventListener("click", (e) => {
         const btn = e.target.closest?.('button, [role="button"], input[type="submit"]');
-        if (btn && /^(publier|d[ée]poser|valider)( l.annonce| mon annonce)?$/i.test((btn.textContent || btn.value || "").replace(/\s+/g, " ").trim()) && !panel.contains(btn)) { published = true; clearInterval(auto); }
+        if (btn && /^(publier|d[ée]poser|valider)( l.annonce| mon annonce)?$/i.test((btn.textContent || btn.value || "").replace(/\s+/g, " ").trim()) && !panel.contains(btn)) {
+          published = true; clearInterval(auto);
+          // File d'annonces : dès que Leboncoin confirme la publication, la suivante s'ouvre toute seule (voir watchPublished).
+          if (q) { try { sessionStorage.setItem("ae_lbc_pub", String(Date.now())); } catch { /* rien */ } }
+        }
       }, true);
       const auto = setInterval(tick, 1500);
       setTimeout(tick, 900);
@@ -592,6 +596,40 @@ globalThis.__aeAffClicks ||= (root) => root.addEventListener("click", (e) => {
   }
   const isSearch = () => /^\/(recherche|c\/|annonces|boutique)/.test(location.pathname);
   new MutationObserver(() => { if (isSearch() && !badgeTimer) badgeTimer = setTimeout(badgeCards, 1200); }).observe(document.documentElement, { childList: true, subtree: true });
+
+  // Publication confirmée par Leboncoin (page ou message « annonce déposée / en cours de validation ») pendant une file
+  // d'annonces : petit compte à rebours, puis l'annonce suivante s'ouvre, déjà remplie. Rien n'est publié par AliEdge.
+  const PUBLISHED_RE = /(annonce|votre annonce)[^.]{0,40}(a bien [ée]t[ée] (d[ée]pos[ée]e|publi[ée]e|enregistr[ée]e)|est en (cours de )?(validation|v[ée]rification|mod[ée]ration)|sera (en ligne|visible|publi[ée]e))|f[ée]licitations/i;
+  let pubShown = false;
+  function watchPublished() {
+    let at = 0;
+    try { at = Number(sessionStorage.getItem("ae_lbc_pub") || 0); } catch { return; }
+    if (!at || pubShown) return;
+    if (Date.now() - at > 15 * 60_000) { try { sessionStorage.removeItem("ae_lbc_pub"); } catch { /* rien */ } return; }
+    const onForm = /^\/deposer-une-annonce\/?$/.test(location.pathname) && document.querySelector('input[name="subject"], textarea[name="body"]');
+    if (onForm || !PUBLISHED_RE.test(document.body?.innerText || "")) return;
+    pubShown = true;
+    try { sessionStorage.removeItem("ae_lbc_pub"); } catch { /* rien */ }
+    document.getElementById("aliedge-lbc-deposit")?.remove();
+    const ui = shell("aliedge-lbc-next", "Annonce AliEdge");
+    if (!ui) return;
+    let n = 3, stop = false;
+    ui.panel.innerHTML = `<h4>Annonce publiée ✓</h4><p class="msg" data-c>L'annonce suivante s'ouvre dans ${n} s, déjà remplie.</p><div class="bar" style="margin:4px"><button class="b p" type="button" data-go>Ouvrir maintenant</button><button class="chip" type="button" data-wait>Attendre</button><button class="chip" type="button" data-stop>Arrêter la file</button></div>`;
+    ui.panel.hidden = false;
+    const go = async () => {
+      if (stop) return; stop = true;
+      ui.panel.querySelector("[data-c]").textContent = "Préparation de l'annonce suivante…";
+      const r = await send({ type: "lbc:next", posted: true });
+      const d = r?.ok ? r.data : null;
+      if (d && !d.done) location.href = d.sell || "https://www.leboncoin.fr/deposer-une-annonce";
+      else ui.panel.innerHTML = `<h4>File terminée ✓</h4><p class="msg">${r?.ok ? "Toutes tes annonces sont passées." : esc(r?.error || "Annonce suivante indisponible.")}</p>`;
+    };
+    const timer = setInterval(() => { if (stop) return clearInterval(timer); n -= 1; const c = ui.panel.querySelector("[data-c]"); if (c) c.textContent = `L'annonce suivante s'ouvre dans ${n} s, déjà remplie.`; if (n <= 0) { clearInterval(timer); go(); } }, 1000);
+    ui.panel.querySelector("[data-go]").addEventListener("click", () => { clearInterval(timer); go(); });
+    ui.panel.querySelector("[data-wait]").addEventListener("click", (e) => { clearInterval(timer); e.currentTarget.remove(); ui.panel.querySelector("[data-c]").textContent = "En pause : ouvre l'annonce suivante quand tu veux."; });
+    ui.panel.querySelector("[data-stop]").addEventListener("click", async () => { clearInterval(timer); stop = true; await send({ type: "lbc:clearListing", posted: true }).catch(() => {}); await send({ type: "lbc:stopQueue" }); ui.host.remove(); });
+  }
+  setInterval(watchPublished, 1500);
 
   function run() {
     if (/^\/messages/.test(location.pathname)) { mountMessages(); setTimeout(mountMessages, 2500); return; }

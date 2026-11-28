@@ -1240,7 +1240,12 @@ async function bpArticles({ cursor = 0 } = {}) {
   const list = [...map.values()].slice(0, 60).map((a) => ({ ...a, paths: a.paths.slice(0, 10) }));
   const signed = list.length ? await sb.signUrls("photos", list.flatMap((a) => a.paths.slice(0, 3)), 6 * 3600).catch(() => ({})) : {};
   await chrome.storage.local.set({ ae_bp_articles: { at: Date.now(), admin: vp === "no" || cache?.admin === false ? false : null, list } });
-  return { source: "barapics", next: null, total: list.length, items: list.map((a) => ({ key: a.key, title: a.title || "Article sans titre", supplierPrice: a.supplierPrice, suggested: null, at: a.at, count: a.paths.length, thumbs: a.paths.slice(0, 3).map((p) => signed[p]).filter(Boolean), posted: !!posted[`bp:${a.key}`] })) };
+  return { source: "barapics", next: null, total: list.length, items: list.map((a) => ({ key: a.key, title: a.title || "Article sans titre", supplierPrice: a.supplierPrice, suggested: suggestFromCost(a.supplierPrice), at: a.at, count: a.paths.length, thumbs: a.paths.slice(0, 3).map((p) => signed[p]).filter(Boolean), posted: !!posted[`bp:${a.key}`] })) };
+}
+/** Prix conseillé à partir du prix d'achat (« 7,90 € ») : environ 2,5 fois, arrondi à l'euro, 5 € minimum. Modifiable. */
+function suggestFromCost(v) {
+  const n = Number(String(v || "").replace(/[^\d,.]/g, "").replace(",", "."));
+  return n > 0 && n < 5000 ? Math.max(5, Math.round(n * 2.5)) : null;
 }
 /** Texte Vinpic (écrit pour Vinted) adapté à Leboncoin : sans hashtags ni lignes « à compléter ». */
 function lbcText(desc) {
@@ -1275,7 +1280,24 @@ async function listingFromBarapics({ key, price }) {
     condition: w?.condition || "Neuf sans étiquette", colors: w?.colors || [], material: w?.material || null, photos, from: "barapics",
   };
 }
-const queueListing = (q, i) => (q.items ? listingFromBarapics(q.items[i]) : listingFromVinted(q.ids[i], q.market));
+// Annonce suivante préparée pendant que le membre relit la courante : le passage à la suivante est immédiat.
+let lbcPrefetch = null;
+function prefetchNext(q) {
+  const i = q.index + 1;
+  if (!q.items || i >= q.items.length) { lbcPrefetch = null; return; }
+  const key = q.items[i].key;
+  if (lbcPrefetch?.key === key && lbcPrefetch.index === i) return;
+  const p = listingFromBarapics(q.items[i]);
+  p.catch(() => {});
+  lbcPrefetch = { index: i, key, at: Date.now(), p };
+}
+async function queueListing(q, i) {
+  if (q.items && lbcPrefetch?.index === i && lbcPrefetch.key === q.items[i].key && Date.now() - lbcPrefetch.at < 30 * 60_000) {
+    const p = lbcPrefetch.p; lbcPrefetch = null;
+    try { const l = await p; return { ...l, price: Number(q.items[i].price) > 0 ? Math.round(Number(q.items[i].price)) : l.price }; } catch { /* nouvelle tentative ci-dessous */ }
+  }
+  return q.items ? listingFromBarapics(q.items[i]) : listingFromVinted(q.ids[i], q.market);
+}
 const queueLen = (q) => (q.items || q.ids || []).length;
 const postedKey = (l) => (l?.bpKey ? `bp:${l.bpKey}` : l?.vintedId || null);
 
@@ -2055,19 +2077,22 @@ const handlers = {
     q.index += 1;
     await chrome.storage.local.set({ ae_lbc_queue: q });
     await saveLbcListing(await queueListing(q, q.index));
+    prefetchNext(q);
     return { done: false, index: q.index, total: queueLen(q), sell: LBC_DEPOSIT };
   },
   // Articles générés sur Barapics (même compte), regroupés par produit, prêts à publier sur Leboncoin.
   "bp:articles": async ({ cursor = 0 } = {}) => bpArticles({ cursor: Math.max(0, Number(cursor) || 0) }),
   "lbc:queueBarapics": async ({ items = [] }) => {
-    const list = (Array.isArray(items) ? items : []).map((i) => ({ key: String(i?.key || "").slice(0, 600), price: Math.max(0, Math.min(99999, Math.round(Number(i?.price) || 0))) })).filter((i) => i.key).slice(0, 40);
+    const list = (Array.isArray(items) ? items : []).map((i) => ({ key: String(i?.key || "").slice(0, 600), price: Math.max(0, Math.min(99999, Math.round(Number(i?.price) || 0))) })).filter((i) => i.key).slice(0, 100);
     if (!list.length) throw err("Choisis au moins un article.");
     if (list.some((i) => !i.price)) throw err("Indique le prix de chaque article choisi.");
     const first = await listingFromBarapics(list[0]);
-    await chrome.storage.local.set({ ae_lbc_queue: { items: list, index: 0 } });
+    const q = { items: list, index: 0 };
+    await chrome.storage.local.set({ ae_lbc_queue: q });
+    prefetchNext(q);
     return lbcOpen(first);
   },
-  "lbc:stopQueue": async () => { await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return {}; },
+  "lbc:stopQueue": async () => { lbcPrefetch = null; await chrome.storage.local.remove(["ae_lbc_queue", "ae_lbc_listing"]); return {}; },
   "lbc:clearListing": async ({ posted = true } = {}) => {
     const cur = (await chrome.storage.local.get("ae_lbc_listing")).ae_lbc_listing;
     if (posted && postedKey(cur)) await markLbcPosted(postedKey(cur));

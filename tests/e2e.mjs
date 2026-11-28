@@ -253,7 +253,7 @@ await ctx.route("**/*", async (route) => {
     // Accueil : carrousels d'annonces recommandées (pas de conteneur de résultats de recherche).
     if (url.pathname === "/") return html(`<main><h2>Annonces récentes</h2><ul>${Array.from({ length: 110 }, (_, i) => `<li><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/vetements/${3100000000 + i}"><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/h${i}.jpg"><span title="Voir l’annonce: Veste accueil ${i}"></span><p>Veste accueil ${i}</p><span>${20 + i} €</span><p>Lyon 69003</p></a></li>`).join("")}</ul></main>`);
     if (url.pathname.startsWith("/messages")) return html(`<main><a href="https://www.leboncoin.fr/ad/accessoires_bagagerie/2900000005">Sac à bandoulière noir vintage y2k</a><div class="thread"><p>Bonjour, vous feriez 20 € ?</p></div><form><textarea name="message" placeholder="Écrire un message"></textarea><button type="button">Envoyer</button></form></main>`);
-    if (url.pathname.startsWith("/deposer-une-annonce")) return html(`<main><h1>Déposer une annonce</h1><label>Titre <input name="subject"></label><label>Description <textarea name="body"></textarea></label><label>Prix <input name="price"></label></main>`);
+    if (url.pathname.startsWith("/deposer-une-annonce")) return html(`<main><h1>Déposer une annonce</h1><label>Titre <input name="subject"></label><label>Description <textarea name="body"></textarea></label><label>Prix <input name="price"></label><button type="button" onclick="document.querySelector('main').innerHTML='<h1>Merci !</h1><p>Votre annonce est en cours de validation.</p>'">Publier</button></main>`);
     // Carte d'annonce telle que Leboncoin l'affiche (relevé sur une vraie page enregistrée).
     const card = (id, title, price, cp, ville) => `<li><article aria-label="${title}"><div data-qa-id="aditem_container"><a aria-label="Voir l’annonce" href="https://www.leboncoin.fr/ad/accessoires_bagagerie/${id}"><span title="Voir l’annonce: ${title}"></span></a><img alt="" src="https://img.leboncoin.fr/api/v1/lbcpb1/images/${id}.jpg?rule=ad-small"><p>${title}</p><span>${price} €</span><p>Prix: ${price} €.</p><div>dès ${price + 1},90 €</div><span>Livraison dès</span><p aria-hidden="true">Accessoires &amp; Bagagerie</p><p>Catégorie : Accessoires &amp; Bagagerie.</p><p aria-hidden="true">${ville} ${cp}</p><p>Située à ${ville} ${cp}.</p><p>10/10/2026</p><p>Date de dépôt : 10/10/2026.</p></div></article></li>`;
     if (url.pathname.startsWith("/ad/accessoires_bagagerie/2900000003")) return html("<main><h1>Cette annonce n'est plus disponible</h1></main>");
@@ -1162,7 +1162,13 @@ async function extTab(before, flowUrl, finalRe) {
   await bp.click("#bpmore").catch(() => {});
   await bp.waitForFunction(() => document.querySelectorAll("[data-bp]").length === 3, null, { timeout: 6000 }).catch(() => {});
   const rows2 = await bp.locator("[data-bp]").count();
-  await bp.check('[data-bp="0"]');
+  await bp.fill("#bpsearch", "guirlande");
+  const visibleSearch = await bp.locator("[data-row]:not([hidden])").count();
+  await bp.fill("#bpsearch", "");
+  await bp.click("#bpall");
+  const allChecked = await bp.locator("[data-bp]:checked").count();
+  for (const i of [1, 2]) await bp.uncheck(`[data-bp="${i}"]`);
+  await bp.check('[data-bp="1"]');
   const suggested = await bp.inputValue('[data-bpprice="0"]').catch(() => "");
   await bp.fill('[data-bpprice="0"]', "29");
   await bp.waitForTimeout(900);
@@ -1173,6 +1179,15 @@ async function extTab(before, flowUrl, finalRe) {
   await dep?.waitForFunction(() => document.querySelector('input[name="price"]')?.value, null, { timeout: 9000 }).catch(() => {});
   const filled = dep ? await dep.evaluate(() => ({ t: document.querySelector("[name=subject]")?.value, d: document.querySelector("[name=body]")?.value, p: document.querySelector("[name=price]")?.value })) : {};
   const l = (await bp.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:listing" })))?.data || {};
+  // Publication confirmée par Leboncoin → l'annonce suivante s'ouvre seule, déjà remplie (préparée à l'avance).
+  let next = {};
+  if (dep) {
+    await dep.click("text=Publier");
+    await dep.waitForFunction(() => location.pathname === "/deposer-une-annonce" && document.querySelector("[name=subject]")?.value === "Guirlande lumineuse 10 m", null, { timeout: 15000 }).catch(() => {});
+    next = await dep.evaluate(() => ({ t: document.querySelector("[name=subject]")?.value, p: document.querySelector("[name=price]")?.value })).catch(() => ({}));
+  }
+  const posted = (await bp.evaluate(() => chrome.storage.local.get("ae_lbc_posted")))?.ae_lbc_posted || {};
+  check("file Leboncoin : recherche, tout cocher au prix conseillé, annonce suivante ouverte seule après la publication", visibleSearch === 2 && allChecked === 3 && next.t === "Guirlande lumineuse 10 m" && next.p === "32" && !!posted["bp:vp:31410"], JSON.stringify({ visibleSearch, allChecked, next, posted: Object.keys(posted) }));
   check("admin : fiches Vinpic listées (avec « voir plus »), prix conseillé repris, texte sans hashtags ni « à compléter », dépôt rempli", /Vinpic/.test(title) && rows1 === 2 && rows2 === 3 && suggested === "32" && filled.t === "Couronne de Noël artificielle multicolore" && filled.p === "29" && /Parfait état/.test(filled.d || "") && !/#|compléter/.test(filled.d || "") && (l.photos || []).length === 3, JSON.stringify({ title, rows1, rows2, suggested, filled, photos: (l.photos || []).length }).slice(0, 600));
   await bp.evaluate(() => chrome.runtime.sendMessage({ type: "lbc:stopQueue" }));
   await dep?.close();

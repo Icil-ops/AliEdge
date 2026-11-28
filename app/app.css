@@ -604,3 +604,8 @@ dialog.salesheet::backdrop{background:rgba(18,16,25,.55)}
 .bp-price { display: flex; align-items: center; gap: 4px; }
 .bp-price input { width: 64px; padding: 8px; text-align: right; -moz-appearance: textfield; }
 .bp-price input::-webkit-outer-spin-button, .bp-price input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.bp-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bp-tools input[type="search"] { flex: 1 1 180px; min-width: 0; }
+.bp-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.bp-row[hidden] { display: none; }

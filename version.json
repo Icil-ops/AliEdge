@@ -1,6 +1,6 @@
 {
-  "version": "3.8.17",
-  "notes": "Nouveau : « Publier sur Leboncoin » (onglet Produits). Coche tes articles faits sur Barapics, indique le prix : AliEdge rédige l'annonce et remplit Leboncoin, photos comprises. Tu n'as plus qu'à publier.",
+  "version": "3.8.18",
+  "notes": "Leboncoin à la chaîne : dès que tu publies une annonce, la suivante s'ouvre toute seule, déjà remplie et préparée à l'avance. Recherche, « Tout cocher au prix conseillé », articles déjà publiés masqués, jusqu'à 100 articles d'un coup.",
   "storeUrl": "https://chromewebstore.google.com/detail/okkbjdadgkjdmdfepgcfeabholbgfafg",
   "releaseDate": "2026-11-28",
   "minVersion": "3.0.0"

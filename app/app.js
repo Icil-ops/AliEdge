@@ -789,6 +789,8 @@ document.addEventListener("click", (e) => { const b = e.target.closest?.("[data-
 // ───────── Photos Barapics → Leboncoin : on choisit ses articles, on tape le prix, AliEdge fait le reste.
 const BP_PRICES_KEY = "ae_bp_prices";
 const bpPrices = () => { try { return JSON.parse(localStorage.getItem(BP_PRICES_KEY) || "{}"); } catch { return {}; } };
+const bpNorm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ");
+const bpHide = () => { try { return localStorage.getItem("ae_bp_hide") !== "0"; } catch { return true; } };
 const saveBpPrice = (key, v) => { try { const p = bpPrices(); if (v) p[key] = v; else delete p[key]; localStorage.setItem(BP_PRICES_KEY, JSON.stringify(p)); } catch { /* ignoré */ } };
 async function viewLeboncoin() {
   const [res, lbcOn] = await Promise.all([api("bp:articles").catch((e) => ({ error: e?.message || "Indisponible pour le moment." })), api("lbc:status").then((r) => r.enabled).catch(() => false)]);
@@ -798,13 +800,19 @@ async function viewLeboncoin() {
   const head = `${productsNav("leboncoin")}
     <section class="card pad stack">
       <h2 style="margin:0">${vinpic ? "Tes fiches Vinpic, en ligne sur Leboncoin" : "Tes photos Barapics, en ligne sur Leboncoin"}</h2>
-      <p class="small muted" style="margin:0">Coche tes articles et indique ton prix. AliEdge ${vinpic ? "reprend le texte de la fiche" : "rédige l'annonce"}, ouvre Leboncoin et remplit tout, photos comprises. Tu relis, puis tu cliques sur « Publier ».</p>
+      <p class="small muted" style="margin:0">Coche tes articles et indique ton prix. AliEdge ${vinpic ? "reprend le texte de la fiche" : "rédige l'annonce"}, ouvre Leboncoin et remplit tout, photos comprises. Tu relis et tu cliques sur « Publier » : l'annonce suivante s'ouvre toute seule, déjà prête.</p>
       ${lbcOn ? "" : `<div class="notice info row between wrap"><span><b>Active Leboncoin d'abord.</b> AliEdge a besoin d'accéder à leboncoin.fr pour remplir l'annonce.</span><button class="btn primary small" type="button" id="bplbcon">Activer Leboncoin</button></div>`}
     </section>`;
   if (!ok) return `<div class="stack">${head}<div class="notice">${esc(res?.error || "Indisponible pour le moment.")}</div></div>`;
   if (!state.bp.list.length) return `<div class="stack">${head}<div class="card empty">${ICON.tag}<h2>${vinpic ? "Aucune fiche Vinpic" : "Aucune photo Barapics pour l'instant"}</h2><p class="muted">Génère les photos d'un article sur Barapics (même compte qu'AliEdge) : il apparaîtra ici, prêt à publier.</p><a class="btn primary" style="margin-top:12px" href="https://barapics.com/app?utm_source=aliedge&utm_medium=extension&utm_campaign=lbc_import" target="_blank" rel="noopener">Ouvrir Barapics</a></div></div>`;
   return `<div class="stack">${head}
+    <div class="bp-tools">
+      <input class="input" type="search" id="bpsearch" placeholder="Rechercher un article" aria-label="Rechercher un article">
+      <label class="bp-opt"><input type="checkbox" id="bphide" ${bpHide() ? "checked" : ""}> Masquer les déjà publiés</label>
+      <button class="btn ghost small" type="button" id="bpall">Tout cocher au prix conseillé</button>
+    </div>
     <div class="stack" style="gap:8px" id="bprows">${bpRows(state.bp.list, 0)}</div>
+    <p class="small muted" id="bpnone" hidden>Aucun article ne correspond.</p>
     ${state.bp.next != null ? `<button class="btn ghost block" type="button" id="bpmore">Voir plus de fiches (${state.bp.list.length} / ${state.bp.total})</button>` : ""}
     <div class="card pad row between wrap" style="position:sticky;bottom:8px;gap:10px;z-index:2">
       <span class="small muted" id="bpcount">Aucun article choisi</span>
@@ -815,7 +823,7 @@ async function viewLeboncoin() {
 function bpRows(list, from) {
   const prices = bpPrices();
   return list.map((a, k) => { const i = from + k; return `
-    <label class="card bp-row${a.posted ? " posted" : ""}">
+    <label class="card bp-row${a.posted ? " posted" : ""}" data-row="${i}" data-q="${esc(bpNorm(a.title))}"${a.posted && bpHide() ? " hidden" : ""}>
       <input type="checkbox" data-bp="${i}" ${!a.posted && prices[a.key] ? "checked" : ""} aria-label="Choisir ${esc(a.title)}">
       <span class="bp-thumb">${a.thumbs[0] ? `<img src="${esc(a.thumbs[0])}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}${a.count > 1 ? `<i>${a.count}</i>` : ""}</span>
       <span class="bp-info"><b>${esc(a.title)}</b><span class="small muted">${a.supplierPrice ? `Acheté ${esc(a.supplierPrice)}` : `${a.count} photo${a.count > 1 ? "s" : ""}`}${a.posted ? " · déjà publié" : ""}</span></span>
@@ -851,6 +859,29 @@ function bindLeboncoin() {
     if (cb.checked) inp?.focus();
     update();
   });
+  // Recherche, masquage des articles déjà publiés, tout cocher (articles visibles) au prix conseillé.
+  const filter = () => {
+    const q = bpNorm(document.getElementById("bpsearch")?.value || "").trim(), hide = document.getElementById("bphide")?.checked;
+    let shown = 0;
+    document.querySelectorAll("[data-row]").forEach((r) => {
+      const a = list[Number(r.dataset.row)];
+      const vis = (!q || q.split(/\s+/).every((w) => r.dataset.q.includes(w))) && !(hide && a?.posted);
+      r.hidden = !vis; if (vis) shown += 1;
+    });
+    const none = document.getElementById("bpnone"); if (none) none.hidden = shown > 0;
+  };
+  document.getElementById("bpsearch")?.addEventListener("input", filter);
+  document.getElementById("bphide")?.addEventListener("change", (e) => { try { localStorage.setItem("ae_bp_hide", e.target.checked ? "1" : "0"); } catch { /* ignoré */ } filter(); });
+  document.getElementById("bpall")?.addEventListener("click", () => {
+    let n = 0, noPrice = 0;
+    document.querySelectorAll("[data-row]:not([hidden])").forEach((r) => {
+      const i = r.dataset.row, cb = r.querySelector("[data-bp]"), inp = r.querySelector("[data-bpprice]");
+      if (!inp.value && /^\d+$/.test(inp.placeholder)) { inp.value = inp.placeholder; saveBpPrice(list[Number(i)]?.key, inp.value); }
+      if (inp.value) { cb.checked = true; n += 1; } else noPrice += 1;
+    });
+    update();
+    toast(noPrice ? `${n} article${n > 1 ? "s" : ""} coché${n > 1 ? "s" : ""} · ${noPrice} sans prix conseillé : indique leur prix.` : `${n} article${n > 1 ? "s" : ""} coché${n > 1 ? "s" : ""}`);
+  });
   document.getElementById("bpmore")?.addEventListener("click", async (e) => {
     const b = e.currentTarget; b.disabled = true; b.textContent = "Chargement…";
     try {
@@ -858,6 +889,7 @@ function bindLeboncoin() {
       const from = list.length;
       list.push(...(r.items || []));
       rowsEl.insertAdjacentHTML("beforeend", bpRows(r.items || [], from));
+      filter();
       state.bp.next = r.next;
       if (r.next == null) b.remove(); else { b.disabled = false; b.textContent = `Voir plus de fiches (${list.length} / ${state.bp.total})`; }
     } catch (err) { toast(err?.message || "Chargement impossible."); b.disabled = false; b.textContent = "Voir plus de fiches"; }
